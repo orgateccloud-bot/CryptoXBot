@@ -1,0 +1,84 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:base",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "python": {
+    "additionalBranchPrefix": "deps/"
+  },
+  "docker": {
+    "additionalBranchPrefix": "deps/"
+  },
+  "baseBranch": "main",
+  "branch": "renovate/{{baseBranch}}",
+  "semanticCommits": true,
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "commitMessagePrefix": "chore(deps): ",
+  "prCreation": "not-pending",
+  "prConcurrentLimit": 3,
+  "schedule": [
+    "before 3am on Monday"
+  ],
+  "timezone": "America/Sao_Paulo",
+  "packageRules": [
+    {
+      "description": "Disable automerge for major updates",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Auto-merge minor and patch updates for dependencies",
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    },
+    {
+      "description": "Group Python test dependencies",
+      "matchPackagePatterns": [
+        "pytest",
+        "pytest-.*",
+        "coverage",
+        "black",
+        "flake8",
+        "mypy"
+      ],
+      "groupName": "test-dependencies",
+      "schedule": [
+        "before 3am on Monday"
+      ]
+    },
+    {
+      "description": "Group Docker updates",
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "docker-updates",
+      "schedule": [
+        "before 3am on Sunday"
+      ]
+    },
+    {
+      "description": "Critical security updates - merge immediately",
+      "matchDatasources": [
+        "python"
+      ],
+      "matchUpdateTypes": [
+        "pin"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "minimumReleaseAge": 0
+    }
+  ],
+  "prConcurrentLimitType": "unlimited",
+  "rangeStrategy": "bump"
+}
