@@ -1,0 +1,63 @@
+====================================================================
+  GUIA DE CONFIGURAÇÃO DAS CHAVES DE API DA BINANCE
+  BotBinance — Segurança em Primeiro Lugar
+====================================================================
+
+PASSO 1 — ACESSAR O PAINEL DE API
+--------------------------------------------------------------------
+1. Acesse binance.com e faça login
+2. Clique na sua foto/avatar (canto superior direito)
+3. Vá em: Gerenciamento de API  →  Criar API
+4. Escolha: "API gerada pelo sistema"
+5. Dê um nome (ex: "BotBinancePython")
+6. Complete a verificação 2FA
+
+PASSO 2 — CONFIGURAR AS PERMISSÕES (CRÍTICO)
+--------------------------------------------------------------------
+Ative APENAS as seguintes permissões:
+
+  [x] Habilitar leitura              ← necessário
+  [x] Habilitar trading de Futuros   ← necessário para operar
+  [ ] Habilitar saques               ← NUNCA ATIVE ISSO
+  [ ] Habilitar transferências       ← NUNCA ATIVE ISSO
+
+PASSO 3 — RESTRINGIR POR IP (ALTAMENTE RECOMENDADO)
+--------------------------------------------------------------------
+Na opção "Restrição de acesso":
+
+  Selecione: "Restringir acesso a IPs confiáveis"
+
+  Adicione APENAS o IP da sua máquina local para testes.
+  Você pode descobrir seu IP atual acessando: https://meuip.com.br
+
+  Quando migrar para o servidor na nuvem, adicione o IP fixo do servidor
+  e REMOVA o IP da sua máquina local.
+
+PASSO 4 — COPIAR AS CHAVES COM SEGURANÇA
+--------------------------------------------------------------------
+Após criar, você verá:
+  - API Key:    uma sequência longa de letras e números
+  - Secret Key: EXIBIDA APENAS UMA VEZ — copie imediatamente
+
+Cole as chaves no arquivo: config/settings.py
+  API_KEY    = "sua_api_key_aqui"
+  API_SECRET = "sua_secret_key_aqui"
+
+REGRAS DE SEGURANÇA — NUNCA QUEBRE ESTAS REGRAS
+--------------------------------------------------------------------
+* NUNCA compartilhe suas chaves com ninguém
+* NUNCA envie settings.py por WhatsApp, email ou qualquer chat
+* NUNCA faça upload de settings.py para o GitHub
+* O arquivo .gitignore já protege settings.py — não remova essa linha
+* Se suspeitar que as chaves foram expostas: ROGUE IMEDIATAMENTE na Binance
+  (há um botão "Revogar todas as chaves" no painel de API)
+
+VERIFICAR SE ESTÁ FUNCIONANDO
+--------------------------------------------------------------------
+Após preencher as chaves em settings.py, rode:
+
+  python testar_api.py
+
+Se aparecer seu saldo, está tudo certo.
+
+====================================================================

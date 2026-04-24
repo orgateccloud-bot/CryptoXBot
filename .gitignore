@@ -1,0 +1,77 @@
+# Chaves de API — NUNCA versionar
+config/settings.py
+
+# Banco de dados local
+data/
+*.db
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+
+# Modelo ML treinado
+data/*.pkl
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Produção - NUNCA versionar
+.env.prod
+*.key
+*.pem
+secrets/
+
+# Terraform
+terraform/.terraform/
+terraform/terraform.tfstate*
+*.tfvars
+
+# GCP
+gcp-key.json
+service-account-key.json
+
+# Baseline local-only ignores
+.env.*
+!.env.example
+!.env.*.example
+*.p12
+*.pfx
+credentials.json
+id_rsa
+
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+env/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+coverage/
+
+# Editor and local tooling
+.cursor/
+.claude/
+.uix/
+
+# Local artifacts
+*.sqlite
+*.sqlite3
+*.pkl
+*.joblib
+tmp/
+.cache/

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Backtesting — BotBinance</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0b0e17; --surface: #131722; --border: #1e2433;
+      --text: #d1d4dc; --muted: #6b7394;
+      --green: #26a69a; --red: #ef5350; --yellow: #f6c90e; --accent: #f0b90b;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+    }
+    .logo { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .logo a { color: var(--muted); font-size: 13px; text-decoration: none; margin-left: 16px; }
+    .logo a:hover { color: var(--text); }
+
+    main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+    /* Controles */
+    .controles {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;
+    }
+    .controles label { font-size: 12px; color: var(--muted); }
+    select, input[type=number] {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 6px; padding: 8px 12px; font-size: 14px;
+    }
+    button {
+      background: var(--accent); color: #000; font-weight: 700;
+      border: none; border-radius: 6px; padding: 9px 24px;
+      cursor: pointer; font-size: 14px;
+    }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Cards de métricas */
+    .metricas {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;
+    }
+    .metrica {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 18px;
+    }
+    .metrica .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .metrica .val { font-size: 26px; font-weight: 700; margin-top: 4px; }
+    .metrica .nota { font-size: 11px; margin-top: 2px; }
+    .otimo { color: var(--green); }
+    .bom   { color: var(--yellow); }
+    .ruim  { color: var(--red); }
+
+    /* Veredito */
+    #veredito-box {
+      border-radius: 10px; padding: 16px 20px; margin-bottom: 20px;
+      font-size: 16px; font-weight: 700; text-align: center;
+      border: 2px solid;
+    }
+
+    /* Gráficos */
+    .graficos {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px;
+    }
+    .card-grafico {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px;
+    }
+    .card-grafico h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+    canvas { width: 100% !important; height: 200px !important; }
+
+    /* Tabela */
+    .card-tabela {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px;
+    }
+    .card-tabela h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { color: var(--muted); font-size: 10px; text-transform: uppercase; padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+    th:first-child { text-align: left; }
+    td { padding: 7px 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,.04); }
+    td:first-child { text-align: left; color: var(--muted); font-size: 12px; }
+    tr:last-child td { border-bottom: none; }
+
+    #loading { text-align: center; padding: 40px; color: var(--muted); font-size: 16px; display: none; }
+
+    @media(max-width:900px) {
+      .metricas { grid-template-columns: repeat(2, 1fr); }
+      .graficos  { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    ₿ BotBinance
+    <a href="/">← Dashboard</a>
+  </div>
+  <span style="color:var(--muted);font-size:13px">Backtesting — Análise Histórica</span>
+</header>
+
+<main>
+  <!-- Controles -->
+  <div class="controles">
+    <div>
+      <label>Timeframe</label><br>
+      <select id="sel-intervalo">
+        <option value="1h" selected>1 Hora</option>
+        <option value="4h">4 Horas</option>
+        <option value="15m">15 Minutos</option>
+        <option value="1d">1 Dia</option>
+      </select>
+    </div>
+    <div>
+      <label>Capital Inicial (USDT)</label><br>
+      <input type="number" id="inp-capital" value="1000" min="100" step="100" style="width:130px">
+    </div>
+    <div style="align-self:flex-end">
+      <button id="btn-rodar" onclick="rodarBacktest()">Rodar Backtest</button>
+    </div>
+    <div id="loading">Calculando...</div>
+  </div>
+
+  <!-- Métricas -->
+  <div class="metricas" id="metricas" style="display:none">
+    <div class="metrica">
+      <div class="lbl">Win Rate</div>
+      <div class="val" id="m-winrate">—</div>
+      <div class="nota" id="n-winrate">meta: > 52%</div>
+    </div>
+    <div class="metrica">
+      <div class="lbl">Profit Factor</div>
+      <div class="val" id="m-pf">—</div>
+      <div class="nota" id="n-pf">meta: > 1.5</div>
+    </div>
+    <div class="metrica">
+      <div class="lbl">Sharpe Ratio</div>
+      <div class="val" id="m-sharpe">—</div>
+      <div class="nota" id="n-sharpe">meta: > 1.0</div>
+    </div>
+    <div class="metrica">
+      <div class="lbl">Max Drawdown</div>
+      <div class="val" id="m-dd">—</div>
+      <div class="nota" id="n-dd">meta: &lt; 15%</div>
+    </div>
+    <div class="metrica">
+      <div class="lbl">Retorno Total</div>
+      <div class="val" id="m-retorno">—</div>
+      <div class="nota" id="n-retorno" style="color:var(--muted)">sobre capital inicial</div>
+    </div>
+  </div>
+
+  <!-- Veredito -->
+  <div id="veredito-box" style="display:none"></div>
+
+  <!-- Gráficos -->
+  <div class="graficos" id="graficos" style="display:none">
+    <div class="card-grafico">
+      <h3>Curva de Capital</h3>
+      <canvas id="chart-capital"></canvas>
+    </div>
+    <div class="card-grafico">
+      <h3>Distribuição: Ganhos vs Perdas</h3>
+      <canvas id="chart-dist"></canvas>
+    </div>
+  </div>
+
+  <!-- Tabela de operações -->
+  <div class="card-tabela" id="tabela-box" style="display:none">
+    <h3>Últimas Operações</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Data Entrada</th>
+          <th>Entrada</th>
+          <th>Saída</th>
+          <th>Resultado</th>
+          <th>Tipo</th>
+        </tr>
+      </thead>
+      <tbody id="tabela-ops"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+  let chartCapital = null;
+  let chartDist    = null;
+
+  async function rodarBacktest() {
+    const intervalo = document.getElementById('sel-intervalo').value;
+    const btn = document.getElementById('btn-rodar');
+    const loading = document.getElementById('loading');
+
+    btn.disabled = true;
+    loading.style.display = 'block';
+    document.getElementById('metricas').style.display = 'none';
+    document.getElementById('veredito-box').style.display = 'none';
+    document.getElementById('graficos').style.display = 'none';
+    document.getElementById('tabela-box').style.display = 'none';
+
+    try {
+      const res = await fetch(`/api/backtest/${intervalo}`);
+      const d   = await res.json();
+
+      if (d.erro) { alert(d.erro); return; }
+
+      preencherMetricas(d);
+      preencherVeredito(d);
+      preencherGraficos(d);
+      preencherTabela(d.operacoes);
+
+      document.getElementById('metricas').style.display = 'grid';
+      document.getElementById('veredito-box').style.display = 'block';
+      document.getElementById('graficos').style.display = 'grid';
+      document.getElementById('tabela-box').style.display = 'block';
+    } catch(e) {
+      alert('Erro ao rodar backtest: ' + e);
+    } finally {
+      btn.disabled = false;
+      loading.style.display = 'none';
+    }
+  }
+
+  function classeNota(valor, refBom, refOtimo, maiorMelhor=true) {
+    if (maiorMelhor) {
+      return valor >= refOtimo ? 'otimo' : valor >= refBom ? 'bom' : 'ruim';
+    } else {
+      return valor <= refOtimo ? 'otimo' : valor <= refBom ? 'bom' : 'ruim';
+    }
+  }
+
+  function preencherMetricas(d) {
+    const set = (id, nid, val, txt, cls) => {
+      document.getElementById(id).textContent = val;
+      document.getElementById(id).className = 'val ' + cls;
+      if (nid) document.getElementById(nid).className = 'nota ' + cls;
+    };
+    set('m-winrate', 'n-winrate', d.win_rate_+'%',
+        '', classeNota(d.win_rate_, 52, 60));
+    set('m-pf', 'n-pf', d.profit_factor,
+        '', classeNota(d.profit_factor, 1.3, 1.8));
+    set('m-sharpe', 'n-sharpe', d.sharpe_ratio,
+        '', classeNota(d.sharpe_ratio, 1.0, 1.5));
+    set('m-dd', 'n-dd', d.max_drawdown_+'%',
+        '', classeNota(d.max_drawdown_, 15, 8, false));
+
+    const retEl = document.getElementById('m-retorno');
+    retEl.textContent = (d.retorno_total_ >= 0 ? '+' : '') + d.retorno_total_ + '%';
+    retEl.className   = 'val ' + (d.retorno_total_ > 0 ? 'otimo' : 'ruim');
+  }
+
+  function preencherVeredito(d) {
+    const score = [
+      d.win_rate_       >= 52,
+      d.profit_factor   >= 1.3,
+      d.sharpe_ratio    >= 1.0,
+      d.max_drawdown_   <= 15,
+      d.expectancia_    > 0,
+    ].filter(Boolean).length;
+
+    const cores = {5:'#26a69a', 4:'#26a69a', 3:'#f6c90e', 2:'#ef5350', 1:'#ef5350', 0:'#ef5350'};
+    const textos = {
+      5: 'ESTRATEGIA EXCELENTE — Pode operar com capital real',
+      4: 'ESTRATEGIA BOA — Pequenos ajustes antes de operar',
+      3: 'ESTRATEGIA PROMISSORA — Otimize os parametros',
+      2: 'ESTRATEGIA FRACA — Reformule antes de arriscar capital',
+      1: 'ESTRATEGIA FRACA — Reformule antes de arriscar capital',
+      0: 'ESTRATEGIA FRACA — Reformule antes de arriscar capital',
+    };
+    const box = document.getElementById('veredito-box');
+    box.style.borderColor = cores[score];
+    box.style.color = cores[score];
+    box.style.background = cores[score] + '18';
+    box.innerHTML = `Critérios aprovados: ${score}/5 &nbsp;|&nbsp; ${textos[score]}<br>
+      <span style="font-size:13px;font-weight:400;color:var(--muted)">
+        Capital: $${d.capital_inicial.toLocaleString('pt-BR')} → $${d.capital_final.toLocaleString('pt-BR',{minimumFractionDigits:2})}
+        &nbsp;|&nbsp; ${d.total_trades} operações
+        &nbsp;|&nbsp; Expectância: ${d.expectancia_}%/trade
+      </span>`;
+  }
+
+  function preencherGraficos(d) {
+    // Curva de capital
+    let cap = d.capital_inicial;
+    const labels = ['Início'];
+    const vals   = [cap];
+    d.operacoes.forEach(o => {
+      cap += o.resultado;
+      labels.push(o.saida_dt ? o.saida_dt.substring(0,10) : '');
+      vals.push(parseFloat(cap.toFixed(2)));
+    });
+
+    if (chartCapital) chartCapital.destroy();
+    chartCapital = new Chart(document.getElementById('chart-capital'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data: vals,
+          borderColor: '#f0b90b',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: { target: 'origin', above: 'rgba(240,185,11,0.08)' },
+        }]
+      },
+      options: {
+        responsive: true, animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color:'#6b7394', maxTicksLimit:8, font:{size:10} }, grid:{color:'#1e2433'} },
+          y: { ticks: { color:'#6b7394', font:{size:10}, callback: v=>'$'+v.toLocaleString('pt-BR') }, grid:{color:'#1e2433'}, position:'right' }
+        }
+      }
+    });
+
+    // Distribuição
+    const ganhos = d.operacoes.filter(o => o.resultado > 0).length;
+    const perdas  = d.operacoes.filter(o => o.resultado <= 0).length;
+    if (chartDist) chartDist.destroy();
+    chartDist = new Chart(document.getElementById('chart-dist'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Ganhos', 'Perdas'],
+        datasets: [{ data: [ganhos, perdas], backgroundColor: ['#26a69a','#ef5350'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, animation: false,
+        plugins: {
+          legend: { labels: { color:'#d1d4dc', font:{size:13} } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw} trades` } }
+        }
+      }
+    });
+  }
+
+  function preencherTabela(ops) {
+    const tbody = document.getElementById('tabela-ops');
+    tbody.innerHTML = '';
+    [...ops].reverse().forEach(o => {
+      const cor = o.resultado > 0 ? '#26a69a' : '#ef5350';
+      const sinal = o.resultado > 0 ? '+' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${o.entrada_dt}</td>
+        <td>$${Number(o.preco_entrada).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+        <td>$${Number(o.preco_saida).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+        <td style="color:${cor};font-weight:700">${sinal}${o.resultado_pct}%</td>
+        <td style="color:${o.tipo_saida==='TARGET'?'#26a69a':'#ef5350'}">${o.tipo_saida}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Rodar ao carregar
+  rodarBacktest();
+</script>
+</body>
+</html>

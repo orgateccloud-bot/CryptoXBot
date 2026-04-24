@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # BotBinance HFT - Desenvolvimento
+  botbinance-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base  # Usa base stage para desenvolvimento
+    container_name: botbinance-dev
+    restart: unless-stopped
+
+    # Desenvolvimento: mount código fonte
+    volumes:
+      - .:/app:rw
+      - /app/__pycache__  # Excluir cache
+
+    # Configurações de desenvolvimento
+    environment:
+      - PYTHONPATH=/app
+      - LOG_LEVEL=DEBUG
+      - PYTHONDONTWRITEBYTECODE=0  # Manter .pyc para debug
+      - BINANCE_API_KEY=${BINANCE_API_KEY}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET}
+      - BINANCE_TESTNET=true  # Sempre testnet em dev
+
+    # Rede de desenvolvimento
+    networks:
+      - dev-network
+
+    # Command para desenvolvimento (pode ser sobreposto)
+    command: ["python", "-m", "core.event_loop"]
+
+    # Ports para debug/monitoring
+    ports:
+      - "8080:8080"  # Dashboard/monitoring
+      - "5678:5678"  # Debug port (se usar debugger)
+
+    # Logging verboso para desenvolvimento
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # PostgreSQL para desenvolvimento (se usar DB relacional)
+  postgres-dev:
+    image: postgres:15-alpine
+    container_name: botbinance-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: botbinance_dev
+      POSTGRES_USER: botuser
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dev-network
+    profiles:
+      - with-postgres
+
+  # Redis para desenvolvimento
+  redis-dev:
+    image: redis:7-alpine
+    container_name: botbinance-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - dev-network
+    profiles:
+      - with-redis
+
+  # Test runner container
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
+    container_name: botbinance-tests
+    volumes:
+      - .:/app:rw
+      - /app/__pycache__
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONDONTWRITEBYTECODE=0
+    command: ["python", "tests/run_tests.py"]
+    networks:
+      - dev-network
+    profiles:
+      - testing
+
+networks:
+  dev-network:
+    driver: bridge
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:

@@ -1,0 +1,23 @@
+Flask==3.1.0
+Flask-SocketIO==5.6.1
+Flask-Cors==5.0.1
+python-socketio==5.16.1
+simple-websocket==1.1.0
+requests==2.32.5
+websocket-client==1.9.0
+websockets==16.0
+numpy==2.4.3
+pandas==2.3.3
+scipy==1.17.1
+scikit-learn==1.8.0
+xgboost==3.2.0
+joblib==1.5.3
+
+# Novas dependências para arquitetura async/cloud-native
+aiosqlite==0.21.0
+dependency-injector==4.41.0
+google-cloud-pubsub==2.21.5
+google-cloud-logging==3.10.0
+
+# Monitoramento e Observabilidade
+prometheus_client==0.20.0

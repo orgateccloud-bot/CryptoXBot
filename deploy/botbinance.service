@@ -1,0 +1,18 @@
+[Unit]
+Description=BotBinance - Bot de Trading BTC/USDT
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/botbinance
+ExecStart=/opt/botbinance/venv/bin/python main.py --simulacao
+Restart=always
+RestartSec=10
+StandardOutput=append:/opt/botbinance/logs/bot.log
+StandardError=append:/opt/botbinance/logs/bot_erro.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
