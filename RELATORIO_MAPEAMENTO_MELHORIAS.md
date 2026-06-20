@@ -228,15 +228,17 @@ P2 (itens 10-15)→  valida: bandit clean + docs alinhadas ← reduz dívida
 
 > **Correção de diagnóstico:** o achado "`ensemble.py:180` tem voto duplicado" **não se confirmou** — apenas `regime.py:180` tinha o padrão. Verificado por grep antes de corrigir.
 
-### ⏳ Deliberadamente adiado (mudança estrutural / precisa de decisão)
+### ✅ Aposentadoria do cluster async — feito em PR dedicado
+
+**[CryptoXBot#1](https://github.com/orgateccloud-bot/CryptoXBot/pull/1)** (`chore/aposentar-cluster-async`) resolveu **C-4, C-5 e P2-10**: todo o cluster async órfão (`core/`, `execution/`, `infra/*`, `ai/inference.py` stub, `config/di_container.py`, `data/stream_processor.py`, `lgbm_modelo.py`) + seus testes foi movido para `_legado/` via `git mv` (histórico preservado), com `_legado/LEIA-ME.md` (rollback) e `pytest.ini` excluindo `_legado/`. Suíte de produção: **42 passed, 6 skipped**.
+
+### ⏳ Ainda adiado (precisa de decisão / ciclo dedicado)
 
 | Item | Por quê | Recomendação |
 |------|---------|--------------|
-| **C-5 / P2-9** — LightGBM órfão | Adicionar ao ensemble exige treino/validação; mover para `_legado/` é seguro mas é decisão de produto | Aposentar via `@Zeta` (`_legado/`) ou integrar com backtest |
-| **P2-10** — Aposentar `ai/inference.py` (stub), `execution/*` async, `infra/database.py` async | São importados por testes; mover quebra a suíte verde → exige PR dedicado com atualização dos testes e `LEIA-ME.md` de rollback | PR próprio (`@Zeta`) |
-| **C-4** — Finalizar inferência async real | Mesmo bloco do P2-10 | Junto com a decisão de arquitetura |
 | **M-4/M-5** — Data leakage / overfitting ML | Requer revalidação walk-forward dos modelos | `@Sigma` em ciclo dedicado |
 | **Implementar SHORT real** | `abrir_short` toca execução de capital real; precisa de teste e sign-off | Backlog, com paper trading extenso antes |
+| **Canonizar deploy** (Railway vs GCP) | Migração inacabada; decisão de produto | Escolher alvo e arquivar o legado |
 
 ### ⚠️ Achado novo (durante a execução)
 - **Testes async no-op**: vários métodos `async def` em `tests/test_integration.py` rodam em `unittest.TestCase` sem await (warnings `coroutine was never awaited`) → passam sem testar nada. Migrar para `pytest-asyncio` (`@pytest.mark.asyncio`). Não bloqueia, mas infla a cobertura aparente.
