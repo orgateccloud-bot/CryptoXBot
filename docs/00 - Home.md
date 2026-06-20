@@ -10,8 +10,8 @@ Bot de trading algorítmico para Binance Futures, **long-only**, com estratégia
 multi-filtro + ensemble de ML, gestão de risco (Kelly + circuit breaker) e deploy
 em **Railway + Supabase**.
 
-> **Estado atual:** Beta funcional · pronto para **paper trading** · `import main` limpo · `pytest` verde (42 passed).
-> **Nota de maturidade global: 🟡 7.0/10** — ver [[Pontuacoes do Projeto]].
+> **Estado atual:** Beta sólido · pronto para **paper trading** · `import main` limpo · `pytest` verde (**295 passed**, 6 skipped).
+> **Nota de maturidade global: 🟢 7.4/10** — ver [[Pontuacoes do Projeto]].
 
 ## 🗺️ Navegação
 
@@ -44,8 +44,8 @@ em **Railway + Supabase**.
 | Observabilidade | 🟡 7 | logs, health, Telegram, dashboard |
 | Segurança | 🟡 7 | sem segredos hardcoded; paper por padrão |
 | Deploy/Infra | 🟡 7 | Supabase + Railway prontos |
+| Testes | 🟡 7 | **295 testes**; risco 90%, score 75%, executor 62% |
 | ML / Sinais | 🟡 6 | XGBoost+MLP+FSRS; riscos de drift/overfitting |
 | Qualidade de código | 🟡 6 | pre-commit ok; `indicadores.py` duplicado |
-| **Testes** | 🔴 4 | **core (executor/risco) sem testes diretos** |
 
-> Maior gap antes de capital real: **cobertura de testes do core de trading**.
+> Próximos focos: testar o loop `_monitorar` (trailing stop), módulos de ML/backtesting e refatorar `indicadores.py`.

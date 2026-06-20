@@ -1,7 +1,7 @@
 ---
 tags: [scorecard, maturidade]
 atualizado: 2026-06-20
-nota_global: 7.0
+nota_global: 7.4
 ---
 
 # 📊 Pontuações do Projeto (Maturidade)
@@ -19,7 +19,7 @@ Avaliação do estado **pós-aposentadoria do cluster async** (branch
 | Executabilidade (clone→run) | 🟢 **9** | 1.5 | `import main` limpo + smoke test no CI; era 🔴 2 no início |
 | Gestão de risco (trading) | 🟢 **8** | 1.5 | Kelly + circuit breaker + drawdown + lock + validação de ordem |
 | Segurança | 🟡 **7** | 1.2 | sem segredos hardcoded, detect-secrets, paper por padrão; gaps: `SECRET_KEY` default, `.secrets.baseline` ausente |
-| **Cobertura de testes** | 🔴 **4** | 1.2 | core (executor/risco/score) sem testes diretos; ~42 testes só em dados/ML |
+| **Cobertura de testes** | 🟡 **7** | 1.2 | **295 testes** (+253); risco 90%, score 75% (lógica ~100%), executor 62%; gaps: loop `_monitorar`, ml_filtro/regime/backtesting |
 | Arquitetura & organização | 🟢 **8** | 1.0 | arquitetura única após aposentar cluster; gaps: `indicadores.py` duplicado, `logger` SQLite-only |
 | ML / Sinais | 🟡 **6** | 1.0 | XGBoost+MLP+FSRS+ensemble funcionam; riscos: overfitting MLP, scaler drift, ADX manual |
 | Qualidade de código | 🟡 **6** | 1.0 | pre-commit completo, mas configs faltando (`.bandit`/baseline) e duplicação |
@@ -31,14 +31,15 @@ Avaliação do estado **pós-aposentadoria do cluster async** (branch
 
 ```
 Σ(nota × peso) / Σ(peso)
-= (9·1.5 + 8·1.5 + 7·1.2 + 4·1.2 + 8·1.0 + 6·1.0 + 6·1.0 + 7·1.0 + 7·0.8 + 8·0.8) / 11.0
-= 77.7 / 11.0
-≈ 7.06
+= (9·1.5 + 8·1.5 + 7·1.2 + 7·1.2 + 8·1.0 + 6·1.0 + 6·1.0 + 7·1.0 + 7·0.8 + 8·0.8) / 11.0
+= 81.3 / 11.0
+≈ 7.39
 ```
 
-> ## 🟡 Nota global: **7.0 / 10 — "Beta funcional"**
-> Pronto para **paper trading**; a barreira para **capital real** é a
-> **cobertura de testes do core de trading** (única dimensão 🔴).
+> ## 🟢 Nota global: **7.4 / 10 — "Beta sólido"**
+> Pronto para **paper trading**, agora com **295 testes** cobrindo o core
+> (risco/score/executor). Nenhuma dimensão em 🔴. Próximos focos: testar o loop
+> `_monitorar` (trailing stop) e os módulos de ML/backtesting.
 
 ## Radar (visão rápida)
 ```
@@ -49,9 +50,9 @@ Documentação      ████████░░  8
 Segurança         ███████░░░  7
 Deploy/Infra      ███████░░░  7
 Observabilidade   ███████░░░  7
+Testes            ███████░░░  7   ← era 4 (gargalo resolvido)
 ML/Sinais         ██████░░░░  6
 Qualidade código  ██████░░░░  6
-Testes            ████░░░░░░  4   ← gargalo
 ```
 
 ## Evolução nesta sessão
@@ -59,6 +60,7 @@ Testes            ████░░░░░░  4   ← gargalo
 |---|:---:|---|
 | Início | ~3.5 | não iniciava de clone limpo (2 showstoppers) |
 | Pós P0/P1/P2 | ~6.3 | executável, coerente, seguro nas ordens |
-| Pós aposentadoria + docs | **7.0** | arquitetura única, Supabase/Railway documentados, vault |
+| Pós aposentadoria + docs | ~7.0 | arquitetura única, Supabase/Railway documentados, vault |
+| **Pós testes do core** | **7.4** | **295 testes** (+253); core de trading coberto |
 
-Próximo salto previsto: **8.0+** ao concluir o **P0 de testes** em [[Planejamento de Melhorias]].
+Próximo salto previsto: **8.0+** ao testar `_monitorar` + ML/backtesting e refatorar `indicadores.py` (ver [[Planejamento de Melhorias]]).

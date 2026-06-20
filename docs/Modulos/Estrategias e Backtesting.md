@@ -22,12 +22,13 @@ tags: [modulo, backtesting, testes, qualidade]
 - ✅ **Realista:** slippage 0.05% + taxa Binance 0.04%/lado; calcula Sharpe, win rate, max drawdown.
 - **Gaps:** otimizador sem early-stopping nem out-of-sample; nenhum teste de determinismo do backtest.
 
-## Testes ativos 🔴 Baixa cobertura
+## Testes ativos 🟡 Cobertura do core OK
 - `tests/test_data.py` — CVD calculator + indicadores (9 testes).
-- `tests/test_melhorias.py` — score (pesos), FSRS (11), ensemble+FSRS, Ollama (fallback), retreino (508 linhas).
-- ✅ Corrigido nesta sessão: probe do Ollama em tempo de coleta (não aborta mais o pytest).
-- **Lacunas críticas (0% de testes diretos):** `executor.py`, `risco.py`, `ml_filtro.py`, `score.py` (parcial), backtesting (determinismo).
-- Estado: `pytest` → **42 passed, 6 skipped** (testes do cluster async foram para `_legado/`, ignorados por `pytest.ini`).
+- `tests/test_melhorias.py` — score (pesos), FSRS, ensemble+FSRS, Ollama (fallback), retreino.
+- ✅ **Novo nesta sessão (P0):** `tests/test_executor.py` (43), `tests/test_risco.py` (74), `tests/test_score.py` (136) — herméticos (sem rede/banco).
+  - Cobertura: **risco 90%**, **score 75%** (lógica ~100%; falta só `imprimir_score`/`__main__`), **executor 62%**.
+- **Lacunas remanescentes:** loop `executor._monitorar` (trailing stop — exige refatorar p/ injeção de tempo), `ml_filtro.py`, `regime.py`, determinismo do backtesting.
+- Estado: `pytest` → **295 passed, 6 skipped** (testes do cluster async em `_legado/`, ignorados por `pytest.ini`).
 
 ## Qualidade de código 🟢/🟡
 - `.pre-commit-config.yaml` — Black, isort, Flake8, MyPy, Bandit, detect-secrets, yamllint.
