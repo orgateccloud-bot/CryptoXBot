@@ -34,6 +34,67 @@ _PRECISAO = {
 }
 _PRECISAO_DEFAULT = {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2}
 
+TRAILING_ATIVACAO = 0.01    # ativa trailing após 1% de ganho
+TRAILING_DISTANCIA = 0.008  # stop segue 0.8% abaixo do pico
+
+
+def avaliar_tick_monitor(entrada, stop_atual, target1, target2, parcial_feita,
+                         preco, preco_pico,
+                         trailing_ativacao=TRAILING_ATIVACAO,
+                         trailing_distancia=TRAILING_DISTANCIA):
+    """
+    Decisão PURA (sem efeitos colaterais) de um tick do monitor de posição LONG.
+
+    Espelha exatamente a ordem e os limiares do loop de _monitorar(): stop loss e
+    take-profit final são terminais (encerram); take-profit parcial e trailing
+    podem coexistir no mesmo tick. Todas as comparações usam o snapshot da posição
+    (stop_atual/target1/target2/parcial_feita), como no loop original.
+
+    Retorna dict:
+      fechar_total:        None | "Stop Loss" | "Take Profit Final"
+      encerrar:            bool — encerra o loop (break)
+      fechar_parcial:      bool — take-profit parcial (50%)
+      stop_breakeven:      None | float — novo stop pós-parcial (entrada*1.002)
+      preco_pico:          float — pico atualizado
+      novo_stop_trailing:  None | float — novo stop do trailing (se subir)
+    """
+    ganho_pct = (preco - entrada) / entrada
+    acao = {
+        "fechar_total":       None,
+        "encerrar":           False,
+        "fechar_parcial":     False,
+        "stop_breakeven":     None,
+        "preco_pico":         preco_pico,
+        "novo_stop_trailing": None,
+    }
+
+    # 1. Stop Loss atingido (terminal)
+    if preco <= stop_atual:
+        acao["fechar_total"] = "Stop Loss"
+        acao["encerrar"] = True
+        return acao
+
+    # 2. Partial Take Profit (50% no target1) — não encerra
+    if not parcial_feita and preco >= target1:
+        acao["fechar_parcial"] = True
+        acao["stop_breakeven"] = entrada * 1.002
+
+    # 3. Target 2 (fecha tudo) — terminal
+    if parcial_feita and preco >= target2:
+        acao["fechar_total"] = "Take Profit Final"
+        acao["encerrar"] = True
+        return acao
+
+    # 4. Trailing Stop (ativa após ganho >= trailing_ativacao)
+    if ganho_pct >= trailing_ativacao:
+        pico = preco if preco > preco_pico else preco_pico
+        acao["preco_pico"] = pico
+        novo_stop = pico * (1 - trailing_distancia)
+        if novo_stop > stop_atual:
+            acao["novo_stop_trailing"] = novo_stop
+
+    return acao
+
 
 class Executor:
     def __init__(self, simulacao=True, symbol="BTCUSDT"):
@@ -228,10 +289,11 @@ class Executor:
     # ── Monitor de trailing stop ───────────────────────────────
 
     def _monitorar(self):
-        """Thread que verifica stop/target e ajusta trailing stop."""
-        TRAILING_ATIVACAO = 0.01   # ativa trailing após 1% de ganho
-        TRAILING_DISTANCIA = 0.008 # stop segue 0.8% abaixo do pico
+        """Thread que verifica stop/target e ajusta trailing stop.
 
+        A decisão por-tick fica em avaliar_tick_monitor() (pura/testável); aqui
+        há apenas I/O (preço, fechamento, sleep) e atualização de estado sob lock.
+        """
         preco_pico = self.posicao["entrada"]
 
         while self._ativo and self.posicao:
@@ -247,33 +309,28 @@ class Executor:
                     pos = self.posicao
                 if pos is None:
                     break
-                ganho_pct = (preco - pos["entrada"]) / pos["entrada"]
 
-                # 1. Stop Loss atingido
-                if preco <= pos["stop_atual"]:
-                    self.fechar_posicao(preco, "Stop Loss")
+                d = avaliar_tick_monitor(
+                    pos["entrada"], pos["stop_atual"], pos["target1"],
+                    pos["target2"], pos["parcial_feita"], preco, preco_pico,
+                )
+                preco_pico = d["preco_pico"]
+
+                # Fechamento terminal (stop loss ou take-profit final)
+                if d["encerrar"]:
+                    self.fechar_posicao(preco, d["fechar_total"])
                     break
 
-                # 2. Partial Take Profit (50% no target1)
-                if not pos["parcial_feita"] and preco >= pos["target1"]:
+                # Take-profit parcial (50%) + stop em breakeven
+                if d["fechar_parcial"]:
                     self.fechar_posicao(preco, "Take Profit Parcial (50%)", parcial=True)
-                    # Mover stop para breakeven
-                    self.posicao["stop_atual"] = pos["entrada"] * 1.002
+                    self.posicao["stop_atual"] = d["stop_breakeven"]
                     print(f"[EXEC] Stop movido para breakeven: ${self.posicao['stop_atual']:,.2f}")
 
-                # 3. Target 2 (fechar tudo)
-                if pos["parcial_feita"] and preco >= pos["target2"]:
-                    self.fechar_posicao(preco, "Take Profit Final")
-                    break
-
-                # 4. Trailing Stop (ativa após 1% de ganho)
-                if ganho_pct >= TRAILING_ATIVACAO:
-                    if preco > preco_pico:
-                        preco_pico = preco
-                    novo_stop = preco_pico * (1 - TRAILING_DISTANCIA)
-                    if novo_stop > pos["stop_atual"]:
-                        self.posicao["stop_atual"] = novo_stop
-                        print(f"[EXEC] Trailing Stop: ${novo_stop:,.2f} (pico: ${preco_pico:,.2f})")
+                # Trailing stop (pode coexistir com o parcial no mesmo tick)
+                if d["novo_stop_trailing"] is not None:
+                    self.posicao["stop_atual"] = d["novo_stop_trailing"]
+                    print(f"[EXEC] Trailing Stop: ${d['novo_stop_trailing']:,.2f} (pico: ${preco_pico:,.2f})")
 
             except Exception as e:
                 print(f"[EXEC] Erro no monitor: {e}")
