@@ -254,9 +254,17 @@ class LoggerBot:
                     SELECT * FROM log_trades
                     ORDER BY timestamp_entrada DESC LIMIT ?
                 """, (dias * 10,)).fetchall()
+            elif tabela == "log_performance":
+                rows = conn.execute(
+                    "SELECT * FROM log_performance ORDER BY data DESC LIMIT ?",
+                    (dias,)).fetchall()
             else:
-                rows = conn.execute(f"SELECT * FROM {tabela} ORDER BY data DESC LIMIT ?",
-                                    (dias,)).fetchall()
+                # Whitelist de tabelas (M-6): evita interpolacao de nome de tabela
+                # em SQL (injection) caso 'tabela' venha de origem nao confiavel.
+                raise ValueError(
+                    f"Tabela nao permitida para exportacao: {tabela!r}. "
+                    f"Use: log_avaliacoes, log_trades ou log_performance."
+                )
 
             if not rows:
                 print(f"[LOG] Nenhum registro em {tabela}")

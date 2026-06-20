@@ -42,6 +42,7 @@ class Executor:
         self.posicao    = None
         self._monitor   = None
         self._ativo     = False
+        self._lock      = threading.Lock()  # protege o estado da posicao (M-2)
         prec = _PRECISAO.get(self.symbol, _PRECISAO_DEFAULT)
         self._qty_step   = prec["qty_step"]
         self._min_qty    = prec["min_qty"]
@@ -113,9 +114,18 @@ class Executor:
             params["timeInForce"] = "GTC"
 
         params["signature"] = self._assinar(params)
-        r = requests.post(f"{BASE_URL}/api/v3/order",
-                          params=params, headers=self._headers(), timeout=10)
-        return r.json()
+        try:
+            r = requests.post(f"{BASE_URL}/api/v3/order",
+                              params=params, headers=self._headers(), timeout=10)
+            data = r.json()
+        except Exception as e:
+            # Falha de rede/timeout/JSON invalido — nao deixar propagar como sucesso (P1-8)
+            return {"erro": f"falha de rede/resposta: {e}"}
+
+        # Erros da Binance chegam como {"code": -xxxx, "msg": "..."} sem orderId
+        if isinstance(data, dict) and "orderId" not in data:
+            return {"erro": data.get("msg", "resposta sem orderId"), **data}
+        return data
 
     # ── Abrir posição LONG ─────────────────────────────────────
 
@@ -142,18 +152,19 @@ class Executor:
 
         preco_exec = float(resp.get("price", preco_entrada))
 
-        self.posicao = {
-            "tipo":         "LONG",
-            "entrada":      preco_exec,
-            "tamanho_btc":  tamanho_btc,
-            "stop_inicial": stop_loss,
-            "stop_atual":   stop_loss,
-            "target1":      take_profit,
-            "target2":      preco_exec * 1.05,   # alvo 2: 5%
-            "parcial_feita":False,
-            "abertura":     datetime.now().isoformat(),
-            "order_id":     resp.get("orderId"),
-        }
+        with self._lock:
+            self.posicao = {
+                "tipo":         "LONG",
+                "entrada":      preco_exec,
+                "tamanho_btc":  tamanho_btc,
+                "stop_inicial": stop_loss,
+                "stop_atual":   stop_loss,
+                "target1":      take_profit,
+                "target2":      preco_exec * 1.05,   # alvo 2: 5%
+                "parcial_feita":False,
+                "abertura":     datetime.now().isoformat(),
+                "order_id":     resp.get("orderId"),
+            }
 
         gestao_risco._estado_risco["posicoes_abertas"] += 1
         gestao_risco.persistir_estado()
@@ -175,10 +186,20 @@ class Executor:
         qty = self.posicao["tamanho_btc"]
         if parcial:
             qty = qty / 2
-            self.posicao["parcial_feita"] = True
-            self.posicao["tamanho_btc"]   = qty  # restante
 
         resp = self._enviar_ordem("SELL", qty, tipo="MARKET")
+
+        # P1-8: nao tratar como fechada se a ordem real nao preencheu — senao o bot
+        # acharia que saiu da posicao sem ter saido. Mantem a posicao para retry.
+        if not self.simulacao and resp.get("status") != "FILLED":
+            print(f"[EXEC] FALHA ao fechar posicao (ordem nao preenchida): {resp}. "
+                  f"Posicao MANTIDA — nova tentativa no proximo ciclo.")
+            return
+
+        # Ordem preenchida: agora sim aplica a mutacao do fechamento parcial
+        if parcial:
+            self.posicao["parcial_feita"] = True
+            self.posicao["tamanho_btc"]   = qty  # restante
 
         pnl_pct = (preco - self.posicao["entrada"]) / self.posicao["entrada"] * 100
         pnl_usdt = qty * (preco - self.posicao["entrada"])
@@ -198,8 +219,9 @@ class Executor:
         )
 
         if not parcial:
-            self.posicao = None
-            self._ativo  = False
+            with self._lock:
+                self.posicao = None
+                self._ativo  = False
             gestao_risco._estado_risco["posicoes_abertas"] -= 1
             gestao_risco.persistir_estado()
 
@@ -219,7 +241,12 @@ class Executor:
                     time.sleep(5)
                     continue
 
-                pos = self.posicao
+                # Snapshot consistente da posicao (M-2). Lock liberado antes de
+                # chamar fechar_posicao para evitar reentrancia.
+                with self._lock:
+                    pos = self.posicao
+                if pos is None:
+                    break
                 ganho_pct = (preco - pos["entrada"]) / pos["entrada"]
 
                 # 1. Stop Loss atingido

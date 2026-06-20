@@ -207,4 +207,36 @@ P1 (itens 5-9)  →  valida: backtest + paper trading    ← trading coerente
 P2 (itens 10-15)→  valida: bandit clean + docs alinhadas ← reduz dívida
 ```
 
-> **Próximo passo sugerido:** autorizar a execução do bloco **P0** (4 itens, ~1-2h) para tornar o repositório executável e a CI confiável. Diga **"execute P0"** (ou "execute") para eu aplicar, testar e commitar seguindo a convenção do projeto.
+---
+
+## 8. Status de Execução (2026-06-20)
+
+### ✅ Aplicado e validado (`import main` OK · `pytest` 68 passed, 6 skipped)
+
+| Item | O que foi feito | Arquivos |
+|------|-----------------|----------|
+| **P0-1** (C-1) | Versionado o pacote `data/` (cvd_calculator, stream_processor, `__init__`); `.gitignore` ajustado para ignorar só artefatos | `data/*`, `.gitignore` |
+| **P0-2** (C-2) | `_score_regime` implementado reaproveitando a força de tendência de `regime.detectar()` | `score.py` |
+| **P0-3** | Smoke test de imports no CI antes do pytest | `.github/workflows/ci.yml` |
+| **P0-4** | Suíte verde; corrigido teste do Ollama que fazia rede em tempo de coleta | `tests/test_melhorias.py` |
+| **P1-6** (M-1) | Voto de regime agora inclui 1D (mantendo peso duplo do 4H) | `regime.py` |
+| **P1-7** (M-2) | `threading.Lock` protegendo o estado da posição no `Executor` | `executor.py` |
+| **P1-8** (M-3) | Validação de resposta da Binance + **fix de segurança**: `fechar_posicao` não marca posição como fechada se a ordem real não preencher | `executor.py` |
+| **C-3** | Sinal VENDA (short) deixou de consumir validação/scale-in/Telegram e ser descartado; agora é ignorado explicitamente | `main.py` |
+| **P2-11** (M-6) | Whitelist de tabelas em `logger.exportar_csv` (elimina SQL injection latente) | `logger.py` |
+| **P2-13** | Documentação alinhada à realidade (XGBoost + sklearn MLP; LightGBM órfão) | `CLAUDE.md` |
+
+> **Correção de diagnóstico:** o achado "`ensemble.py:180` tem voto duplicado" **não se confirmou** — apenas `regime.py:180` tinha o padrão. Verificado por grep antes de corrigir.
+
+### ⏳ Deliberadamente adiado (mudança estrutural / precisa de decisão)
+
+| Item | Por quê | Recomendação |
+|------|---------|--------------|
+| **C-5 / P2-9** — LightGBM órfão | Adicionar ao ensemble exige treino/validação; mover para `_legado/` é seguro mas é decisão de produto | Aposentar via `@Zeta` (`_legado/`) ou integrar com backtest |
+| **P2-10** — Aposentar `ai/inference.py` (stub), `execution/*` async, `infra/database.py` async | São importados por testes; mover quebra a suíte verde → exige PR dedicado com atualização dos testes e `LEIA-ME.md` de rollback | PR próprio (`@Zeta`) |
+| **C-4** — Finalizar inferência async real | Mesmo bloco do P2-10 | Junto com a decisão de arquitetura |
+| **M-4/M-5** — Data leakage / overfitting ML | Requer revalidação walk-forward dos modelos | `@Sigma` em ciclo dedicado |
+| **Implementar SHORT real** | `abrir_short` toca execução de capital real; precisa de teste e sign-off | Backlog, com paper trading extenso antes |
+
+### ⚠️ Achado novo (durante a execução)
+- **Testes async no-op**: vários métodos `async def` em `tests/test_integration.py` rodam em `unittest.TestCase` sem await (warnings `coroutine was never awaited`) → passam sem testar nada. Migrar para `pytest-asyncio` (`@pytest.mark.asyncio`). Não bloqueia, mas infla a cobertura aparente.

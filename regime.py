@@ -177,7 +177,10 @@ def detectar():
     tf4h = _classificar_tf(d4h, "4H")
     tf1d = _classificar_tf(d1d, "1D")
 
-    regimes = [tf1h["regime"], tf4h["regime"], tf4h["regime"]]  # 4H tem peso duplo
+    # 4H mantém peso duplo (timeframe de referência); 1H e 1D entram com peso
+    # simples. Antes o 1D era calculado mas descartado do voto (M-1): isso dava
+    # ao 4H controle quase total e ignorava o sinal de longo prazo.
+    regimes = [tf1h["regime"], tf4h["regime"], tf4h["regime"], tf1d["regime"]]
 
     # Contar votos
     votos = {

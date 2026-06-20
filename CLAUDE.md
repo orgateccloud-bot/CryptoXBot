@@ -8,8 +8,8 @@ na Google Cloud Platform via GitHub Actions + Terraform.
 | Camada | Tecnologia |
 |--------|-----------|
 | Core | Python 3.11+ |
-| ML/IA | LightGBM, LSTM, ensemble models |
-| Infraestrutura | Docker, GCP (Compute Engine + Artifact Registry) |
+| ML/IA | XGBoost (modelo principal) + sklearn MLP + FSRS, em ensemble |
+| Infraestrutura | Docker; GCP (Compute Engine + Artifact Registry) e Railway/Supabase |
 | IaC | Terraform |
 | CI/CD | GitHub Actions |
 | Monitoramento | Cloud Logging, dashboard.py, Telegram Bot |
@@ -18,7 +18,7 @@ na Google Cloud Platform via GitHub Actions + Terraform.
 ## Estrutura
 
 ```
-ai/                # Modelos de ML (LightGBM, LSTM)
+ai/                # Inferência async (stub) + cliente Ollama
 backtesting/       # Backtesting de estratégias
 config/            # Configurações
 core/              # Core do bot (ordens, posições, risco)
@@ -74,11 +74,14 @@ DATABASE_URL=postgresql://...
 
 ## Modelos ML
 
-- `lgbm_modelo.py` — LightGBM para classificação de sinal
-- `lstm_modelo.py` — LSTM para previsão de série temporal
-- `ensemble.py` — Ensemble dos modelos
-- `ml_filtro.py` — Filtro de qualidade de sinal
-- `score.py` — Score de confiança da operação
+- `ml_filtro.py` — **XGBoost** (modelo principal de classificação de sinal; é o que o ensemble usa)
+- `lstm_modelo.py` — rede **MLP do sklearn** (nome "LSTM" é histórico; não é LSTM real)
+- `ensemble.py` — Ensemble ponderado (XGBoost + MLP) com ajuste por regime e FSRS
+- `fsrs_trading.py` — Filtro adaptativo (padrões com bom histórico)
+- `score.py` — Score unificado 0-100 (10 componentes ponderados)
+- `lgbm_modelo.py` — LightGBM. **Órfão**: não é importado por nada e `lightgbm`
+  não está no `requirements.txt`. Aposentar ou integrar ao ensemble (ver C-5 no
+  RELATORIO_MAPEAMENTO_MELHORIAS.md)
 
 ## Segurança
 

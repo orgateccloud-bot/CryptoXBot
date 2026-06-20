@@ -354,8 +354,9 @@ def loop_par(par, intervalo_min, simulacao):
                     "liquidez_venda_usdt":  0,
                 }, symbol=par)
 
-            # Executar sinal
-            if sinal in ("COMPRA", "VENDA") and not exec_par.posicao:
+            # Executar sinal (apenas LONG: o Executor ainda nao suporta short —
+            # ver C-3 em RELATORIO_MAPEAMENTO_MELHORIAS.md)
+            if sinal == "COMPRA" and not exec_par.posicao:
                 preco  = resultado["preco"]
                 stop   = resultado["stop_loss"]
                 target = resultado["take_profit"]
@@ -397,10 +398,17 @@ def loop_par(par, intervalo_min, simulacao):
                     except Exception:
                         pass
 
-                    if sinal == "COMPRA":
-                        exec_par.abrir_long(preco, parcela, stop, target)
+                    exec_par.abrir_long(preco, parcela, stop, target)
                 else:
                     print(f"\033[91m[{par}][RISCO] Trade bloqueado: {validacao['motivo']}\033[0m")
+
+            elif sinal == "VENDA" and not exec_par.posicao:
+                # Short ainda nao implementado no Executor (so existe abrir_long).
+                # Antes este sinal consumia validacao + scale-in + alerta Telegram
+                # e era descartado em silencio. Agora e ignorado explicitamente,
+                # sem efeitos colaterais.
+                print(f"\033[90m[{par}][INFO] Sinal VENDA (short) ignorado: "
+                      f"executor opera apenas LONG no momento.\033[0m")
 
             # CVD snapshot periódico (BTC apenas)
             if par == "BTCUSDT":
