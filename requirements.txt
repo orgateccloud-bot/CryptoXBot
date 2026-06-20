@@ -13,15 +13,11 @@ scikit-learn==1.8.0
 xgboost==3.2.0
 joblib==1.5.3
 
-# Novas dependências para arquitetura async/cloud-native
-aiosqlite==0.21.0
-dependency-injector==4.41.0
-google-cloud-pubsub==2.21.5
-google-cloud-logging==3.10.0
-
-# PostgreSQL / Supabase (Railway production backend)
+# PostgreSQL / Supabase (backend de produção no Railway)
 psycopg[binary]>=3.1.0
 psycopg-pool>=3.1.0
 
-# Monitoramento e Observabilidade
-prometheus_client==0.20.0
+# NOTA: dependências do cluster async (aiosqlite, dependency-injector,
+# google-cloud-pubsub, google-cloud-logging, prometheus_client) foram removidas
+# junto com a aposentadoria do cluster (ver _legado/LEIA-ME.md). Caso reative o
+# cluster, restaure-as a partir do histórico git.
