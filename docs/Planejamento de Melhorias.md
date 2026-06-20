@@ -16,10 +16,11 @@ Legenda esforço: ⏱️ pequeno (<1h) · ⏱️⏱️ médio (meio dia) · ⏱�
 - Aposentadoria do cluster async → `_legado/` ([[Dados e Infra|PR #1]]).
 - `requirements.txt` limpo (5 deps órfãs removidas; `psycopg` mantido p/ Supabase).
 - Vault Obsidian + estrutura de deploy Supabase/Railway.
-- ✅ **P0-1 testes do core** — `test_executor.py` (43), `test_risco.py` (74), `test_score.py` (136); **295 passed**; risco 90% / score 75% / executor 62%.
+- ✅ **P0-1 testes do core** — `test_executor.py` (43), `test_risco.py` (74), `test_score.py` (136), `test_executor_monitor.py` (28); **323 passed**; risco 90% / score 75% / executor 82%.
+- ✅ **Trailing stop testado** — `_monitorar` refatorado p/ função pura `avaliar_tick_monitor`, coberto + **oráculo de equivalência** (8.160 casos) provando preservação de comportamento.
 
 ## 🔴 P0 — Antes de operar capital real
-1. ✅ ~~Testes do core de trading~~ — **feito** (253 testes). Resta o **loop `_monitorar`** (trailing stop), que exige refatorar o `executor` para injeção de tempo. ⏱️⏱️
+1. ✅ ~~Testes do core de trading + trailing stop~~ — **feito** (281 testes; executor 82%, risco 90%, score 75%).
 2. **`logger.py` multi-backend** — respeitar o roteador de `database.py` para não criar um SQLite paralelo em produção Supabase. ⏱️⏱️
 3. **`pytest`/`pytest-cov` no `requirements.txt`** + criar `.secrets.baseline` e `.bandit` (ou remover refs) para o pre-commit não quebrar. ⏱️
 4. **`database.fechar_pool()` no shutdown** (handler SIGTERM/SIGINT) — evita vazar conexões no restart do Railway. ⏱️

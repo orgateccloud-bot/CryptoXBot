@@ -10,8 +10,8 @@ Bot de trading algorítmico para Binance Futures, **long-only**, com estratégia
 multi-filtro + ensemble de ML, gestão de risco (Kelly + circuit breaker) e deploy
 em **Railway + Supabase**.
 
-> **Estado atual:** Beta sólido · pronto para **paper trading** · `import main` limpo · `pytest` verde (**295 passed**, 6 skipped).
-> **Nota de maturidade global: 🟢 7.4/10** — ver [[Pontuacoes do Projeto]].
+> **Estado atual:** Beta sólido · pronto para **paper trading** · `import main` limpo · `pytest` verde (**323 passed**, 6 skipped).
+> **Nota de maturidade global: 🟢 7.6/10** — ver [[Pontuacoes do Projeto]].
 
 ## 🗺️ Navegação
 
@@ -39,13 +39,14 @@ em **Railway + Supabase**.
 | Dimensão | Nota | Destaque |
 |---|---|---|
 | Executabilidade | 🟢 9 | clone→run OK + smoke test no CI |
-| Gestão de risco | 🟢 8 | Kelly + circuit breaker + drawdown |
+| Gestão de risco | 🟢 9 | Kelly + circuit breaker + drawdown; trailing stop testado |
 | Arquitetura | 🟢 8 | cluster async aposentado; arquitetura única |
+| Testes | 🟢 8 | **323 testes**; risco 90%, score 75%, executor 82% |
+| Documentação | 🟢 8 | vault Obsidian + deploy guides |
 | Observabilidade | 🟡 7 | logs, health, Telegram, dashboard |
 | Segurança | 🟡 7 | sem segredos hardcoded; paper por padrão |
 | Deploy/Infra | 🟡 7 | Supabase + Railway prontos |
-| Testes | 🟡 7 | **295 testes**; risco 90%, score 75%, executor 62% |
 | ML / Sinais | 🟡 6 | XGBoost+MLP+FSRS; riscos de drift/overfitting |
 | Qualidade de código | 🟡 6 | pre-commit ok; `indicadores.py` duplicado |
 
-> Próximos focos: testar o loop `_monitorar` (trailing stop), módulos de ML/backtesting e refatorar `indicadores.py`.
+> Próximos focos: testar módulos de ML/backtesting e refatorar `indicadores.py`.

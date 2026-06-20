@@ -19,9 +19,10 @@ Núcleo de orquestração, execução de ordens e gestão de risco.
 
 ## `executor.py` — Execução LONG 🟢 Alta
 - **Propósito:** ciclo de vida de 1 posição LONG: entrada LIMIT, trailing stop, take-profit parcial (50%).
-- **API:** `Executor(simulacao, symbol)`, `abrir_long()`, `fechar_posicao()`, `get_preco()`, `status()`.
-- **Riscos:** fecha sempre a MARKET sem proteção de slippage (`executor.py:181`); `preco*1.001` hardcoded para o LIMIT; trailing dorme 10s.
+- **API:** `Executor(simulacao, symbol)`, `abrir_long()`, `fechar_posicao()`, `get_preco()`, `status()`, `avaliar_tick_monitor()` (decisão pura do trailing).
+- **Riscos:** fecha sempre a MARKET sem proteção de slippage; `preco*1.001` hardcoded para o LIMIT; trailing dorme 10s.
 - ✅ Corrigido nesta sessão: `threading.Lock` no estado da posição; validação da resposta da Binance; `fechar_posicao` não marca fechado se a ordem real não preencher.
+- ✅ **Trailing stop testado (82% cobertura):** decisão por-tick extraída para a função pura `avaliar_tick_monitor`; equivalência ao loop original provada por oráculo (8.160 casos).
 
 ## `risco.py` — Gestão de Risco 🟢 Alta
 - **Propósito:** Kelly fracionado (0.25), drawdown diário (5%) / total (15%), circuit breaker, tamanho de posição.

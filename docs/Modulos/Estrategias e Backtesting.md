@@ -25,10 +25,11 @@ tags: [modulo, backtesting, testes, qualidade]
 ## Testes ativos 🟡 Cobertura do core OK
 - `tests/test_data.py` — CVD calculator + indicadores (9 testes).
 - `tests/test_melhorias.py` — score (pesos), FSRS, ensemble+FSRS, Ollama (fallback), retreino.
-- ✅ **Novo nesta sessão (P0):** `tests/test_executor.py` (43), `tests/test_risco.py` (74), `tests/test_score.py` (136) — herméticos (sem rede/banco).
-  - Cobertura: **risco 90%**, **score 75%** (lógica ~100%; falta só `imprimir_score`/`__main__`), **executor 62%**.
-- **Lacunas remanescentes:** loop `executor._monitorar` (trailing stop — exige refatorar p/ injeção de tempo), `ml_filtro.py`, `regime.py`, determinismo do backtesting.
-- Estado: `pytest` → **295 passed, 6 skipped** (testes do cluster async em `_legado/`, ignorados por `pytest.ini`).
+- ✅ **Novo nesta sessão (P0):** `tests/test_executor.py` (43), `tests/test_risco.py` (74), `tests/test_score.py` (136), `tests/test_executor_monitor.py` (28) — herméticos (sem rede/banco).
+  - Cobertura: **risco 90%**, **score 75%** (lógica ~100%), **executor 82%** (trailing stop incluído).
+  - ✅ **Trailing stop**: `_monitorar` refatorado p/ função pura `avaliar_tick_monitor` + **oráculo de equivalência** (8.160 casos) prova que o refactor preserva o comportamento.
+- **Lacunas remanescentes:** `ml_filtro.py`, `regime.py`, `suporte.py`, determinismo do backtesting.
+- Estado: `pytest` → **323 passed, 6 skipped** (testes do cluster async em `_legado/`, ignorados por `pytest.ini`).
 
 ## Qualidade de código 🟢/🟡
 - `.pre-commit-config.yaml` — Black, isort, Flake8, MyPy, Bandit, detect-secrets, yamllint.
