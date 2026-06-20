@@ -25,12 +25,12 @@ from flask_socketio import SocketIO
 from flask_cors import CORS
 
 import database
-from config.settings import SYMBOL_WS, WHALE_BTC_VOLUME
+from config.runtime_settings import CORS_ORIGINS, PORT, SECRET_KEY, SYMBOL_WS, WHALE_BTC_VOLUME
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
-app.config["SECRET_KEY"] = "botbinance2026"
-CORS(app, resources={r"/api/*": {"origins": "*"}})
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+app.config["SECRET_KEY"] = SECRET_KEY
+CORS(app, resources={r"/api/*": {"origins": CORS_ORIGINS}})
+socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode="threading")
 
 BASE_URL  = "https://api.binance.com"
 BASE_FAPI = "https://fapi.binance.com"
@@ -389,6 +389,25 @@ def index():
         return render_template("dashboard.html")
 
 
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "role": "dashboard",
+        "database": database.backend_info(),
+    })
+
+
+@app.route("/ready")
+def ready():
+    ok = database.healthcheck()
+    return jsonify({
+        "status": "ok" if ok else "degraded",
+        "role": "dashboard",
+        "database": database.backend_info(),
+    }), 200 if ok else 503
+
+
 @app.route("/api/pares")
 def api_pares():
     """Estado resumido de todos os pares ativos."""
@@ -458,12 +477,7 @@ def api_trades():
 
 @app.route("/api/sinais")
 def api_sinais():
-    conn = database.conectar()
-    rows = conn.execute(
-        "SELECT * FROM sinais ORDER BY id DESC LIMIT 30"
-    ).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify(database.buscar_sinais(limit=30))
 
 
 @app.route("/api/ml")
@@ -487,6 +501,81 @@ def api_ml(symbol="BTCUSDT"):
 def api_risco():
     import risco
     return jsonify(risco.status())
+
+
+@app.route("/api/conexao")
+def api_conexao():
+    """Status de conectividade com a Binance: REST spot, REST futures, auth e modo."""
+    import hashlib
+    import hmac as _hmac
+    from config.runtime_settings import API_KEY, API_SECRET, DRY_RUN, ALLOW_REAL_TRADING
+
+    def _ping(url: str) -> dict:
+        t0 = time.time()
+        try:
+            r = requests.get(url, timeout=5)
+            return {"ok": r.status_code == 200, "latencia_ms": round((time.time() - t0) * 1000, 1)}
+        except Exception as exc:
+            return {"ok": False, "latencia_ms": None, "erro": str(exc)[:80]}
+
+    rest_spot = _ping(f"{BASE_URL}/api/v3/ping")
+    rest_fut  = _ping(f"{BASE_FAPI}/fapi/v1/ping")
+
+    # Valida se as chaves parecem configuradas (não são placeholder)
+    _placeholders = {"", "your_binance_api_key_here", "nk6ge30Z9XAdARwqE0V8575xKdmST2DzRv0hTXrGqmAstjlQD1ocjEMpdo9P9A2h"}
+    key_ok = bool(API_KEY and API_KEY not in _placeholders and len(API_KEY) > 20)
+
+    auth_ok    = False
+    saldo_usdt = None
+    auth_err   = None
+
+    if key_ok and rest_spot["ok"]:
+        try:
+            ts     = int(time.time() * 1000)
+            params = f"timestamp={ts}"
+            sig    = _hmac.new(API_SECRET.encode(), params.encode(), hashlib.sha256).hexdigest()
+            r = requests.get(
+                f"{BASE_URL}/api/v3/account",
+                params={"timestamp": ts, "signature": sig},
+                headers={"X-MBX-APIKEY": API_KEY},
+                timeout=8,
+            )
+            if r.status_code == 200:
+                auth_ok = True
+                for b in r.json().get("balances", []):
+                    if b["asset"] == "USDT":
+                        saldo_usdt = float(b["free"])
+                        break
+            else:
+                auth_err = r.json().get("msg", f"HTTP {r.status_code}")
+        except Exception as exc:
+            auth_err = str(exc)[:80]
+
+    # Frescor dos dados por par (última atualização)
+    with _lock:
+        pares_info = [
+            {"symbol": s, "ultima_atualizacao": estados[s].get("ultima_atualizacao", "—"),
+             "preco": estados[s].get("preco", 0)}
+            for s in PARES_ATIVOS
+        ]
+
+    return jsonify({
+        "rest_spot":  rest_spot,
+        "rest_fut":   rest_fut,
+        "auth": {
+            "chave_configurada": key_ok,
+            "autenticado":       auth_ok,
+            "saldo_usdt":        saldo_usdt,
+            "erro":              auth_err,
+        },
+        "modo": {
+            "dry_run":     DRY_RUN,
+            "allow_real":  ALLOW_REAL_TRADING,
+            "label":       "SIMULAÇÃO" if (DRY_RUN or not ALLOW_REAL_TRADING) else "REAL",
+        },
+        "pares":     pares_info,
+        "timestamp": datetime.now().isoformat(),
+    })
 
 
 @app.route("/api/backtest/<symbol>")
@@ -514,9 +603,7 @@ def on_connect():
         socketio.emit("update", payload)
 
 
-# ── Inicialização ──────────────────────────────────────────────
-
-if __name__ == "__main__":
+def run_dashboard():
     database.inicializar()
 
     threading.Thread(target=loop_snapshots, daemon=True).start()
@@ -525,7 +612,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 56)
     print("  DASHBOARD BOTBINANCE v2")
     print(f"  Pares: {', '.join(PARES_ATIVOS)}")
-    print("  Acesse: http://localhost:5000")
+    print(f"  Acesse: http://localhost:{PORT}")
     print()
     print("  APIs:")
     print("    /api/pares          - todos os pares")
@@ -538,4 +625,10 @@ if __name__ == "__main__":
     print("    /api/risco          - gestao de risco")
     print("=" * 56 + "\n")
 
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=PORT, debug=False, allow_unsafe_werkzeug=True)
+
+
+# ── Inicialização ──────────────────────────────────────────────
+
+if __name__ == "__main__":
+    run_dashboard()

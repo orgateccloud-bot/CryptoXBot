@@ -9,7 +9,7 @@ import hmac
 import hashlib
 import time
 import requests
-from config.settings import API_KEY, API_SECRET
+from config.runtime_settings import API_KEY, API_SECRET
 
 BASE_URL = "https://api.binance.com"   # Spot API
 

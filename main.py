@@ -38,7 +38,14 @@ from suporte import ScaleIn
 from analise_mercado import relatorio_completo
 from estrategias.otimizada import analisar as analisar_otimizada, imprimir as imprimir_otimizada
 from executor import Executor
-from config.settings import SYMBOL_WS, MIN_BTC_VOLUME, WHALE_BTC_VOLUME
+from config.runtime_settings import (
+    ALLOW_REAL_TRADING,
+    ENABLE_HEALTH_SERVER,
+    MIN_BTC_VOLUME,
+    SYMBOL_WS,
+    WHALE_BTC_VOLUME,
+)
+from health import start_health_server
 from logger import logger
 
 # Retreinamento automático semanal (domingo 02h)
@@ -50,7 +57,7 @@ ws_logger = logging.getLogger("websocket")
 ws_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s - Extra: %(extra)s"
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 handler.setFormatter(formatter)
 ws_logger.addHandler(handler)
@@ -189,7 +196,7 @@ async def process_message(message):
     # Salvar trades grandes
     if quantity >= 0.1:
         try:
-            database.salvar_trade(price, quantity, direcao, WHALE_BTC_VOLUME)
+            database.salvar_trade(price, quantity, direcao, WHALE_BTC_VOLUME, symbol="BTCUSDT", trade_id=trade_id)
         except Exception as e:
             logger.error("Erro salvando trade", extra={"error": str(e)})
 
@@ -332,6 +339,7 @@ def loop_par(par, intervalo_min, simulacao):
             # Salvar snapshot (apenas BTC por ora, para não sobrecarregar a tabela)
             if par == "BTCUSDT":
                 database.salvar_snapshot({
+                    "symbol":             par,
                     "preco":             resultado["preco"],
                     "variacao_24h_%":    0,
                     "volume_24h_btc":    0,
@@ -344,7 +352,7 @@ def loop_par(par, intervalo_min, simulacao):
                     "pressao_dominante": "COMPRA" if (cvd_snap or 0) > 0 else "VENDA",
                     "liquidez_compra_usdt": 0,
                     "liquidez_venda_usdt":  0,
-                })
+                }, symbol=par)
 
             # Executar sinal
             if sinal in ("COMPRA", "VENDA") and not exec_par.posicao:
@@ -396,7 +404,7 @@ def loop_par(par, intervalo_min, simulacao):
 
             # CVD snapshot periódico (BTC apenas)
             if par == "BTCUSDT":
-                database.salvar_cvd(cvd_btc, total_compras, total_vendas)
+                database.salvar_cvd(cvd_btc, total_compras, total_vendas, symbol=par)
 
         except Exception as e:
             print(f"\033[91m[ERRO {par}] {e}\033[0m")
@@ -420,6 +428,9 @@ def main():
     args = parser.parse_args()
 
     simulacao = not args.real
+    if args.real and not ALLOW_REAL_TRADING:
+        simulacao = True
+        print("[SEGURANCA] --real ignorado: defina ALLOW_REAL_TRADING=true para liberar ordens reais.")
 
     # Definir pares a operar
     if args.par:
@@ -452,6 +463,16 @@ def main():
 
     # === Modo completo =========================================
     database.inicializar()
+    if ENABLE_HEALTH_SERVER:
+        start_health_server(role="worker")
+        print("[HEALTH] Servidor /health ativo para Railway.")
+    if args.real and not ALLOW_REAL_TRADING:
+        database.salvar_bot_event(
+            "real_trading_blocked",
+            "--real foi solicitado, mas ALLOW_REAL_TRADING nao esta habilitado.",
+            service="worker",
+            severity="WARNING",
+        )
 
     print("\n" + "="*56)
     print("  BOTBINANCE v2 — INICIANDO")
@@ -464,7 +485,7 @@ def main():
     print(f"  [OK] Estrategia Otimizada MTF+ATR+Volume+VWAP+ML (por par)")
     print(f"  [OK] Gestao de Risco (Kelly + Circuit Breaker)")
     print(f"  [OK] Executor {'Simulado' if simulacao else 'Real'} + Trailing Stop (por par)")
-    print(f"  [OK] Banco de dados SQLite")
+    print(f"  [OK] Banco de dados {database.backend_info()['backend'].upper()}")
     print(f"  [OK] Retreinamento automatico (domingo 02h)")
     print(f"\n  Avaliacao de sinal: a cada {args.intervalo} minutos")
     print("  Ctrl+C para encerrar")
@@ -490,10 +511,12 @@ def main():
 
     try:
         iniciar_websocket_async()
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         print("\n\033[93m[BOT] Encerrado pelo usuario.\033[0m")
         with _lock:
-            database.salvar_cvd(cvd_btc, total_compras, total_vendas)
+            database.salvar_cvd(cvd_btc, total_compras, total_vendas, symbol="BTCUSDT")
         print(f"[BOT] CVD BTC final: {cvd_btc:+.3f} BTC")
 
 

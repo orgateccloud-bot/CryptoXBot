@@ -20,7 +20,7 @@ import logging
 import json
 import sys
 from typing import Dict, Any
-from config.settings import LOG_LEVEL
+from config.runtime_settings import LOG_LEVEL
 
 
 class StructuredFormatter(logging.Formatter):

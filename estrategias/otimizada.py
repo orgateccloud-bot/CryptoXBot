@@ -240,7 +240,14 @@ def analisar(symbol="BTCUSDT", cvd_atual=None, ml_prob=None, ensemble_result=Non
         motivo = (f"Score:{score_result['score_total']} | MTF:{tend_4h} | "
                   f"RSI:{rsi14:.1f} | ATR:{atr_atual:.0f} | "
                   f"VolRel:{vol_rel:.2f}x | FG:{fear_info['valor']}")
-        database.salvar_sinal(sinal, preco, motivo)
+        database.salvar_sinal(
+            sinal,
+            preco,
+            motivo,
+            symbol=symbol,
+            score=score_result["score_total"],
+            source="estrategia_otimizada",
+        )
 
     return resultado
 

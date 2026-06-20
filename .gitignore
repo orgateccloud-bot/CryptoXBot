@@ -8,6 +8,10 @@ data/
 # Logs
 logs/
 *.log
+run_stdout.txt
+run_stderr.txt
+dash_out.txt
+dash_err.txt
 
 # Python
 __pycache__/

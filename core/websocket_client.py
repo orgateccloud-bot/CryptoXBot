@@ -24,7 +24,7 @@ import time
 import random
 import os
 from typing import Dict, Any, AsyncGenerator
-from config.settings import SYMBOL_WS, MIN_BTC_VOLUME, WHALE_BTC_VOLUME
+from config.runtime_settings import MIN_BTC_VOLUME, SYMBOL_WS, WHALE_BTC_VOLUME
 from infra.logging import get_logger
 from infra.pubsub_client import publish_tick
 from data.stream_processor import process_tick

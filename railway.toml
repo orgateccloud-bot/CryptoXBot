@@ -1,0 +1,20 @@
+# Railway configuration — BinanceXBot Worker
+# Este arquivo configura o serviço WORKER (main.py).
+# O serviço DASHBOARD (dashboard.py) sobrepõe o startCommand no painel Railway.
+#
+# Deploy de 2 serviços:
+#   worker    → python main.py --simulacao --intervalo 15
+#   dashboard → python dashboard.py
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python main.py --simulacao --intervalo 15"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+# healthcheckPath só é usada pelo serviço dashboard (Flask expõe /health).
+# O worker usa o servidor HTTP leve de health.py na mesma porta PORT.
+healthcheckPath = "/health"
+healthcheckTimeout = 30

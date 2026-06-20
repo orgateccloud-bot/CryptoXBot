@@ -22,7 +22,7 @@ import requests
 from datetime import datetime
 import database
 import risco as gestao_risco
-from config.settings import API_KEY, API_SECRET
+from config.runtime_settings import API_KEY, API_SECRET
 
 BASE_URL = "https://api.binance.com"
 
@@ -156,6 +156,7 @@ class Executor:
         }
 
         gestao_risco._estado_risco["posicoes_abertas"] += 1
+        gestao_risco.persistir_estado()
         print(f"[EXEC] LONG aberto @ ${preco_exec:,.2f} | "
               f"Stop: ${stop_loss:,.2f} | Target: ${take_profit:,.2f}")
 
@@ -190,13 +191,17 @@ class Executor:
         database.salvar_sinal(
             "FECHAR_LONG" if pnl_usdt >= 0 else "STOP",
             preco,
-            f"{motivo} | PnL: {pnl_pct:+.2f}%"
+            f"{motivo} | PnL: {pnl_pct:+.2f}%",
+            symbol=self.symbol,
+            source="executor",
+            executado=True,
         )
 
         if not parcial:
             self.posicao = None
             self._ativo  = False
             gestao_risco._estado_risco["posicoes_abertas"] -= 1
+            gestao_risco.persistir_estado()
 
     # ── Monitor de trailing stop ───────────────────────────────
 

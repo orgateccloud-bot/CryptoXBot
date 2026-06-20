@@ -13,7 +13,7 @@ import json
 import time
 import threading
 from datetime import datetime
-from config.settings import SYMBOL_WS, MIN_BTC_VOLUME, WHALE_BTC_VOLUME
+from config.runtime_settings import MIN_BTC_VOLUME, SYMBOL_WS, WHALE_BTC_VOLUME
 import database
 
 # === Estado global ===

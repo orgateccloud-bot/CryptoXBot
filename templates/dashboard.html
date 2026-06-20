@@ -48,6 +48,75 @@
       background-size: 40px 40px;
     }
 
+    /* ── AURORA BACKGROUND ──────────────────────────────────────── */
+    @property --au1 { syntax: '<color>'; inherits: true; initial-value: #0D3B8C; }
+    @property --au2 { syntax: '<color>'; inherits: true; initial-value: #7B2FBE; }
+    @property --au3 { syntax: '<color>'; inherits: true; initial-value: #0EA5E9; }
+    @property --au-op { syntax: '<number>'; inherits: true; initial-value: 0.18; }
+
+    :root {
+      --au1: #0D3B8C;
+      --au2: #7B2FBE;
+      --au3: #0EA5E9;
+      --au-op: 0.18;
+    }
+
+    #aurora-wrap {
+      position: fixed; inset: 0; z-index: 0;
+      pointer-events: none; overflow: hidden;
+      transition: --au1 4s ease, --au2 4s ease, --au3 4s ease, --au-op 4s ease;
+    }
+    .au-blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(90px);
+      mix-blend-mode: screen;
+      opacity: var(--au-op);
+      will-change: transform;
+    }
+    #au1 {
+      width: 70vw; height: 55vh;
+      top: -15vh; left: -10vw;
+      background: radial-gradient(ellipse at center, var(--au1) 0%, transparent 70%);
+      animation: aurora-drift-1 18s ease-in-out infinite alternate;
+    }
+    #au2 {
+      width: 55vw; height: 60vh;
+      top: 20vh; right: -5vw;
+      background: radial-gradient(ellipse at center, var(--au2) 0%, transparent 70%);
+      animation: aurora-drift-2 24s ease-in-out infinite alternate;
+    }
+    #au3 {
+      width: 80vw; height: 45vh;
+      bottom: -10vh; left: 10vw;
+      background: radial-gradient(ellipse at center, var(--au3) 0%, transparent 70%);
+      animation: aurora-drift-3 20s ease-in-out infinite alternate;
+    }
+    @keyframes aurora-drift-1 {
+      0%   { transform: translate(0,    0)    scale(1);   }
+      33%  { transform: translate(6vw,  4vh)  scale(1.1); }
+      66%  { transform: translate(-4vw, 8vh)  scale(0.95);}
+      100% { transform: translate(10vw, 2vh)  scale(1.05);}
+    }
+    @keyframes aurora-drift-2 {
+      0%   { transform: translate(0,    0)    scale(1);   }
+      40%  { transform: translate(-8vw, -5vh) scale(1.12);}
+      70%  { transform: translate(4vw,  6vh)  scale(0.9); }
+      100% { transform: translate(-5vw, 2vh)  scale(1.08);}
+    }
+    @keyframes aurora-drift-3 {
+      0%   { transform: translate(0,    0)    scale(1);   }
+      30%  { transform: translate(5vw,  -4vh) scale(1.07);}
+      60%  { transform: translate(-6vw, 3vh)  scale(0.92);}
+      100% { transform: translate(3vw,  -6vh) scale(1.04);}
+    }
+    /* vinheta para manter legibilidade das cards */
+    #aurora-wrap::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse 90% 80% at 50% 50%, transparent 40%, rgba(2,9,18,.92) 100%);
+    }
+
     /* SCANLINE overlay */
     body::after {
       content: '';
@@ -67,11 +136,12 @@
     header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 24px;
-      background: rgba(5,15,30,.95);
+      background: rgba(5,15,30,.92);
       border-bottom: 1px solid var(--border2);
       position: sticky; top: 0; z-index: 100;
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(12px);
     }
+    .main-content { position: relative; z-index: 1; }
     header::before {
       content: '';
       position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
@@ -195,6 +265,94 @@
     .sinal-metas .lbl { font-family: var(--mono); font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
     .sinal-metas .val { font-family: var(--mono); font-size: 14px; color: var(--text-hi); margin-top: 2px; }
 
+    /* ── CONEXÃO BINANCE (header button + modal) ── */
+    #btn-conexao {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border2);
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font-family: var(--mono); font-size: 10px; color: var(--text);
+      transition: border-color .2s, background .2s;
+      user-select: none;
+    }
+    #btn-conexao:hover { border-color: var(--cyan); background: rgba(0,212,255,.06); }
+    .conn-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted);
+      transition: background .4s;
+      flex-shrink: 0;
+    }
+    .conn-dot.ok    { background: var(--green); box-shadow: 0 0 6px rgba(0,255,136,.6); }
+    .conn-dot.warn  { background: var(--yellow); box-shadow: 0 0 6px rgba(255,204,0,.6); }
+    .conn-dot.err   { background: var(--red); box-shadow: 0 0 6px rgba(255,51,102,.6); }
+
+    /* Modal overlay */
+    #modal-conexao {
+      display: none; position: fixed; inset: 0; z-index: 500;
+      background: rgba(2,9,18,.7); backdrop-filter: blur(6px);
+      align-items: flex-start; justify-content: flex-end;
+    }
+    #modal-conexao.open { display: flex; }
+    #modal-conexao-inner {
+      margin: 56px 16px 0 0;
+      background: #050f1e;
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      width: 380px;
+      box-shadow: 0 8px 40px rgba(0,0,0,.6);
+      overflow: hidden;
+    }
+    .mc-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0,212,255,.03);
+    }
+    .mc-title { font-family: var(--mono); font-size: 11px; color: var(--cyan); letter-spacing: 1px; }
+    .mc-close { cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; transition: color .2s; }
+    .mc-close:hover { color: var(--text-hi); }
+    .mc-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .mc-section {
+      background: rgba(255,255,255,.025);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .mc-section-title {
+      font-family: var(--mono); font-size: 8px; color: var(--muted);
+      letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .mc-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .mc-row:last-child { margin-bottom: 0; }
+    .mc-lbl { font-family: var(--mono); font-size: 10px; color: var(--text); }
+    .mc-val { font-family: var(--mono); font-size: 10px; color: var(--text-hi); }
+    .mc-val.ok   { color: var(--green); }
+    .mc-val.err  { color: var(--red); }
+    .mc-val.warn { color: var(--yellow); }
+    .mc-val.muted { color: var(--muted); }
+    .mc-badge {
+      font-family: var(--mono); font-size: 9px; font-weight: 600;
+      padding: 2px 8px; border-radius: 3px; letter-spacing: .5px;
+    }
+    .mc-badge.sim  { background: rgba(255,204,0,.1); color: var(--yellow); border: 1px solid rgba(255,204,0,.3); }
+    .mc-badge.real { background: rgba(0,255,136,.1); color: var(--green);  border: 1px solid rgba(0,255,136,.3); }
+    .mc-badge.err  { background: rgba(255,51,102,.1); color: var(--red);   border: 1px solid rgba(255,51,102,.3); }
+    #btn-testar {
+      width: 100%; padding: 8px; margin-top: 4px;
+      background: rgba(0,212,255,.06);
+      border: 1px solid rgba(0,212,255,.3);
+      border-radius: 4px;
+      font-family: var(--mono); font-size: 10px; color: var(--cyan);
+      cursor: pointer; letter-spacing: 1px;
+      transition: background .2s, border-color .2s;
+    }
+    #btn-testar:hover:not(:disabled) { background: rgba(0,212,255,.12); border-color: var(--cyan); }
+    #btn-testar:disabled { opacity: .4; cursor: default; }
+    .mc-spinner { display: inline-block; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     /* ── SCORE GAUGE ── */
     #card-score { grid-column: span 1; display: flex; flex-direction: column; align-items: center; }
     .gauge-wrap { position: relative; width: 150px; height: 150px; margin: 6px auto 0; }
@@ -305,18 +463,99 @@
   </style>
 </head>
 <body>
+<div id="aurora-wrap">
+  <div class="au-blob" id="au1"></div>
+  <div class="au-blob" id="au2"></div>
+  <div class="au-blob" id="au3"></div>
+</div>
 
 <header>
   <div class="logo">&#8383; BOTBINANCE <span>// MULTI-PAR v2</span></div>
   <div class="header-right">
     <span id="header-time">--:--:--</span>
+    <button id="btn-conexao" onclick="abrirModalConexao()" title="Status da conexão Binance">
+      <span class="conn-dot" id="conn-dot-binance"></span>
+      BINANCE
+    </button>
     <span id="conn-status">INIT...</span>
   </div>
 </header>
 
+<!-- MODAL CONEXÃO BINANCE -->
+<div id="modal-conexao" onclick="if(event.target===this)fecharModalConexao()">
+  <div id="modal-conexao-inner">
+    <div class="mc-header">
+      <span class="mc-title">◈ STATUS_CONEXAO :: BINANCE</span>
+      <span class="mc-close" onclick="fecharModalConexao()">✕</span>
+    </div>
+    <div class="mc-body">
+
+      <!-- REST -->
+      <div class="mc-section">
+        <div class="mc-section-title">REST API</div>
+        <div class="mc-row">
+          <span class="mc-lbl">Spot (api.binance.com)</span>
+          <span class="mc-val" id="mc-rest-spot">—</span>
+        </div>
+        <div class="mc-row">
+          <span class="mc-lbl">Futures (fapi.binance.com)</span>
+          <span class="mc-val" id="mc-rest-fut">—</span>
+        </div>
+      </div>
+
+      <!-- DADOS AO VIVO -->
+      <div class="mc-section">
+        <div class="mc-section-title">Dados ao vivo (última atualização)</div>
+        <div id="mc-pares-list"></div>
+      </div>
+
+      <!-- CONTA -->
+      <div class="mc-section">
+        <div class="mc-section-title">Conta & Autenticação</div>
+        <div class="mc-row">
+          <span class="mc-lbl">Chave API</span>
+          <span class="mc-val" id="mc-chave">—</span>
+        </div>
+        <div class="mc-row">
+          <span class="mc-lbl">Autenticado</span>
+          <span class="mc-val" id="mc-auth">—</span>
+        </div>
+        <div class="mc-row" id="mc-saldo-row" style="display:none">
+          <span class="mc-lbl">Saldo USDT</span>
+          <span class="mc-val ok" id="mc-saldo">—</span>
+        </div>
+        <div class="mc-row" id="mc-auth-err-row" style="display:none">
+          <span class="mc-lbl">Erro</span>
+          <span class="mc-val err" id="mc-auth-err">—</span>
+        </div>
+      </div>
+
+      <!-- MODO -->
+      <div class="mc-section">
+        <div class="mc-section-title">Modo de operação</div>
+        <div class="mc-row">
+          <span class="mc-lbl">Modo atual</span>
+          <span id="mc-modo-badge" class="mc-badge sim">—</span>
+        </div>
+        <div class="mc-row">
+          <span class="mc-lbl">DRY_RUN</span>
+          <span class="mc-val" id="mc-dry-run">—</span>
+        </div>
+        <div class="mc-row">
+          <span class="mc-lbl">ALLOW_REAL_TRADING</span>
+          <span class="mc-val" id="mc-allow-real">—</span>
+        </div>
+      </div>
+
+      <div style="font-family:var(--mono);font-size:8px;color:var(--muted);text-align:right" id="mc-ts">—</div>
+      <button id="btn-testar" onclick="testarConexao()">▶ TESTAR CONEXÃO</button>
+    </div>
+  </div>
+</div>
+
 <div class="pares-row" id="pares-row"></div>
 
-<main>
+<main class="main-content">
 
   <!-- PRECO -->
   <div class="card" id="card-price">
@@ -714,6 +953,75 @@ function aplicarDados(d) {
 
   el('update-lbl').textContent   = d.ultima_atualizacao || '—';
   el('footer-update').textContent = d.ultima_atualizacao || '—';
+
+  updateAurora(d);
+}
+
+// ── AURORA REATIVO ────────────────────────────────────────────
+/*
+ * Paleta de estados do aurora:
+ *   BULLISH   — azul-safira + verde-esmeralda  (tendência + score alto)
+ *   BEARISH   — vermelho-carmim + laranja       (tendência baixa + score baixo)
+ *   NEUTRAL   — azul-profundo + violeta         (mercado lateral)
+ *   EXT_FEAR  — vermelho-escuro + bordô         (fear_greed < 20)
+ *   EXT_GREED — verde + dourado                 (fear_greed > 75)
+ *
+ * Transição: 4 s ease via @property CSS animável.
+ */
+const AURORA_PALETTES = {
+  BULLISH:    { au1: '#0052FF', au2: '#00c96a', au3: '#4D7CFF', op: 0.20 },
+  BEARISH:    { au1: '#CC1034', au2: '#7B2FBE', au3: '#FF5500', op: 0.18 },
+  NEUTRAL:    { au1: '#0D3B8C', au2: '#7B2FBE', au3: '#0EA5E9', op: 0.15 },
+  EXT_FEAR:   { au1: '#6B0020', au2: '#3D0010', au3: '#2d0030', op: 0.16 },
+  EXT_GREED:  { au1: '#00c96a', au2: '#FFAA00', au3: '#00d4ff', op: 0.22 },
+};
+
+let _lastAuroraPalette = null;
+
+function updateAurora(d) {
+  const score    = d.score       || 0;
+  const regime   = d.regime      || '';
+  const sinal    = d.sinal       || '';
+  const fg       = d.fear_greed  != null ? d.fear_greed : 50;
+  const variacao = d.variacao_24h || 0;
+  const mlP      = d.ml_ensemble || d.ml_prob || 0;
+
+  let paletteKey;
+
+  if (fg < 20) {
+    paletteKey = 'EXT_FEAR';
+  } else if (fg > 75) {
+    paletteKey = 'EXT_GREED';
+  } else if (regime === 'TENDENCIA_ALTA' && score >= 62 && (sinal === 'COMPRA' || variacao > 0)) {
+    paletteKey = 'BULLISH';
+  } else if (regime === 'TENDENCIA_BAIXA' && score < 58 && (sinal === 'VENDA' || variacao < 0)) {
+    paletteKey = 'BEARISH';
+  } else if (sinal === 'COMPRA' && score >= 70 && mlP >= 0.6) {
+    paletteKey = 'BULLISH';
+  } else if (sinal === 'VENDA' && score < 52) {
+    paletteKey = 'BEARISH';
+  } else {
+    paletteKey = 'NEUTRAL';
+  }
+
+  if (paletteKey === _lastAuroraPalette) return;
+  _lastAuroraPalette = paletteKey;
+
+  const p = AURORA_PALETTES[paletteKey];
+  const root = document.documentElement;
+  root.style.setProperty('--au1', p.au1);
+  root.style.setProperty('--au2', p.au2);
+  root.style.setProperty('--au3', p.au3);
+  root.style.setProperty('--au-op', p.op);
+
+  /* Atualiza backgrounds dos blobs diretamente (fallback navegadores sem @property) */
+  const b1 = document.getElementById('au1');
+  const b2 = document.getElementById('au2');
+  const b3 = document.getElementById('au3');
+  if (b1) b1.style.background = `radial-gradient(ellipse at center, ${p.au1} 0%, transparent 70%)`;
+  if (b2) b2.style.background = `radial-gradient(ellipse at center, ${p.au2} 0%, transparent 70%)`;
+  if (b3) b3.style.background = `radial-gradient(ellipse at center, ${p.au3} 0%, transparent 70%)`;
+  document.getElementById('aurora-wrap').style.opacity = p.op / 0.18;
 }
 
 // ── EVENTOS ───────────────────────────────────────────────────
@@ -867,6 +1175,146 @@ setInterval(carregarPares,  15000);
 
 atualizarGauge(0);
 renderBreakdown({});
+
+// ── CONEXÃO BINANCE ──────────────────────────────────────────
+let _conexaoCache = null;
+
+function abrirModalConexao() {
+  document.getElementById('modal-conexao').classList.add('open');
+  if (!_conexaoCache) testarConexao();
+  else _renderConexao(_conexaoCache);
+}
+function fecharModalConexao() {
+  document.getElementById('modal-conexao').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModalConexao(); });
+
+async function testarConexao() {
+  const btn = document.getElementById('btn-testar');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="mc-spinner">↻</span> TESTANDO...';
+  try {
+    const d = await fetch('/api/conexao').then(r => r.json());
+    _conexaoCache = d;
+    _renderConexao(d);
+  } catch(e) {
+    btn.innerHTML = '✕ FALHA — sem resposta do servidor';
+  } finally {
+    btn.disabled = false;
+    if (btn.innerHTML.includes('TESTANDO')) btn.innerHTML = '▶ TESTAR CONEXÃO';
+  }
+}
+
+function _renderConexao(d) {
+  const el = id => document.getElementById(id);
+
+  // REST Spot
+  const rs = d.rest_spot || {};
+  el('mc-rest-spot').textContent = rs.ok
+    ? `✓ ${rs.latencia_ms} ms`
+    : `✕ ${rs.erro || 'timeout'}`;
+  el('mc-rest-spot').className = 'mc-val ' + (rs.ok ? 'ok' : 'err');
+
+  // REST Futures
+  const rf = d.rest_fut || {};
+  el('mc-rest-fut').textContent = rf.ok
+    ? `✓ ${rf.latencia_ms} ms`
+    : `✕ ${rf.erro || 'timeout'}`;
+  el('mc-rest-fut').className = 'mc-val ' + (rf.ok ? 'ok' : 'err');
+
+  // Pares (última atualização)
+  const lista = el('mc-pares-list');
+  lista.innerHTML = '';
+  (d.pares || []).forEach(p => {
+    const age = p.ultima_atualizacao && p.ultima_atualizacao !== '—'
+      ? p.ultima_atualizacao : 'sem dados';
+    lista.innerHTML += `
+      <div class="mc-row">
+        <span class="mc-lbl">${p.symbol}</span>
+        <span class="mc-val ${age === 'sem dados' ? 'muted' : 'ok'}">
+          ${age !== 'sem dados' ? '✓' : '○'} ${age}
+          ${p.preco ? ' · $' + Number(p.preco).toLocaleString('pt-BR') : ''}
+        </span>
+      </div>`;
+  });
+
+  // Autenticação
+  const auth = d.auth || {};
+  el('mc-chave').textContent  = auth.chave_configurada ? '✓ Configurada' : '✕ Não configurada';
+  el('mc-chave').className    = 'mc-val ' + (auth.chave_configurada ? 'ok' : 'err');
+  el('mc-auth').textContent   = auth.autenticado ? '✓ Autenticado' : auth.chave_configurada ? '✕ Falhou' : '— N/A (chave não configurada)';
+  el('mc-auth').className     = 'mc-val ' + (auth.autenticado ? 'ok' : auth.chave_configurada ? 'err' : 'muted');
+
+  if (auth.saldo_usdt != null) {
+    el('mc-saldo-row').style.display = '';
+    el('mc-saldo').textContent = '$' + Number(auth.saldo_usdt).toFixed(2);
+  } else {
+    el('mc-saldo-row').style.display = 'none';
+  }
+  if (auth.erro) {
+    el('mc-auth-err-row').style.display = '';
+    el('mc-auth-err').textContent = auth.erro;
+  } else {
+    el('mc-auth-err-row').style.display = 'none';
+  }
+
+  // Modo
+  const modo = d.modo || {};
+  const badge = el('mc-modo-badge');
+  badge.textContent = modo.label || '—';
+  badge.className   = 'mc-badge ' + (modo.label === 'REAL' ? 'real' : 'sim');
+  el('mc-dry-run').textContent    = modo.dry_run   ? '✓ Ativo'   : '✕ Desativado';
+  el('mc-dry-run').className      = 'mc-val ' + (modo.dry_run   ? 'warn' : 'ok');
+  el('mc-allow-real').textContent = modo.allow_real ? '✓ Permitido' : '✕ Bloqueado';
+  el('mc-allow-real').className   = 'mc-val ' + (modo.allow_real ? 'warn' : 'muted');
+
+  // Timestamp
+  if (d.timestamp) {
+    el('mc-ts').textContent = 'Atualizado: ' + new Date(d.timestamp).toLocaleTimeString('pt-BR');
+  }
+
+  // Dot no header
+  const dot = document.getElementById('conn-dot-binance');
+  if (!rs.ok && !rf.ok) {
+    dot.className = 'conn-dot err';
+  } else if (!auth.chave_configurada || !auth.autenticado) {
+    dot.className = 'conn-dot warn';
+  } else {
+    dot.className = 'conn-dot ok';
+  }
+
+  document.getElementById('btn-testar').innerHTML = '↺ ATUALIZAR';
+}
+
+// Testa conexão periodicamente (a cada 60s, silenciosamente)
+setInterval(async () => {
+  try {
+    const d = await fetch('/api/conexao').then(r => r.json());
+    _conexaoCache = d;
+    const dot = document.getElementById('conn-dot-binance');
+    const rs = d.rest_spot || {};
+    const rf = d.rest_fut  || {};
+    const auth = d.auth    || {};
+    if (!rs.ok && !rf.ok)                               dot.className = 'conn-dot err';
+    else if (!auth.chave_configurada || !auth.autenticado) dot.className = 'conn-dot warn';
+    else                                                dot.className = 'conn-dot ok';
+    if (document.getElementById('modal-conexao').classList.contains('open')) _renderConexao(d);
+  } catch(e) {}
+}, 60000);
+
+// Verificação inicial (silenciosa, sem abrir modal)
+setTimeout(async () => {
+  try {
+    const d = await fetch('/api/conexao').then(r => r.json());
+    _conexaoCache = d;
+    const dot = document.getElementById('conn-dot-binance');
+    const rs   = d.rest_spot || {};
+    const auth = d.auth      || {};
+    if (!rs.ok)                                          dot.className = 'conn-dot err';
+    else if (!auth.chave_configurada || !auth.autenticado) dot.className = 'conn-dot warn';
+    else                                                 dot.className = 'conn-dot ok';
+  } catch(e) {}
+}, 3000);
 </script>
 </body>
 </html>

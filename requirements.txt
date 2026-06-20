@@ -19,5 +19,9 @@ dependency-injector==4.41.0
 google-cloud-pubsub==2.21.5
 google-cloud-logging==3.10.0
 
+# PostgreSQL / Supabase (Railway production backend)
+psycopg[binary]>=3.1.0
+psycopg-pool>=3.1.0
+
 # Monitoramento e Observabilidade
 prometheus_client==0.20.0

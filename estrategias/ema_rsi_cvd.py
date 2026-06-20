@@ -156,7 +156,7 @@ def analisar(cvd_atual=None):
 
     # Salvar sinal no banco (somente se acionado)
     if sinal != "AGUARDAR":
-        database.salvar_sinal(sinal, preco, " | ".join(motivos))
+        database.salvar_sinal(sinal, preco, " | ".join(motivos), symbol="BTCUSDT", source="ema_rsi_cvd")
 
     return resultado
 

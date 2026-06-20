@@ -21,7 +21,7 @@ Alertas enviados:
 
 import requests
 from datetime import datetime
-from config.settings import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+from config.runtime_settings import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 
 
 def _enviar(mensagem):
@@ -44,11 +44,11 @@ def _enviar(mensagem):
 
 # ── Tipos de alertas ──────────────────────────────────────────
 
-def alerta_sinal(tipo, preco, stop, target, filtros_ok, filtros_total, ml_prob=None):
+def alerta_sinal(tipo, preco, stop, target, filtros_ok, filtros_total, ml_prob=None, par="BTCUSDT"):
     emoji = "🟢" if tipo == "COMPRA" else "🔴"
     ml_txt = f"\n📊 <b>ML Prob:</b> {ml_prob*100:.1f}%" if ml_prob else ""
     msg = (
-        f"{emoji} <b>SINAL {tipo}</b> — BTC/USDT\n"
+        f"{emoji} <b>SINAL {tipo}</b> — {par}\n"
         f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
         f"💰 <b>Preço:</b> ${preco:,.2f}\n"
         f"🛑 <b>Stop Loss:</b> ${stop:,.2f}\n"

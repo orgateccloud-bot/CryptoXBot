@@ -21,7 +21,7 @@ import aiosqlite
 import asyncio
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
-from config.settings import DB_PATH
+from config.runtime_settings import DB_PATH
 from infra.logging import get_logger
 
 logger = get_logger(__name__)

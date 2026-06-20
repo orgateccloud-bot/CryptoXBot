@@ -9,11 +9,11 @@ Módulos:
   5. Validador de trade     — checa todas as condições antes de executar
 """
 
-import sqlite3
 import requests
 from datetime import datetime, date
-from config.settings import DB_PATH, API_KEY, API_SECRET
+from config.runtime_settings import API_KEY, API_SECRET
 import hmac, hashlib, time
+import database
 
 BASE_URL = "https://api.binance.com"
 
@@ -37,9 +37,32 @@ _estado_risco = {
     "motivo_bloqueio":    "",
     "posicoes_abertas":   0,
 }
+_estado_carregado = False
+
+
+def _carregar_estado_persistido():
+    global _estado_carregado
+    if _estado_carregado:
+        return
+    _estado_carregado = True
+    try:
+        salvo = database.carregar_risk_state()
+        if salvo:
+            _estado_risco.update(salvo)
+    except Exception:
+        pass
+
+
+def persistir_estado():
+    """Persist risk state so Railway restarts do not reset safeguards."""
+    try:
+        database.salvar_risk_state(_estado_risco)
+    except Exception:
+        pass
 
 
 def _resetar_se_novo_dia():
+    _carregar_estado_persistido()
     hoje = str(date.today())
     if _estado_risco["data_dia"] != hoje:
         _estado_risco["data_dia"]    = hoje
@@ -47,12 +70,14 @@ def _resetar_se_novo_dia():
         _estado_risco["bloqueado"]   = False
         _estado_risco["motivo_bloqueio"] = ""
         # Não reseta capital — mantém histórico
+        persistir_estado()
 
 
 def registrar_resultado(pnl_usdt):
     """Registra resultado de um trade fechado."""
     _resetar_se_novo_dia()
     _estado_risco["pnl_dia"] += pnl_usdt
+    persistir_estado()
 
 
 # ── Kelly Criterion ───────────────────────────────────────────
@@ -74,28 +99,12 @@ def kelly(win_rate, ratio_rr=2.0):
 def kelly_do_banco():
     """Calcula Kelly com base no histórico de trades no banco."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        rows = conn.execute("""
-            SELECT direcao, volume_btc, volume_usdt
-            FROM trades
-            WHERE timestamp >= datetime('now', '-30 days')
-        """).fetchall()
-        conn.close()
-
-        sinais = conn.execute if False else None  # só para não usar conn após close
-
-        # Tenta pegar dos sinais executados
-        conn2 = sqlite3.connect(DB_PATH)
-        sinais_rows = conn2.execute("""
-            SELECT tipo FROM sinais
-            WHERE executado=1
-        """).fetchall()
-        conn2.close()
+        sinais_rows = database.sinais_executados(limit=1000)
 
         if len(sinais_rows) < 10:
             return MAX_RISCO_POR_TRADE  # sem histórico suficiente
 
-        ganhos = sum(1 for s in sinais_rows if s[0] == "COMPRA")
+        ganhos = sum(1 for s in sinais_rows if s.get("tipo") == "COMPRA")
         wr = ganhos / len(sinais_rows)
         return kelly(wr, 2.0)
     except Exception:
@@ -217,6 +226,7 @@ def validar_trade(sinal, preco, capital_usdt):
         if dd_dia <= -MAX_DRAWDOWN_DIARIO:
             _estado_risco["bloqueado"]        = True
             _estado_risco["motivo_bloqueio"]  = f"Max drawdown diario atingido ({dd_dia*100:.1f}%)"
+            persistir_estado()
             return {"pode": False, "motivo": _estado_risco["motivo_bloqueio"], "tamanho_btc": 0}
 
     # 4. Volatilidade extrema?
@@ -238,6 +248,7 @@ def validar_trade(sinal, preco, capital_usdt):
     # Inicializar capital do dia se necessário
     if _estado_risco["capital_inicio_dia"] is None:
         _estado_risco["capital_inicio_dia"] = capital_usdt
+        persistir_estado()
 
     return {
         "pode":        True,
