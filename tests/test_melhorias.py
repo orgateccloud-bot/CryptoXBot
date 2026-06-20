@@ -284,6 +284,19 @@ class TestEnsembleFSRS(unittest.TestCase):
 # 4. Ollama Client
 # ══════════════════════════════════════════════════════════════
 
+def _ollama_rodando():
+    """Probe seguro: True se o servidor Ollama responde, False em qualquer falha.
+
+    Avaliado em tempo de coleta pelo @skipUnless; NUNCA pode lançar exceção
+    (senão a coleta inteira do pytest aborta quando o Ollama não está rodando).
+    """
+    try:
+        import requests
+        return requests.get("http://localhost:11434/api/tags", timeout=2).status_code == 200
+    except Exception:
+        return False
+
+
 class TestOllamaCliente(unittest.TestCase):
     """Testes do OllamaCliente — com e sem servidor ativo."""
 
@@ -339,11 +352,7 @@ class TestOllamaCliente(unittest.TestCase):
         self.assertIsInstance(resultado, str)
         self.assertIn("COMPRA", resultado)
 
-    @unittest.skipUnless(
-        __import__('requests').get("http://localhost:11434/api/tags", timeout=2).status_code == 200
-        if True else False,
-        "Ollama não está rodando"
-    )
+    @unittest.skipUnless(_ollama_rodando(), "Ollama não está rodando")
     def test_ollama_disponivel_com_gemma3(self):
         """Teste real: verifica que gemma3:4b está disponível."""
         c = self.OllamaCliente(modelo="gemma3:4b")

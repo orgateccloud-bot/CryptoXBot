@@ -1,8 +1,15 @@
 # Chaves de API — NUNCA versionar
 config/settings.py
 
-# Banco de dados local
-data/
+# Banco de dados e artefatos locais
+# NOTA: o codigo-fonte em data/ (cvd_calculator.py, stream_processor.py, __init__.py)
+# E versionado. Apenas os artefatos de runtime abaixo sao ignorados.
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.csv
+data/*.json
+data/__pycache__/
 *.db
 
 # Logs

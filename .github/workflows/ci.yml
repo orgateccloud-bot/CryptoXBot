@@ -74,6 +74,15 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-asyncio
 
+      - name: Smoke test - imports principais
+        # Gate rapido: falha cedo e com mensagem clara se a cadeia de import do
+        # bot quebrar (ex.: modulo data/ ausente, helper de score indefinido).
+        run: |
+          python -c "import main"
+          python -c "import score"
+          python -c "import estrategias.otimizada"
+          python -c "import database"
+
       - name: Run tests with coverage
         run: pytest --cov=. --cov-report=xml --cov-report=html -v
 

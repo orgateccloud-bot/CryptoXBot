@@ -52,6 +52,34 @@ PESOS = {
 }
 
 
+def _score_regime(regime_info):
+    """
+    0-100 para o regime de mercado (filtro macro principal).
+
+    Reaproveita o score de força de tendência (ADX + concentração de votos) já
+    calculado em regime.detectar(). Direção-neutro: tendência clara (ALTA ou
+    BAIXA) pontua alto porque o ambiente é operável; a direção é decidida pelos
+    filtros EMA long/short na estratégia. LATERAL/VOLATILIDADE pontuam baixo e
+    ainda são bloqueios absolutos em calcular().
+
+    Args:
+        regime_info: dict de regime.detectar() com 'regime_final' e 'score'.
+    """
+    if not regime_info:
+        return 50  # neutro sem dados
+
+    regime = regime_info.get("regime_final", "INDEFINIDO")
+    forca  = regime_info.get("score", 50)  # 0-100 (força da tendência)
+
+    if regime in ("TENDENCIA_ALTA", "TENDENCIA_BAIXA"):
+        return max(60, min(100, int(forca)))  # trend claro: usa a força (>=60)
+    if regime == "LATERAL":
+        return 30
+    if regime == "VOLATILIDADE":
+        return 10
+    return 40  # INDEFINIDO — conservador
+
+
 def _score_cvd(preco_atual, historico_ticks, periodo=50):
     """
     0-100 para divergência CVD vs Price Action (usando CVD calculator vetorizado).
