@@ -67,6 +67,12 @@ id_rsa
 .ruff_cache/
 env/
 
+# Cobertura de testes (artefatos)
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # Node
 node_modules/
 .next/
