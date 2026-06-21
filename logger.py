@@ -19,7 +19,13 @@ Uso:
 import os
 import csv
 import sqlite3
+import logging
 from datetime import datetime
+
+# Logger estruturado padrão (stdlib) usado para mensagens operacionais.
+# main.py importa `logger` daqui e chama .warning/.error/.critical/.info —
+# por isso LoggerBot delega esses métodos para este logger (ver abaixo).
+_stdlog = logging.getLogger("botbinance")
 
 
 class LoggerBot:
@@ -29,6 +35,26 @@ class LoggerBot:
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
         self._inicializar_tabelas()
+
+    # ── Compat com logging.Logger ──────────────────────────────
+    # main.py usa o mesmo objeto `logger` tanto para analytics
+    # (registrar_avaliacao/registrar_trade) quanto para logs operacionais
+    # (.warning/.error/.critical). Sem isto, esses últimos davam AttributeError
+    # nos caminhos de erro do WebSocket, derrubando o handler.
+    def info(self, msg, *args, **kwargs):
+        _stdlog.info(msg, *args, **kwargs)
+
+    def warning(self, msg, *args, **kwargs):
+        _stdlog.warning(msg, *args, **kwargs)
+
+    def error(self, msg, *args, **kwargs):
+        _stdlog.error(msg, *args, **kwargs)
+
+    def critical(self, msg, *args, **kwargs):
+        _stdlog.critical(msg, *args, **kwargs)
+
+    def debug(self, msg, *args, **kwargs):
+        _stdlog.debug(msg, *args, **kwargs)
 
     def _inicializar_tabelas(self):
         conn = sqlite3.connect(self.db_path)
