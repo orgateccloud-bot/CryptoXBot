@@ -12,7 +12,8 @@ tags: [modulo, dados, infra, observabilidade]
 - **Propósito:** mesma API para SQLite (dev) e Postgres/Supabase (prod).
 - **Seleção de backend:** usa Postgres se `DATABASE_URL` setado **e** `DATABASE_BACKEND ∈ {postgres, postgresql, supabase}`; senão SQLite (`data/btc_data.db`). Pool via `psycopg_pool`.
 - **Tabelas (6):** `trades`, `snapshots_mercado`, `cvd_historico`, `sinais`, `risk_state`, `bot_events`.
-- **Riscos:** timestamps divergem (SQLite `isoformat` TEXT vs Postgres `TIMESTAMPTZ`); `fechar_pool()` existe mas **nunca é chamado** (conexões orphan em restart); `INSERT OR IGNORE` (SQLite) vs `ON CONFLICT` (PG) não 100% idênticos.
+- **Riscos:** timestamps divergem (SQLite `isoformat` TEXT vs Postgres `TIMESTAMPTZ`); `INSERT OR IGNORE` (SQLite) vs `ON CONFLICT` (PG) não 100% idênticos.
+- ✅ Corrigido nesta sessão: `fechar_pool()` agora é chamado no shutdown (SIGTERM/finally em `main.py`) — não vaza mais conexões no restart do Railway.
 
 ## `logger.py` — Logging analítico 🟡 Média
 - **Propósito:** tabelas `log_avaliacoes`, `log_trades`, `log_performance` (análise detalhada).

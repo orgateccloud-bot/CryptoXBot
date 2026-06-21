@@ -21,12 +21,14 @@ Legenda esforço: ⏱️ pequeno (<1h) · ⏱️⏱️ médio (meio dia) · ⏱�
 - ✅ **3º showstopper corrigido** — `otimizada.analisar()` quebrava todo ciclo (`volume_relativo` IndexError + `bollinger` NameError em `indicadores.py`). Corrigido + `indicadores.py` desduplicado (100% cobertura) + regressão E2E (`otimizada` 93%).
 - ✅ **Testes ML/sinais** — `ml_filtro` (65%), `regime` (99%), `suporte` (69%), `indicadores` (100%); **595 testes** no total.
 - ✅ **Resiliência do `logger`** — `LoggerBot` agora delega `.warning/.error/.critical` (corrige AttributeError nos erros do WebSocket).
+- ✅ **Hygiene de segurança** — `SECRET_KEY` endurecido em produção; `.secrets.baseline` + `.bandit` criados (pre-commit funcional); `requirements-dev.txt`.
+- ✅ **Shutdown limpo** — `database.fechar_pool()` no `finally` + handler de SIGTERM (Railway).
 
 ## 🔴 P0 — Antes de operar capital real
-1. ✅ ~~Testes do core + trailing stop + estratégia/ML~~ — **feito** (595 testes; otimizada 93%, indicadores 100%, regime 99%, score 96%).
+1. ✅ ~~Testes do core + trailing stop + estratégia/ML~~ — **feito** (599 testes; otimizada 93%, indicadores 100%, regime 99%, score 96%).
 2. **`logger.py` Postgres/Supabase** — hoje grava SEMPRE em SQLite local (split-brain em produção). Requer port das 3 tabelas (DDL + placeholders `%s`) via roteador de `database.py` + remover efeito de import. **PR dedicado** (precisa de instância Supabase p/ validar). ⏱️⏱️
-3. **`pytest`/`pytest-cov` no `requirements.txt`** + criar `.secrets.baseline` e `.bandit` (ou remover refs) para o pre-commit não quebrar. ⏱️
-4. **`database.fechar_pool()` no shutdown** (handler SIGTERM/SIGINT) — evita vazar conexões no restart do Railway. ⏱️
+3. ✅ ~~`pytest`/`pytest-cov` declarados + `.secrets.baseline`/`.bandit`~~ — **feito** (`requirements-dev.txt` + configs do pre-commit).
+4. ✅ ~~`database.fechar_pool()` no shutdown~~ — **feito** (SIGTERM + finally).
 
 ## 🟡 P1 — Robustez
 5. ✅ ~~Refatorar `indicadores.py`~~ — **feito** (duplicatas mortas removidas, bugs corrigidos, 100% cobertura).

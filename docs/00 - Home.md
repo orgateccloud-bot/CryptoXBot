@@ -10,8 +10,8 @@ Bot de trading algorítmico para Binance Futures, **long-only**, com estratégia
 multi-filtro + ensemble de ML, gestão de risco (Kelly + circuit breaker) e deploy
 em **Railway + Supabase**.
 
-> **Estado atual:** Beta sólido · pronto para **paper trading** · `import main` limpo · `pytest` verde (**595 passed**, 6 skipped).
-> **Nota de maturidade global: 🟢 7.9/10** — ver [[Pontuacoes do Projeto]].
+> **Estado atual:** Beta maduro · pronto para **paper trading** · `import main` limpo · `pytest` verde (**599 passed**, 6 skipped).
+> **Nota de maturidade global: 🟢 8.0/10** — ver [[Pontuacoes do Projeto]].
 
 ## 🗺️ Navegação
 
@@ -43,11 +43,10 @@ em **Railway + Supabase**.
 | Gestão de risco | 🟢 9 | Kelly + circuit breaker + drawdown; trailing stop testado |
 | Arquitetura | 🟢 8 | cluster async aposentado; `indicadores.py` desduplicado |
 | Documentação | 🟢 8 | vault Obsidian + deploy guides |
+| Segurança | 🟢 8 | SECRET_KEY endurecido; pre-commit funcional |
 | ML / Sinais | 🟡 7 | XGBoost+MLP+FSRS; ml_filtro/regime testados |
 | Qualidade de código | 🟡 7 | indicadores desduplicado + bugs corrigidos |
 | Observabilidade | 🟡 7 | logs, health, Telegram, dashboard |
-| Segurança | 🟡 7 | sem segredos hardcoded; paper por padrão |
-| Deploy/Infra | 🟡 7 | Supabase + Railway prontos |
+| Deploy/Infra | 🟡 7 | Supabase + Railway prontos; fecha pool no SIGTERM |
 
-> ⚠️ Esta rodada corrigiu um **3º showstopper**: `otimizada.analisar()` quebrava todo ciclo por bugs em `indicadores.py` (agora 100% coberto).
-> Próximos focos para 8.0+: `logger` multi-backend, hygiene de segurança, revalidação do ML/backtesting.
+> 🎯 **Meta 8.0 atingida.** Próximos focos para **8.5+**: `logger` Postgres (PR dedicado), revalidação walk-forward do ML, testes de backtesting, canonizar deploy Railway.
