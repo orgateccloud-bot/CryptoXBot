@@ -11,6 +11,7 @@ Uso:
 """
 
 import numpy as np
+import math
 from typing import Tuple
 
 
@@ -71,71 +72,11 @@ def macd(valores: np.ndarray, rapido: int = 12, lento: int = 26, sinal: int = 9)
     return linha, sig, hist
 
 
-# ── Volatilidade ──────────────────────────────────────────────
-
-def atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, periodo: int = 14) -> np.ndarray:
-    """ATR vetorizado."""
-    if len(highs) < periodo:
-        return np.full(len(highs), np.nan)
-
-    tr = np.maximum(
-        highs - lows,
-        np.maximum(
-            np.abs(highs - np.roll(closes, 1)),
-            np.abs(lows - np.roll(closes, 1))
-        )
-    )
-    tr[0] = highs[0] - lows[0]  # Primeiro TR
-
-    # EMA do TR
-    return ema(tr, periodo)
-
-
-def bollinger(valores: np.ndarray, periodo: int = 20, std_dev: float = 2.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Bandas de Bollinger vetorizadas."""
-    if len(valores) < periodo:
-        nan_arr = np.full(len(valores), np.nan)
-        return nan_arr, nan_arr, nan_arr
-
-    sma_vals = sma(valores, periodo)
-    std_vals = np.array([np.std(valores[i-periodo:i]) for i in range(periodo-1, len(valores))])
-
-    upper = sma_vals + std_dev * std_vals
-    lower = sma_vals - std_dev * std_vals
-
-    # Padding
-    padding = np.full(periodo-1, np.nan)
-    return (
-        np.concatenate([padding, upper]),
-        np.concatenate([padding, sma_vals]),
-        np.concatenate([padding, lower])
-    )
-
-
-# ── Volume ────────────────────────────────────────────────────
-
-def volume_relativo(volumes: np.ndarray, periodo: int = 20) -> np.ndarray:
-    """Volume relativo vetorizado."""
-    if len(volumes) < periodo:
-        return np.full(len(volumes), np.nan)
-
-    sma_vol = sma(volumes, periodo)
-    return volumes / sma_vol
-
-
-def vwap(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, volumes: np.ndarray) -> np.ndarray:
-    """VWAP vetorizado."""
-    typical_price = (highs + lows + closes) / 3
-    cumulative_vol = np.cumsum(volumes)
-    cumulative_vp = np.cumsum(typical_price * volumes)
-    return cumulative_vp / cumulative_vol
-
-
-# ── Utilitários ───────────────────────────────────────────────
-
-def bandwidth(upper: np.ndarray, middle: np.ndarray, lower: np.ndarray) -> np.ndarray:
-    """Bandwidth das Bandas de Bollinger."""
-    return (upper - lower) / middle
+# ── Volatilidade / Volume / Utilitários ───────────────────────
+# NOTA: versões numpy duplicadas de atr/bollinger/vwap/volume_relativo/bandwidth
+# foram removidas — eram redefinidas com o mesmo nome logo abaixo (código morto,
+# sombreado por Python). As implementações ATIVAS, baseadas em listas (com None
+# de padding, formato esperado pelos callers via `[-1] or 0`), seguem abaixo.
 
 def atr(maximas, minimas, fechamentos, periodo=14):
     """Average True Range — mede volatilidade da vela."""
@@ -215,14 +156,18 @@ def volume_media(volumes, periodo=20):
 
 
 def volume_relativo(volumes, periodo=20):
-    """Volume relativo = volume atual / média(volume). > 1.5 = relevante."""
+    """Volume relativo = volume atual / média(volume). > 1.5 = relevante.
+
+    Retorna lista do tamanho de `volumes`, com None nos primeiros `periodo-1`
+    pontos (ainda sem média). `media` (sma, mode='valid') tem tamanho
+    len-periodo+1; o valor alinhado ao índice i (i >= periodo-1) é
+    media[i-(periodo-1)]. (Correção do IndexError que quebrava a estratégia.)
+    """
     media = volume_media(volumes, periodo)
-    result = []
-    for i in range(len(volumes)):
-        if media[i]:
-            result.append(volumes[i] / media[i])
-        else:
-            result.append(None)
+    result = [None] * (periodo - 1)
+    for i in range(periodo - 1, len(volumes)):
+        m = media[i - (periodo - 1)]
+        result.append(volumes[i] / m if m else None)
     return result
 
 
