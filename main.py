@@ -27,6 +27,7 @@ import asyncio
 import websockets
 import json
 import logging
+import signal
 from datetime import datetime
 import random
 
@@ -517,6 +518,14 @@ def main():
                          args=(par, args.intervalo, simulacao),
                          daemon=True, name=f"loop-{par}").start()
 
+    # Encerramento limpo: Railway envia SIGTERM no restart/redeploy.
+    def _encerrar(signum, frame):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, _encerrar)
+    except (ValueError, OSError):
+        pass  # plataforma sem SIGTERM ou não estamos na main thread
+
     try:
         iniciar_websocket_async()
         while True:
@@ -526,6 +535,11 @@ def main():
         with _lock:
             database.salvar_cvd(cvd_btc, total_compras, total_vendas, symbol="BTCUSDT")
         print(f"[BOT] CVD BTC final: {cvd_btc:+.3f} BTC")
+    finally:
+        try:
+            database.fechar_pool()  # fecha o pool Postgres/Supabase (evita conexões orphan)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
