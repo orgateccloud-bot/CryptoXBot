@@ -1,0 +1,4 @@
+[bandit]
+# Configuração do Bandit (referenciada por .pre-commit-config.yaml: bandit -c .bandit -ll).
+# Exclui testes e código arquivado da varredura de segurança.
+exclude = ./tests,./_legado,./.venv,./venv,./build,./dist

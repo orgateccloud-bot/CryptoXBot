@@ -82,6 +82,18 @@ APP_ENV = _env("ENV", _env("APP_ENV", "development"))
 SERVICE_ROLE = _env("SERVICE_ROLE", _env("RAILWAY_SERVICE_NAME", "dashboard")).lower()
 PORT = _env_int("PORT", 5000)
 SECRET_KEY = _env("SECRET_KEY", "botbinance-local-dev")
+# Segurança: nunca usar a chave-padrão pública em produção. Sem SECRET_KEY no
+# ambiente, gera uma efêmera aleatória (sessões/CSRF reiniciam a cada deploy,
+# mas a chave nunca é a conhecida do repositório).
+if APP_ENV == "production" and SECRET_KEY == "botbinance-local-dev":
+    import secrets as _secrets
+    import logging as _logging
+
+    SECRET_KEY = _secrets.token_hex(32)
+    _logging.getLogger("botbinance").warning(
+        "SECRET_KEY ausente em producao — usando chave aleatoria efemera; "
+        "defina SECRET_KEY no ambiente para sessoes persistentes."
+    )
 CORS_ORIGINS = _env("CORS_ORIGINS", "*")
 
 DRY_RUN = _env_bool("DRY_RUN", True)
