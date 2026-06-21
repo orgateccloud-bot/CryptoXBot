@@ -28,8 +28,10 @@ tags: [modulo, backtesting, testes, qualidade]
 - ✅ **Novo nesta sessão (P0):** `tests/test_executor.py` (43), `tests/test_risco.py` (74), `tests/test_score.py` (136), `tests/test_executor_monitor.py` (28) — herméticos (sem rede/banco).
   - Cobertura: **risco 90%**, **score 75%** (lógica ~100%), **executor 82%** (trailing stop incluído).
   - ✅ **Trailing stop**: `_monitorar` refatorado p/ função pura `avaliar_tick_monitor` + **oráculo de equivalência** (8.160 casos) prova que o refactor preserva o comportamento.
-- **Lacunas remanescentes:** `ml_filtro.py`, `regime.py`, `suporte.py`, determinismo do backtesting.
-- Estado: `pytest` → **323 passed, 6 skipped** (testes do cluster async em `_legado/`, ignorados por `pytest.ini`).
+- ✅ **Novo (P1):** `test_indicadores`(+adv), `test_otimizada_e2e`(+adv, regressão do showstopper), `test_ml_filtro`(+adv), `test_regime`, `test_suporte`, `test_logger` — gerados via Workflow multi-agente.
+  - Cobertura: indicadores **100%**, regime **99%**, score **96%**, otimizada **93%**, ml_filtro 65%, suporte 69%.
+- **Lacunas remanescentes:** **backtesting sem testes diretos** (determinismo), `database`/`dashboard`/`monitor_fluxo` sem testes.
+- Estado: `pytest` → **595 passed, 6 skipped** (testes do cluster async em `_legado/`, ignorados por `pytest.ini`).
 
 ## Qualidade de código 🟢/🟡
 - `.pre-commit-config.yaml` — Black, isort, Flake8, MyPy, Bandit, detect-secrets, yamllint.

@@ -14,10 +14,10 @@ tags: [modulo, dados, infra, observabilidade]
 - **Tabelas (6):** `trades`, `snapshots_mercado`, `cvd_historico`, `sinais`, `risk_state`, `bot_events`.
 - **Riscos:** timestamps divergem (SQLite `isoformat` TEXT vs Postgres `TIMESTAMPTZ`); `fechar_pool()` existe mas **nunca é chamado** (conexões orphan em restart); `INSERT OR IGNORE` (SQLite) vs `ON CONFLICT` (PG) não 100% idênticos.
 
-## `logger.py` — Logging analítico 🔴 Baixa (gap)
+## `logger.py` — Logging analítico 🟡 Média
 - **Propósito:** tabelas `log_avaliacoes`, `log_trades`, `log_performance` (análise detalhada).
-- **Risco crítico:** **hardcoded para SQLite** — em produção com Supabase, cria um 2º banco desacoplado. Não segue o roteador de `database.py`.
-- ✅ Corrigido nesta sessão: whitelist de tabelas em `exportar_csv` (SQL injection).
+- ✅ Corrigido nesta sessão: (1) `LoggerBot` delega `.warning/.error/.critical` (corrige AttributeError nos erros do WebSocket); (2) whitelist de tabelas em `exportar_csv` (SQL injection); cobertura `test_logger` (13).
+- **Gap remanescente (P0):** ainda grava SEMPRE em SQLite — em produção Supabase cria um 2º banco desacoplado (split-brain). Port para Postgres é PR dedicado (ver [[Planejamento de Melhorias]]).
 
 ## `health.py` — Health endpoint 🟢 Alta
 - `/health` (sempre 200) e `/ready` (testa `database.healthcheck()` → 200/503). Usado pelos probes do Railway.

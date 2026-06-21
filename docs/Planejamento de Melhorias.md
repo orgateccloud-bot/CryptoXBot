@@ -18,15 +18,18 @@ Legenda esforço: ⏱️ pequeno (<1h) · ⏱️⏱️ médio (meio dia) · ⏱�
 - Vault Obsidian + estrutura de deploy Supabase/Railway.
 - ✅ **P0-1 testes do core** — `test_executor.py` (43), `test_risco.py` (74), `test_score.py` (136), `test_executor_monitor.py` (28); **323 passed**; risco 90% / score 75% / executor 82%.
 - ✅ **Trailing stop testado** — `_monitorar` refatorado p/ função pura `avaliar_tick_monitor`, coberto + **oráculo de equivalência** (8.160 casos) provando preservação de comportamento.
+- ✅ **3º showstopper corrigido** — `otimizada.analisar()` quebrava todo ciclo (`volume_relativo` IndexError + `bollinger` NameError em `indicadores.py`). Corrigido + `indicadores.py` desduplicado (100% cobertura) + regressão E2E (`otimizada` 93%).
+- ✅ **Testes ML/sinais** — `ml_filtro` (65%), `regime` (99%), `suporte` (69%), `indicadores` (100%); **595 testes** no total.
+- ✅ **Resiliência do `logger`** — `LoggerBot` agora delega `.warning/.error/.critical` (corrige AttributeError nos erros do WebSocket).
 
 ## 🔴 P0 — Antes de operar capital real
-1. ✅ ~~Testes do core de trading + trailing stop~~ — **feito** (281 testes; executor 82%, risco 90%, score 75%).
-2. **`logger.py` multi-backend** — respeitar o roteador de `database.py` para não criar um SQLite paralelo em produção Supabase. ⏱️⏱️
+1. ✅ ~~Testes do core + trailing stop + estratégia/ML~~ — **feito** (595 testes; otimizada 93%, indicadores 100%, regime 99%, score 96%).
+2. **`logger.py` Postgres/Supabase** — hoje grava SEMPRE em SQLite local (split-brain em produção). Requer port das 3 tabelas (DDL + placeholders `%s`) via roteador de `database.py` + remover efeito de import. **PR dedicado** (precisa de instância Supabase p/ validar). ⏱️⏱️
 3. **`pytest`/`pytest-cov` no `requirements.txt`** + criar `.secrets.baseline` e `.bandit` (ou remover refs) para o pre-commit não quebrar. ⏱️
 4. **`database.fechar_pool()` no shutdown** (handler SIGTERM/SIGINT) — evita vazar conexões no restart do Railway. ⏱️
 
 ## 🟡 P1 — Robustez
-5. **Refatorar `indicadores.py`** — remover duplicação de ATR/Bollinger/VWAP (2-3 versões divergentes); padronizar numpy + type hints. ⏱️⏱️
+5. ✅ ~~Refatorar `indicadores.py`~~ — **feito** (duplicatas mortas removidas, bugs corrigidos, 100% cobertura).
 6. **Retry/backoff** nas chamadas de `ml_filtro`/`lstm_modelo`/`regime` (timeout 8s sem retry). ⏱️
 7. **Persistir estado do `ScaleIn`** — hoje some no restart, deixando parcelas inconsistentes. ⏱️⏱️
 8. **Lock no JSON do FSRS** (`fsrs_padroes.json`) — evitar corrupção concorrente. ⏱️

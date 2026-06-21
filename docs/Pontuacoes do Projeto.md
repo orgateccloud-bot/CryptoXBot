@@ -1,7 +1,7 @@
 ---
 tags: [scorecard, maturidade]
-atualizado: 2026-06-20
-nota_global: 7.6
+atualizado: 2026-06-21
+nota_global: 7.9
 ---
 
 # 📊 Pontuações do Projeto (Maturidade)
@@ -19,10 +19,10 @@ Avaliação do estado **pós-aposentadoria do cluster async** (branch
 | Executabilidade (clone→run) | 🟢 **9** | 1.5 | `import main` limpo + smoke test no CI; era 🔴 2 no início |
 | Gestão de risco (trading) | 🟢 **9** | 1.5 | Kelly + circuit breaker + drawdown + lock + validação de ordem; **trailing stop testado + equivalência provada** |
 | Segurança | 🟡 **7** | 1.2 | sem segredos hardcoded, detect-secrets, paper por padrão; gaps: `SECRET_KEY` default, `.secrets.baseline` ausente |
-| **Cobertura de testes** | 🟢 **8** | 1.2 | **323 testes**; core money-touching coberto (risco 90%, score 75%, executor **82%** incl. trailing stop); gaps: ml_filtro/regime/backtesting (secundários) |
-| Arquitetura & organização | 🟢 **8** | 1.0 | arquitetura única após aposentar cluster; gaps: `indicadores.py` duplicado, `logger` SQLite-only |
-| ML / Sinais | 🟡 **6** | 1.0 | XGBoost+MLP+FSRS+ensemble funcionam; riscos: overfitting MLP, scaler drift, ADX manual |
-| Qualidade de código | 🟡 **6** | 1.0 | pre-commit completo, mas configs faltando (`.bandit`/baseline) e duplicação |
+| **Cobertura de testes** | 🟢 **9** | 1.2 | **595 testes**; caminho de capital + sinal coberto (indicadores 100%, regime 99%, score 96%, otimizada 93%, risco 90%, executor 82%); gaps: backtesting/database/dashboard sem testes diretos |
+| Arquitetura & organização | 🟢 **8** | 1.0 | arquitetura única após aposentar cluster; `indicadores.py` desduplicado; gap: `logger` SQLite-only |
+| ML / Sinais | 🟡 **7** | 1.0 | XGBoost+MLP+FSRS+ensemble; ml_filtro/regime testados; riscos: overfitting MLP, scaler drift, ADX manual |
+| Qualidade de código | 🟡 **7** | 1.0 | pre-commit completo; `indicadores.py` desduplicado + bugs corrigidos; gaps: `.bandit`/`.secrets.baseline` ausentes |
 | Deploy & Infra | 🟡 **7** | 1.0 | Supabase + Railway prontos e documentados; `deploy.yml`/compose ainda GCP |
 | Observabilidade | 🟡 **7** | 0.8 | logs estruturados, `/health`, Telegram, dashboard; `logger` não vai p/ Supabase |
 | Documentação | 🟢 **8** | 0.8 | vault Obsidian + relatórios + deploy guides; CLAUDE.md alinhado |
@@ -31,29 +31,30 @@ Avaliação do estado **pós-aposentadoria do cluster async** (branch
 
 ```
 Σ(nota × peso) / Σ(peso)
-= (9·1.5 + 9·1.5 + 7·1.2 + 8·1.2 + 8·1.0 + 6·1.0 + 6·1.0 + 7·1.0 + 7·0.8 + 8·0.8) / 11.0
-= 84.0 / 11.0
-≈ 7.64
+= (9·1.5 + 9·1.5 + 7·1.2 + 9·1.2 + 8·1.0 + 7·1.0 + 7·1.0 + 7·1.0 + 7·0.8 + 8·0.8) / 11.0
+= 87.2 / 11.0
+≈ 7.93
 ```
 
-> ## 🟢 Nota global: **7.6 / 10 — "Beta sólido"**
-> Pronto para **paper trading**, com **323 testes** cobrindo todo o caminho de
-> capital (risco/score/executor, incl. trailing stop com equivalência provada).
-> Para chegar a **8.0+**: testar ML (ml_filtro/regime) e backtesting, refatorar
-> `indicadores.py` e `logger` multi-backend (ver [[Planejamento de Melhorias]]).
+> ## 🟢 Nota global: **7.9 / 10 — "Beta sólido" (à porta do 8.0)**
+> Pronto para **paper trading**, com **595 testes**. Nesta rodada foi corrigido um
+> **3º showstopper**: a estratégia (`otimizada.analisar`) quebrava a cada ciclo por
+> bugs em `indicadores.py` — agora coberta a 93% e o módulo a 100%.
+> Para cruzar **8.0+**: `logger` multi-backend (PR dedicado), `.secrets.baseline`/`.bandit`,
+> revalidação walk-forward do ML e testes de backtesting (ver [[Planejamento de Melhorias]]).
 
 ## Radar (visão rápida)
 ```
+Testes            █████████░  9   ← 595 testes (era 4 no início)
 Executabilidade   █████████░  9
-Risco             █████████░  9   ← trailing stop testado + verificado
+Risco             █████████░  9
 Arquitetura       ████████░░  8
 Documentação      ████████░░  8
-Testes            ████████░░  8   ← era 4 (gargalo resolvido)
 Segurança         ███████░░░  7
 Deploy/Infra      ███████░░░  7
 Observabilidade   ███████░░░  7
-ML/Sinais         ██████░░░░  6
-Qualidade código  ██████░░░░  6
+ML/Sinais         ███████░░░  7   ← ml_filtro/regime testados
+Qualidade código  ███████░░░  7   ← indicadores desduplicado + bugs corrigidos
 ```
 
 ## Evolução nesta sessão
@@ -61,8 +62,9 @@ Qualidade código  ██████░░░░  6
 |---|:---:|---|
 | Início | ~3.5 | não iniciava de clone limpo (2 showstoppers) |
 | Pós P0/P1/P2 | ~6.3 | executável, coerente, seguro nas ordens |
-| Pós aposentadoria + docs | ~7.0 | arquitetura única, Supabase/Railway documentados, vault |
-| Pós testes do core | ~7.4 | 295 testes (+253); core de trading coberto |
-| **Pós trailing stop testado** | **7.6** | **323 testes**; `_monitorar` refatorado/coberto + equivalência provada |
+| Pós aposentadoria + docs | ~7.0 | arquitetura única, Supabase/Railway, vault |
+| Pós testes do core | ~7.4 | 295 testes; core de trading coberto |
+| Pós trailing stop testado | ~7.6 | 323 testes; `_monitorar` + equivalência provada |
+| **Pós fix da estratégia + ML/sinais testados** | **7.9** | **595 testes**; 3º showstopper corrigido (otimizada/indicadores), indicadores 100% |
 
-Próximo salto previsto: **8.0+** ao testar ML/backtesting e refatorar `indicadores.py` (ver [[Planejamento de Melhorias]]).
+Próximo salto previsto: **8.0+** ao concluir `logger` multi-backend, hygiene de segurança e revalidação do ML.

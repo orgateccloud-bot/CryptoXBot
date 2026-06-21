@@ -10,8 +10,8 @@ Bot de trading algorítmico para Binance Futures, **long-only**, com estratégia
 multi-filtro + ensemble de ML, gestão de risco (Kelly + circuit breaker) e deploy
 em **Railway + Supabase**.
 
-> **Estado atual:** Beta sólido · pronto para **paper trading** · `import main` limpo · `pytest` verde (**323 passed**, 6 skipped).
-> **Nota de maturidade global: 🟢 7.6/10** — ver [[Pontuacoes do Projeto]].
+> **Estado atual:** Beta sólido · pronto para **paper trading** · `import main` limpo · `pytest` verde (**595 passed**, 6 skipped).
+> **Nota de maturidade global: 🟢 7.9/10** — ver [[Pontuacoes do Projeto]].
 
 ## 🗺️ Navegação
 
@@ -38,15 +38,16 @@ em **Railway + Supabase**.
 
 | Dimensão | Nota | Destaque |
 |---|---|---|
+| Testes | 🟢 9 | **595 testes**; indicadores 100%, regime 99%, score 96%, otimizada 93% |
 | Executabilidade | 🟢 9 | clone→run OK + smoke test no CI |
 | Gestão de risco | 🟢 9 | Kelly + circuit breaker + drawdown; trailing stop testado |
-| Arquitetura | 🟢 8 | cluster async aposentado; arquitetura única |
-| Testes | 🟢 8 | **323 testes**; risco 90%, score 75%, executor 82% |
+| Arquitetura | 🟢 8 | cluster async aposentado; `indicadores.py` desduplicado |
 | Documentação | 🟢 8 | vault Obsidian + deploy guides |
+| ML / Sinais | 🟡 7 | XGBoost+MLP+FSRS; ml_filtro/regime testados |
+| Qualidade de código | 🟡 7 | indicadores desduplicado + bugs corrigidos |
 | Observabilidade | 🟡 7 | logs, health, Telegram, dashboard |
 | Segurança | 🟡 7 | sem segredos hardcoded; paper por padrão |
 | Deploy/Infra | 🟡 7 | Supabase + Railway prontos |
-| ML / Sinais | 🟡 6 | XGBoost+MLP+FSRS; riscos de drift/overfitting |
-| Qualidade de código | 🟡 6 | pre-commit ok; `indicadores.py` duplicado |
 
-> Próximos focos: testar módulos de ML/backtesting e refatorar `indicadores.py`.
+> ⚠️ Esta rodada corrigiu um **3º showstopper**: `otimizada.analisar()` quebrava todo ciclo por bugs em `indicadores.py` (agora 100% coberto).
+> Próximos focos para 8.0+: `logger` multi-backend, hygiene de segurança, revalidação do ML/backtesting.

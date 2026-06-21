@@ -9,6 +9,10 @@ tags: [modulo, ml, sinais]
 Pipeline de Machine Learning e geração de sinal. **ML real = XGBoost + sklearn MLP**
 (não LightGBM/LSTM, apesar de nomes históricos).
 
+> ✅ Cobertura adicionada nesta sessão: `ml_filtro` 65%, `regime` **99%**, `score` **96%**,
+> `cvd_calculator`/`fsrs`/`ensemble` via `test_melhorias`. Riscos de modelo (overfitting
+> MLP, scaler drift, ADX manual) permanecem — ver [[Planejamento de Melhorias]].
+
 ---
 
 ## `ensemble.py` — Combinador 🟢 Alta

@@ -35,19 +35,20 @@ Núcleo de orquestração, execução de ordens e gestão de risco.
 - **API:** `detectar_suportes()`, `class ScaleIn` (`entrada_parcela1/2/3`, `preco_medio`, `completo`).
 - **Riscos:** ScaleIn **sem persistência** (perde estado em restart); Pivot Points trivial (min/max em janela 5); tolerâncias fixas (0.3-0.5%) não adaptam ao preço.
 
-## `indicadores.py` — Biblioteca técnica 🔴 Baixa
+## `indicadores.py` — Biblioteca técnica 🟢 Alta
 - **Propósito:** EMA, SMA, RSI, MACD, ATR, Bollinger, VWAP, volume, MTF.
-- **Riscos:** **duplicação massiva** — ATR, Bollinger e VWAP têm 2-3 implementações (numpy vs loop) que podem divergir; sem tratamento de NaN; sem type hints no legado.
-- **Ação:** refatoração é pré-requisito para confiança nos cálculos → ver [[Planejamento de Melhorias]].
+- ✅ **Corrigido nesta sessão (showstopper):** removidas as duplicatas numpy mortas (eram sombreadas); `import math` adicionado (bollinger dava NameError); `volume_relativo` corrigido (dava IndexError sempre). Esses dois bugs quebravam `otimizada.analisar()` a cada ciclo.
+- **Cobertura: 100%** (`test_indicadores` + adversarial). Foi o pré-requisito para a estratégia funcionar.
 
 ## `analise_mercado.py` — Scraper de mercado 🟡 Média
 - **Propósito:** preço, order book, funding, open interest, EMA/RSI públicos (sem API key).
 - **Riscos:** múltiplas chamadas HTTP repetidas sem cache; `relatorio_completo()` só imprime (não retorna dict para logging).
 
-## `estrategias/otimizada.py` — Estratégia principal 🟡 Média
+## `estrategias/otimizada.py` — Estratégia principal 🟢 Alta
 - **Propósito:** 8 filtros (EMA, MTF 4H, ATR, volume, Bollinger, VWAP, regime, F&G) + ensemble ML → score → decisão.
 - **Deps:** `indicadores`, `regime`, `fear_greed`, `suporte`, `ensemble`, `score`, `config.params_pares`.
-- **Riscos:** lógica dupla (filtros binários + score) coexistindo; thresholds hardcoded (`ATR_MIN_RATIO=0.6`, `VOL_MIN_RATIO=1.3`); fallback de ensemble trivial (prob=0.5).
+- ✅ **Voltou a funcionar nesta sessão:** quebrava a cada ciclo via `indicadores` (volume_relativo/bollinger). Agora coberta **93%** por `test_otimizada_e2e` (regressão ponta-a-ponta).
+- **Riscos remanescentes:** lógica dupla (filtros binários + score); thresholds hardcoded (`ATR_MIN_RATIO=0.6`, `VOL_MIN_RATIO=1.3`); fallback de ensemble trivial (prob=0.5).
 
 ## `estrategias/ema_rsi_cvd.py` — Baseline 🟡 Média
 - **Propósito:** estratégia simples auditável (EMA cross + RSI + CVD + funding).
@@ -58,11 +59,11 @@ Núcleo de orquestração, execução de ordens e gestão de risco.
 ### Resumo de maturidade
 | Módulo | Nota |
 |---|---|
+| indicadores.py | 🟢 Alta (100% cobertura) |
 | executor.py | 🟢 Alta |
 | risco.py | 🟢 Alta |
+| estrategias/otimizada.py | 🟢 Alta (93%, regressão E2E) |
 | main.py | 🟡 Média |
 | suporte.py | 🟡 Média |
 | analise_mercado.py | 🟡 Média |
-| estrategias/otimizada.py | 🟡 Média |
 | estrategias/ema_rsi_cvd.py | 🟡 Média |
-| indicadores.py | 🔴 Baixa (duplicação) |
