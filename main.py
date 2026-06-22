@@ -441,6 +441,23 @@ def main():
         simulacao = True
         print("[SEGURANCA] --real ignorado: defina ALLOW_REAL_TRADING=true para liberar ordens reais.")
 
+    # Validação de boot: fail-fast em modo real sem credenciais
+    if not simulacao:
+        from config.runtime_settings import API_KEY, API_SECRET, APP_ENV
+        erros_boot = []
+        if not API_KEY:
+            erros_boot.append("BINANCE_API_KEY nao definida")
+        if not API_SECRET:
+            erros_boot.append("BINANCE_API_SECRET nao definida")
+        if APP_ENV != "production":
+            erros_boot.append(f"ENV/APP_ENV deve ser 'production' em modo real (atual: '{APP_ENV}')")
+        if erros_boot:
+            print("[BOOT ERROR] Modo real requer configuracao correta:")
+            for e in erros_boot:
+                print(f"  - {e}")
+            print("Abortando. Use --simulacao para paper trading ou configure as variaveis de ambiente.")
+            raise SystemExit(1)
+
     # Definir pares a operar
     if args.par:
         pares = [args.par.upper()]

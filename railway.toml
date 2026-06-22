@@ -1,20 +1,42 @@
-# Railway configuration — BinanceXBot Worker
-# Este arquivo configura o serviço WORKER (main.py).
-# O serviço DASHBOARD (dashboard.py) sobrepõe o startCommand no painel Railway.
+# Railway configuration — BinanceXBot
 #
-# Deploy de 2 serviços:
-#   worker    → python main.py --simulacao --intervalo 15
-#   dashboard → python dashboard.py
+# DOIS SERVIÇOS no mesmo repositório:
+#   worker    → main.py   (bot de trading + WebSocket)
+#   dashboard → dashboard.py (painel Flask + APIs REST)
+#
+# Para criar: Railway → New Project → Deploy from GitHub repo → CryptoXBot
+#   1. Service "worker":    usa este arquivo como está
+#   2. Service "dashboard": New Service → mesmo repo → sobrescreva Start Command
+#      para: python dashboard.py
 
 [build]
 builder = "nixpacks"
 
+# ── Serviço WORKER (padrão) ──────────────────────────────────────────────────
 [deploy]
 startCommand = "python main.py --simulacao --intervalo 15"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
-
-# healthcheckPath só é usada pelo serviço dashboard (Flask expõe /health).
-# O worker usa o servidor HTTP leve de health.py na mesma porta PORT.
 healthcheckPath = "/health"
 healthcheckTimeout = 30
+
+# Variáveis mínimas obrigatórias (defina no painel Railway):
+#   DATABASE_URL        → postgres://... (de Supabase)
+#   DATABASE_BACKEND    → postgres
+#   BINANCE_API_KEY     → (via Railway Variables)
+#   BINANCE_API_SECRET  → (via Railway Variables)
+#   TELEGRAM_BOT_TOKEN  → (opcional)
+#   TELEGRAM_CHAT_ID    → (opcional)
+#   ENV                 → production
+#   CORS_ORIGINS        → https://seu-dashboard.up.railway.app
+
+# ── Serviço DASHBOARD ────────────────────────────────────────────────────────
+# Para configurar, no painel Railway sobrescreva o Start Command para:
+#   python dashboard.py
+#
+# O dashboard roda na porta injetada por $PORT (Railway injeta automaticamente).
+# Gere um domínio público em Settings → Networking para acesso externo.
+#
+# Variáveis adicionais para o dashboard:
+#   SERVICE_ROLE → dashboard
+#   SECRET_KEY   → (gere com: python -c "import secrets; print(secrets.token_hex(32))")
