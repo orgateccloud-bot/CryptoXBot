@@ -95,6 +95,13 @@ if APP_ENV == "production" and SECRET_KEY == "botbinance-local-dev":
         "defina SECRET_KEY no ambiente para sessoes persistentes."
     )
 CORS_ORIGINS = _env("CORS_ORIGINS", "*")
+if APP_ENV == "production" and CORS_ORIGINS == "*":
+    import logging as _log_cors
+
+    _log_cors.getLogger("botbinance").warning(
+        "CORS_ORIGINS='*' em producao — defina CORS_ORIGINS=https://seu-dominio.railway.app "
+        "para restringir o acesso ao dashboard."
+    )
 
 DRY_RUN = _env_bool("DRY_RUN", True)
 ALLOW_REAL_TRADING = _env_bool("ALLOW_REAL_TRADING", False)

@@ -1,4 +1,10 @@
-[bandit]
-# Configuração do Bandit (referenciada por .pre-commit-config.yaml: bandit -c .bandit -ll).
-# Exclui testes e código arquivado da varredura de segurança.
-exclude = ./tests,./_legado,./.venv,./venv,./build,./dist
+# Bandit security scanner config (YAML — required by bandit >=1.7).
+# Referenced by .pre-commit-config.yaml: bandit -c .bandit -ll -r .
+skips: []
+exclude_dirs:
+  - ./tests
+  - ./_legado
+  - ./.venv
+  - ./venv
+  - ./build
+  - ./dist
