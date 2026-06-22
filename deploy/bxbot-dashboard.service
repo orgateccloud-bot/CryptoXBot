@@ -1,0 +1,24 @@
+[Unit]
+Description=BinanceXBot — Dashboard Flask + SocketIO
+After=network-online.target bxbot-worker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/binancexbot
+EnvironmentFile=/opt/binancexbot/.env
+ExecStart=/opt/binancexbot/.venv/bin/python dashboard.py
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=10
+StartLimitIntervalSec=120
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bxbot-dashboard
+Environment=PYTHONUNBUFFERED=1
+Environment=SERVICE_ROLE=dashboard
+Environment=PORT=5000
+
+[Install]
+WantedBy=multi-user.target

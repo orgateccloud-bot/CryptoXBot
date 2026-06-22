@@ -1,0 +1,25 @@
+[Unit]
+Description=BinanceXBot — Worker (trading + WebSocket Binance)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/binancexbot
+EnvironmentFile=/opt/binancexbot/.env
+ExecStart=/opt/binancexbot/.venv/bin/python main.py --simulacao --intervalo 15
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=10
+StartLimitIntervalSec=120
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bxbot-worker
+Environment=PYTHONUNBUFFERED=1
+Environment=SERVICE_ROLE=worker
+Environment=PORT=8080
+Environment=ENABLE_HEALTH_SERVER=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,8 +1,7 @@
 """
-Runtime settings for local, Railway, and Supabase deployments.
+Runtime settings para desenvolvimento local e deploy em produção (Supabase + VPS).
 
-Environment variables take precedence. A local ignored config/settings.py can
-still exist for Windows development, but production no longer depends on it.
+Ordem de precedência: variáveis de ambiente > config/settings.py local (dev) > padrões.
 """
 
 from __future__ import annotations
@@ -79,7 +78,7 @@ DB_POOL_MIN = _env_int("DB_POOL_MIN", 1)
 DB_POOL_MAX = _env_int("DB_POOL_MAX", 5)
 
 APP_ENV = _env("ENV", _env("APP_ENV", "development"))
-SERVICE_ROLE = _env("SERVICE_ROLE", _env("RAILWAY_SERVICE_NAME", "dashboard")).lower()
+SERVICE_ROLE = _env("SERVICE_ROLE", "worker").lower()
 PORT = _env_int("PORT", 5000)
 SECRET_KEY = _env("SECRET_KEY", "botbinance-local-dev")
 # Segurança: nunca usar a chave-padrão pública em produção. Sem SECRET_KEY no
@@ -99,7 +98,7 @@ if APP_ENV == "production" and CORS_ORIGINS == "*":
     import logging as _log_cors
 
     _log_cors.getLogger("botbinance").warning(
-        "CORS_ORIGINS='*' em producao — defina CORS_ORIGINS=https://seu-dominio.railway.app "
+        "CORS_ORIGINS='*' em producao — defina CORS_ORIGINS=https://seu-dominio.com "
         "para restringir o acesso ao dashboard."
     )
 

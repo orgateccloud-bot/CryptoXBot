@@ -1,0 +1,35 @@
+# BinanceXBot — Caddy reverse proxy (HTTPS automático via Let's Encrypt)
+#
+# Uso:
+#   sudo apt install caddy
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Substitua SEU-DOMINIO.COM pelo domínio real, ou use o IP direto
+# (sem HTTPS — apenas para testes na rede local):
+#   :5000 { reverse_proxy localhost:5000 }
+
+SEU-DOMINIO.COM {
+    # Dashboard Flask + SocketIO
+    reverse_proxy localhost:5000 {
+        # Necessário para WebSocket (Socket.IO)
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+    }
+
+    # Headers de segurança
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # Logs
+    log {
+        output file /var/log/caddy/bxbot.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
