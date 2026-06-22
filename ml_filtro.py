@@ -203,10 +203,21 @@ def prever(symbol="BTCUSDT"):
     modelo    = artefato["modelo"]
     intervalo = artefato.get("intervalo", "1h")
 
-    # Buscar dados recentes da API
-    r = requests.get(f"{BASE_URL}/api/v3/klines",
-                     params={"symbol": symbol, "interval": intervalo, "limit": 100},
-                     timeout=8)
+    # Buscar dados recentes da API (retry 3x com backoff)
+    for tentativa in range(3):
+        try:
+            r = requests.get(
+                f"{BASE_URL}/api/v3/klines",
+                params={"symbol": symbol, "interval": intervalo, "limit": 100},
+                timeout=8,
+            )
+            r.raise_for_status()
+            break
+        except requests.RequestException:
+            if tentativa == 2:
+                return None, "Falha ao buscar klines da API apos 3 tentativas"
+            import time as _time
+            _time.sleep(2 ** tentativa)
     rows = r.json()
     fechamentos = [float(k[4]) for k in rows]
     maximas     = [float(k[2]) for k in rows]

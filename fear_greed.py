@@ -19,11 +19,12 @@ Regras de operacao:
   - Ganancia Extrema (> 74): NAO abrir novas posicoes (topo provavel)
 """
 
+import threading
 import requests
-import json
 from datetime import datetime
 
 API_URL = "https://api.alternative.me/fng/?limit=3&format=json"
+CACHE_TTL_S = 900  # 15 minutos
 
 # Limites de operacao
 MEDO_EXTREMO_MAX  = 24   # abaixo disso: nao operar
@@ -31,13 +32,14 @@ GANANCIA_MAX      = 74   # acima disso: nao abrir novas posicoes
 IDEAL_MIN         = 35   # zona ideal para entrar
 IDEAL_MAX         = 70   # zona ideal para entrar
 
-_cache = {"valor": None, "classificacao": None, "timestamp": None, "historico": []}
+_cache: dict = {"valor": None, "classificacao": None, "timestamp": None, "historico": []}
+_cache_lock = threading.Lock()
 
 
 def obter():
     """
     Retorna o Fear & Greed Index atual.
-    Usa cache de 15 minutos para nao sobrecarregar a API.
+    Usa cache de 15 minutos (thread-safe) para nao sobrecarregar a API.
 
     Retorna dict com:
       valor:          0-100
@@ -50,14 +52,15 @@ def obter():
     """
     global _cache
 
-    # Cache de 15 minutos
-    if _cache["timestamp"]:
-        diff = (datetime.now() - _cache["timestamp"]).seconds
-        if diff < 900:
-            return _cache
+    with _cache_lock:
+        if _cache["timestamp"]:
+            diff = (datetime.now() - _cache["timestamp"]).total_seconds()
+            if diff < CACHE_TTL_S:
+                return _cache
 
     try:
         r = requests.get(API_URL, timeout=8)
+        r.raise_for_status()
         data = r.json()["data"]
 
         historico = []
@@ -103,7 +106,7 @@ def obter():
             reducao_alvo = True
             motivo = f"Fear & Greed {valor} — {classif_pt}: mercado aquecido (alvo reduzido)"
 
-        _cache = {
+        novo = {
             "valor":           valor,
             "classificacao":   atual["classificacao"],
             "classificacao_pt": classif_pt,
@@ -113,8 +116,9 @@ def obter():
             "historico":       historico,
             "timestamp":       datetime.now(),
         }
-
-        return _cache
+        with _cache_lock:
+            _cache = novo
+        return novo
 
     except Exception as e:
         # Em caso de falha, retorna neutro (nao bloqueia o bot)

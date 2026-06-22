@@ -257,6 +257,8 @@ class FSRSFiltro:
             pass
 
     def _salvar(self):
+        import threading as _threading
+
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         dados = {}
         for k, v in self.padroes.items():
@@ -271,8 +273,11 @@ class FSRSFiltro:
                 "lucro_total_pct": v.lucro_total_pct,
                 "ultima_revisao": v.ultima_revisao,
             }
-        with open(self.db_path, "w") as f:
+        # Escreve atomicamente: temp file + rename para evitar corrupção
+        tmp_path = self.db_path + ".tmp"
+        with open(tmp_path, "w") as f:
             json.dump(dados, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, self.db_path)
 
     # ── Relatório ─────────────────────────────────────────────
 
