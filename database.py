@@ -75,6 +75,7 @@ def _get_pg_pool():
             min_size=DB_POOL_MIN,
             max_size=DB_POOL_MAX,
             kwargs={"row_factory": dict_row, "prepare_threshold": None},
+            open=True,  # psycopg_pool >= 3.2 nao abre o pool implicitamente; sem isto, .connection() da PoolTimeout
         )
     return _pg_pool
 
