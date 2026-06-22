@@ -28,20 +28,27 @@ BASE_URL = "https://api.binance.com"
 
 # Precisão por par (Binance Spot/Futures)
 _PRECISAO = {
-    "BTCUSDT":  {"qty_step": 0.00001, "min_qty": 0.00001, "price_prec": 2},
-    "ETHUSDT":  {"qty_step": 0.001,   "min_qty": 0.001,   "price_prec": 2},
-    "SOLUSDT":  {"qty_step": 0.1,     "min_qty": 0.1,     "price_prec": 3},
+    "BTCUSDT": {"qty_step": 0.00001, "min_qty": 0.00001, "price_prec": 2},
+    "ETHUSDT": {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2},
+    "SOLUSDT": {"qty_step": 0.1, "min_qty": 0.1, "price_prec": 3},
 }
 _PRECISAO_DEFAULT = {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2}
 
-TRAILING_ATIVACAO = 0.01    # ativa trailing após 1% de ganho
+TRAILING_ATIVACAO = 0.01  # ativa trailing após 1% de ganho
 TRAILING_DISTANCIA = 0.008  # stop segue 0.8% abaixo do pico
 
 
-def avaliar_tick_monitor(entrada, stop_atual, target1, target2, parcial_feita,
-                         preco, preco_pico,
-                         trailing_ativacao=TRAILING_ATIVACAO,
-                         trailing_distancia=TRAILING_DISTANCIA):
+def avaliar_tick_monitor(
+    entrada,
+    stop_atual,
+    target1,
+    target2,
+    parcial_feita,
+    preco,
+    preco_pico,
+    trailing_ativacao=TRAILING_ATIVACAO,
+    trailing_distancia=TRAILING_DISTANCIA,
+):
     """
     Decisão PURA (sem efeitos colaterais) de um tick do monitor de posição LONG.
 
@@ -60,11 +67,11 @@ def avaliar_tick_monitor(entrada, stop_atual, target1, target2, parcial_feita,
     """
     ganho_pct = (preco - entrada) / entrada
     acao = {
-        "fechar_total":       None,
-        "encerrar":           False,
-        "fechar_parcial":     False,
-        "stop_breakeven":     None,
-        "preco_pico":         preco_pico,
+        "fechar_total": None,
+        "encerrar": False,
+        "fechar_parcial": False,
+        "stop_breakeven": None,
+        "preco_pico": preco_pico,
         "novo_stop_trailing": None,
     }
 
@@ -98,15 +105,15 @@ def avaliar_tick_monitor(entrada, stop_atual, target1, target2, parcial_feita,
 
 class Executor:
     def __init__(self, simulacao=True, symbol="BTCUSDT"):
-        self.simulacao  = simulacao
-        self.symbol     = symbol.upper()
-        self.posicao    = None
-        self._monitor   = None
-        self._ativo     = False
-        self._lock      = threading.Lock()  # protege o estado da posicao (M-2)
+        self.simulacao = simulacao
+        self.symbol = symbol.upper()
+        self.posicao = None
+        self._monitor = None
+        self._ativo = False
+        self._lock = threading.Lock()  # protege o estado da posicao (M-2)
         prec = _PRECISAO.get(self.symbol, _PRECISAO_DEFAULT)
-        self._qty_step   = prec["qty_step"]
-        self._min_qty    = prec["min_qty"]
+        self._qty_step = prec["qty_step"]
+        self._min_qty = prec["min_qty"]
         self._price_prec = prec["price_prec"]
         modo = "SIMULACAO (Paper Trading)" if simulacao else "REAL (Capital Real)"
         print(f"[EXEC] Executor iniciado — {self.symbol} | Modo: {modo}")
@@ -130,8 +137,9 @@ class Executor:
 
     def get_preco(self):
         try:
-            r = requests.get(f"{BASE_URL}/api/v3/ticker/price",
-                             params={"symbol": self.symbol}, timeout=5)
+            r = requests.get(
+                f"{BASE_URL}/api/v3/ticker/price", params={"symbol": self.symbol}, timeout=5
+            )
             return float(r.json()["price"])
         except Exception:
             return 0.0
@@ -147,37 +155,40 @@ class Executor:
         if qty < self._min_qty:
             return {"erro": f"Quantidade {qty} abaixo do minimo {self._min_qty}"}
 
-        log = (f"[EXEC] {'[SIM]' if self.simulacao else ''} "
-               f"ORDEM {tipo} {lado} {qty} {self.symbol}"
-               f"{f' @ ${preco:,.2f}' if preco else ''}")
+        log = (
+            f"[EXEC] {'[SIM]' if self.simulacao else ''} "
+            f"ORDEM {tipo} {lado} {qty} {self.symbol}"
+            f"{f' @ ${preco:,.2f}' if preco else ''}"
+        )
         print(log)
 
         if self.simulacao:
             preco_exec = preco or self.get_preco()
             return {
-                "orderId":   f"SIM-{int(time.time())}",
-                "status":    "FILLED",
+                "orderId": f"SIM-{int(time.time())}",
+                "status": "FILLED",
                 "executedQty": qty,
-                "price":     preco_exec,
+                "price": preco_exec,
                 "simulacao": True,
             }
 
         # Ordem real
         params = {
-            "symbol":    self.symbol,
-            "side":      lado,
-            "type":      tipo,
-            "quantity":  qty,
+            "symbol": self.symbol,
+            "side": lado,
+            "type": tipo,
+            "quantity": qty,
             "timestamp": int(time.time() * 1000),
         }
         if tipo == "LIMIT" and preco:
-            params["price"]       = self._arredondar_preco(preco)
+            params["price"] = self._arredondar_preco(preco)
             params["timeInForce"] = "GTC"
 
         params["signature"] = self._assinar(params)
         try:
-            r = requests.post(f"{BASE_URL}/api/v3/order",
-                              params=params, headers=self._headers(), timeout=10)
+            r = requests.post(
+                f"{BASE_URL}/api/v3/order", params=params, headers=self._headers(), timeout=10
+            )
             data = r.json()
         except Exception as e:
             # Falha de rede/timeout/JSON invalido — nao deixar propagar como sucesso (P1-8)
@@ -215,22 +226,24 @@ class Executor:
 
         with self._lock:
             self.posicao = {
-                "tipo":         "LONG",
-                "entrada":      preco_exec,
-                "tamanho_btc":  tamanho_btc,
+                "tipo": "LONG",
+                "entrada": preco_exec,
+                "tamanho_btc": tamanho_btc,
                 "stop_inicial": stop_loss,
-                "stop_atual":   stop_loss,
-                "target1":      take_profit,
-                "target2":      preco_exec * 1.05,   # alvo 2: 5%
-                "parcial_feita":False,
-                "abertura":     datetime.now().isoformat(),
-                "order_id":     resp.get("orderId"),
+                "stop_atual": stop_loss,
+                "target1": take_profit,
+                "target2": preco_exec * 1.05,  # alvo 2: 5%
+                "parcial_feita": False,
+                "abertura": datetime.now().isoformat(),
+                "order_id": resp.get("orderId"),
             }
 
         gestao_risco._estado_risco["posicoes_abertas"] += 1
         gestao_risco.persistir_estado()
-        print(f"[EXEC] LONG aberto @ ${preco_exec:,.2f} | "
-              f"Stop: ${stop_loss:,.2f} | Target: ${take_profit:,.2f}")
+        print(
+            f"[EXEC] LONG aberto @ ${preco_exec:,.2f} | "
+            f"Stop: ${stop_loss:,.2f} | Target: ${take_profit:,.2f}"
+        )
 
         # Inicia monitoramento
         self._ativo = True
@@ -253,21 +266,25 @@ class Executor:
         # P1-8: nao tratar como fechada se a ordem real nao preencheu — senao o bot
         # acharia que saiu da posicao sem ter saido. Mantem a posicao para retry.
         if not self.simulacao and resp.get("status") != "FILLED":
-            print(f"[EXEC] FALHA ao fechar posicao (ordem nao preenchida): {resp}. "
-                  f"Posicao MANTIDA — nova tentativa no proximo ciclo.")
+            print(
+                f"[EXEC] FALHA ao fechar posicao (ordem nao preenchida): {resp}. "
+                f"Posicao MANTIDA — nova tentativa no proximo ciclo."
+            )
             return
 
         # Ordem preenchida: agora sim aplica a mutacao do fechamento parcial
         if parcial:
             self.posicao["parcial_feita"] = True
-            self.posicao["tamanho_btc"]   = qty  # restante
+            self.posicao["tamanho_btc"] = qty  # restante
 
         pnl_pct = (preco - self.posicao["entrada"]) / self.posicao["entrada"] * 100
         pnl_usdt = qty * (preco - self.posicao["entrada"])
 
-        print(f"[EXEC] {'PARCIAL' if parcial else 'TOTAL'} FECHADO @ ${preco:,.2f} | "
-              f"PnL: {'+' if pnl_usdt>=0 else ''}{pnl_usdt:.2f} USDT ({pnl_pct:+.2f}%) | "
-              f"Motivo: {motivo}")
+        print(
+            f"[EXEC] {'PARCIAL' if parcial else 'TOTAL'} FECHADO @ ${preco:,.2f} | "
+            f"PnL: {'+' if pnl_usdt>=0 else ''}{pnl_usdt:.2f} USDT ({pnl_pct:+.2f}%) | "
+            f"Motivo: {motivo}"
+        )
 
         gestao_risco.registrar_resultado(pnl_usdt)
         database.salvar_sinal(
@@ -282,7 +299,7 @@ class Executor:
         if not parcial:
             with self._lock:
                 self.posicao = None
-                self._ativo  = False
+                self._ativo = False
             gestao_risco._estado_risco["posicoes_abertas"] -= 1
             gestao_risco.persistir_estado()
 
@@ -311,8 +328,13 @@ class Executor:
                     break
 
                 d = avaliar_tick_monitor(
-                    pos["entrada"], pos["stop_atual"], pos["target1"],
-                    pos["target2"], pos["parcial_feita"], preco, preco_pico,
+                    pos["entrada"],
+                    pos["stop_atual"],
+                    pos["target1"],
+                    pos["target2"],
+                    pos["parcial_feita"],
+                    preco,
+                    preco_pico,
                 )
                 preco_pico = d["preco_pico"]
 
@@ -330,7 +352,9 @@ class Executor:
                 # Trailing stop (pode coexistir com o parcial no mesmo tick)
                 if d["novo_stop_trailing"] is not None:
                     self.posicao["stop_atual"] = d["novo_stop_trailing"]
-                    print(f"[EXEC] Trailing Stop: ${d['novo_stop_trailing']:,.2f} (pico: ${preco_pico:,.2f})")
+                    print(
+                        f"[EXEC] Trailing Stop: ${d['novo_stop_trailing']:,.2f} (pico: ${preco_pico:,.2f})"
+                    )
 
             except Exception as e:
                 print(f"[EXEC] Erro no monitor: {e}")
@@ -346,16 +370,16 @@ class Executor:
         pos = self.posicao
         pnl = (preco - pos["entrada"]) / pos["entrada"] * 100
         return {
-            "tipo":          pos["tipo"],
-            "entrada":       pos["entrada"],
-            "preco_atual":   preco,
-            "pnl_%":         round(pnl, 2),
-            "pnl_usdt":      round(pos["tamanho_btc"] * (preco - pos["entrada"]), 2),
-            "stop_atual":    pos["stop_atual"],
-            "target1":       pos["target1"],
-            "target2":       pos["target2"],
+            "tipo": pos["tipo"],
+            "entrada": pos["entrada"],
+            "preco_atual": preco,
+            "pnl_%": round(pnl, 2),
+            "pnl_usdt": round(pos["tamanho_btc"] * (preco - pos["entrada"]), 2),
+            "stop_atual": pos["stop_atual"],
+            "target1": pos["target1"],
+            "target2": pos["target2"],
             "parcial_feita": pos["parcial_feita"],
-            "tamanho_btc":   pos["tamanho_btc"],
+            "tamanho_btc": pos["tamanho_btc"],
         }
 
 
@@ -365,9 +389,9 @@ if __name__ == "__main__":
     preco_atual = ex.get_preco()
     print(f"\nPreco atual: ${preco_atual:,.2f}")
 
-    stop   = preco_atual * 0.985
+    stop = preco_atual * 0.985
     target = preco_atual * 1.030
-    qty    = 0.001  # 0.001 BTC para teste
+    qty = 0.001  # 0.001 BTC para teste
 
     print(f"Abrindo LONG simulado: {qty} BTC @ ${preco_atual:,.2f}")
     print(f"Stop: ${stop:,.2f} | Target: ${target:,.2f}")

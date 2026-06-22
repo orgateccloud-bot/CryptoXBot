@@ -37,6 +37,7 @@ TABELAS = ["trades", "snapshots_mercado", "cvd_historico", "sinais", "risk_state
 
 # ── Helpers ────────────────────────────────────────────────────────
 
+
 def _sqlite_conn() -> sqlite3.Connection:
     if not os.path.exists(DB_PATH):
         print(f"[ERRO] SQLite não encontrado: {DB_PATH}")
@@ -59,7 +60,7 @@ def _pg_conn():
 
     url = DATABASE_URL
     if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://"):]
+        url = "postgresql://" + url[len("postgres://") :]
     return psycopg.connect(url, row_factory=dict_row, prepare_threshold=None)
 
 
@@ -100,6 +101,7 @@ def _parse_json(value: Any) -> dict | None:
 
 # ── Leitura SQLite ─────────────────────────────────────────────────
 
+
 def _sqlite_count(conn: sqlite3.Connection, tabela: str) -> int:
     try:
         row = conn.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()
@@ -117,6 +119,7 @@ def _sqlite_rows(conn: sqlite3.Connection, tabela: str) -> list[dict]:
 
 
 # ── Inserção Postgres ──────────────────────────────────────────────
+
 
 def _insert_trades(pg, rows: list[dict], dry: bool) -> int:
     count = 0
@@ -284,6 +287,7 @@ _INSERTERS = {
 
 # ── Comandos ───────────────────────────────────────────────────────
 
+
 def cmd_listar() -> None:
     print(f"\nSQLite: {DB_PATH}")
     print("-" * 40)
@@ -374,15 +378,16 @@ def cmd_validar_pg() -> None:
 
 # ── Entry point ────────────────────────────────────────────────────
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Migração idempotente SQLite → Supabase/Postgres"
-    )
+    parser = argparse.ArgumentParser(description="Migração idempotente SQLite → Supabase/Postgres")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--listar", action="store_true", help="Lista contagens no SQLite de origem")
     group.add_argument("--dry-run", action="store_true", help="Simula migração sem inserir")
     group.add_argument("--confirmar", action="store_true", help="Executa migração real")
-    group.add_argument("--validar-pg", action="store_true", help="Lista contagens no Postgres de destino")
+    group.add_argument(
+        "--validar-pg", action="store_true", help="Lista contagens no Postgres de destino"
+    )
 
     args = parser.parse_args()
 

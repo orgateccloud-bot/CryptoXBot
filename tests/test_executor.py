@@ -30,14 +30,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import executor as executor_mod
 from executor import Executor
 
-
 # ══════════════════════════════════════════════════════════════
 # Fixtures: mocks dos colaboradores externos
 # ══════════════════════════════════════════════════════════════
 
+
 @pytest.fixture
 def gestao_risco_mock(monkeypatch):
     """Mocka todas as funções de risco usadas pelo Executor."""
+
     class _RiscoFake:
         def __init__(self):
             self._estado_risco = {"posicoes_abertas": 0}
@@ -64,6 +65,7 @@ def gestao_risco_mock(monkeypatch):
 @pytest.fixture
 def database_mock(monkeypatch):
     """Mocka database.salvar_sinal capturando as chamadas."""
+
     class _DBFake:
         def __init__(self):
             self.chamadas = []
@@ -90,6 +92,7 @@ def ex_sim(gestao_risco_mock, database_mock, monkeypatch):
 # ══════════════════════════════════════════════════════════════
 # Arredondamento (precisão por par)
 # ══════════════════════════════════════════════════════════════
+
 
 def test_lock_existe():
     ex = Executor(simulacao=True)
@@ -127,6 +130,7 @@ def test_precisao_simbolo_desconhecido_usa_default():
 # _enviar_ordem em simulação
 # ══════════════════════════════════════════════════════════════
 
+
 def test_enviar_ordem_simulacao_filled(ex_sim):
     resp = ex_sim._enviar_ordem("BUY", 0.001, preco=50000.0, tipo="LIMIT")
     assert resp["status"] == "FILLED"
@@ -152,6 +156,7 @@ def test_enviar_ordem_abaixo_min_qty_retorna_erro(ex_sim):
 # ══════════════════════════════════════════════════════════════
 # abrir_long
 # ══════════════════════════════════════════════════════════════
+
 
 def test_abrir_long_sucesso(ex_sim, gestao_risco_mock):
     ok = ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
@@ -182,6 +187,7 @@ def test_abrir_long_guard_posicao_existente(ex_sim):
 # ══════════════════════════════════════════════════════════════
 # fechar_posicao — parcial e total (simulação)
 # ══════════════════════════════════════════════════════════════
+
 
 def test_fechar_posicao_parcial(ex_sim):
     ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
@@ -221,6 +227,7 @@ def test_fechar_posicao_sem_posicao_e_noop(ex_sim, gestao_risco_mock, database_m
 # ══════════════════════════════════════════════════════════════
 # FIX DE SEGURANÇA P1-8 (CRÍTICO)
 # ══════════════════════════════════════════════════════════════
+
 
 def test_p1_8_fechar_real_sem_filled_mantem_posicao(gestao_risco_mock, database_mock, monkeypatch):
     """
@@ -272,6 +279,7 @@ def test_p1_8_simulacao_fecha_mesmo_sem_validacao_real(ex_sim, gestao_risco_mock
 # status()
 # ══════════════════════════════════════════════════════════════
 
+
 def test_status_sem_posicao(ex_sim):
     assert ex_sim.posicao is None
     st = ex_sim.status()
@@ -292,6 +300,7 @@ def test_status_com_posicao(ex_sim):
 # ══════════════════════════════════════════════════════════════
 # ADVERSARIAL — Arredondamento: bordas exatas e outros pares
 # ══════════════════════════════════════════════════════════════
+
 
 def test_precisao_ethusdt():
     ex = Executor(simulacao=True, symbol="ETHUSDT")
@@ -352,6 +361,7 @@ def test_arredondar_qty_zero_e_negativo():
 # ADVERSARIAL — _enviar_ordem (simulação): fallbacks e bordas
 # ══════════════════════════════════════════════════════════════
 
+
 def test_enviar_ordem_preco_zero_usa_get_preco(ex_sim):
     # preco=0 é falsy -> cai no fallback get_preco() (mock 50000.0)
     resp = ex_sim._enviar_ordem("BUY", 0.001, preco=0, tipo="MARKET")
@@ -382,6 +392,7 @@ def test_enviar_ordem_orderid_unico_prefixo_sim(ex_sim):
 # ADVERSARIAL — abrir_long em MODO REAL (simulacao=False)
 # ══════════════════════════════════════════════════════════════
 
+
 def _novo_executor_real(monkeypatch):
     ex = Executor(simulacao=False, symbol="BTCUSDT")
     ex._monitorar = lambda: None
@@ -393,7 +404,9 @@ def test_abrir_long_real_filled_abre_posicao(gestao_risco_mock, database_mock, m
     ex = _novo_executor_real(monkeypatch)
     # Ordem real preenchida com price específico
     ex._enviar_ordem = lambda *a, **k: {
-        "status": "FILLED", "price": 50050.0, "orderId": "REAL-9",
+        "status": "FILLED",
+        "price": 50050.0,
+        "orderId": "REAL-9",
     }
     ok = ex.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
     assert ok is True
@@ -421,9 +434,11 @@ def test_abrir_long_real_bloqueado_pelo_risco(gestao_risco_mock, database_mock, 
     # validar_trade nega -> abrir_long retorna False ANTES de enviar ordem
     gestao_risco_mock.validar_trade = lambda *a, **k: {"pode": False, "motivo": "drawdown"}
     enviado = {"flag": False}
+
     def _spy(*a, **k):
         enviado["flag"] = True
         return {"status": "FILLED", "price": 50000.0, "orderId": "X"}
+
     ex._enviar_ordem = _spy
     ok = ex.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
     assert ok is False
@@ -434,9 +449,11 @@ def test_abrir_long_real_bloqueado_pelo_risco(gestao_risco_mock, database_mock, 
 def test_abrir_long_simulacao_nao_chama_validar_trade(ex_sim, gestao_risco_mock):
     # Em simulação validar_trade NÃO é checado (bloco só roda se not self.simulacao)
     chamou = {"flag": False}
+
     def _v(*a, **k):
         chamou["flag"] = True
         return {"pode": False, "motivo": "bloqueado"}
+
     gestao_risco_mock.validar_trade = _v
     ok = ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
     assert ok is True  # abre mesmo com validar_trade que negaria
@@ -454,6 +471,7 @@ def test_abrir_long_entrada_aplica_slippage_1_por_mil(ex_sim):
 # ══════════════════════════════════════════════════════════════
 # ADVERSARIAL — fechar_posicao: PnL, labels e parcial em modo real
 # ══════════════════════════════════════════════════════════════
+
 
 def test_fechar_total_pnl_positivo_label_fechar_long(ex_sim, gestao_risco_mock, database_mock):
     ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
@@ -504,16 +522,24 @@ def test_fechar_parcial_nao_decrementa_posicoes_abertas(ex_sim, gestao_risco_moc
     assert gestao_risco_mock.persistido == persist_antes
 
 
-def test_p1_8_fechar_parcial_real_sem_filled_mantem_tudo(gestao_risco_mock, database_mock, monkeypatch):
+def test_p1_8_fechar_parcial_real_sem_filled_mantem_tudo(
+    gestao_risco_mock, database_mock, monkeypatch
+):
     # Guard P1-8 também vale para fechamento PARCIAL em modo real
     ex = Executor(simulacao=False, symbol="BTCUSDT")
     ex._monitorar = lambda: None
     ex.get_preco = lambda: 50000.0
     ex.posicao = {
-        "tipo": "LONG", "entrada": 50000.0, "tamanho_btc": 0.002,
-        "stop_inicial": 49000.0, "stop_atual": 49000.0,
-        "target1": 51000.0, "target2": 52500.0, "parcial_feita": False,
-        "abertura": "2026-06-20T00:00:00", "order_id": "REAL-1",
+        "tipo": "LONG",
+        "entrada": 50000.0,
+        "tamanho_btc": 0.002,
+        "stop_inicial": 49000.0,
+        "stop_atual": 49000.0,
+        "target1": 51000.0,
+        "target2": 52500.0,
+        "parcial_feita": False,
+        "abertura": "2026-06-20T00:00:00",
+        "order_id": "REAL-1",
     }
     ex._ativo = True
     ex._enviar_ordem = lambda *a, **k: {"erro": "x"}
@@ -532,10 +558,16 @@ def test_fechar_total_real_filled_fecha(gestao_risco_mock, database_mock, monkey
     ex._monitorar = lambda: None
     ex.get_preco = lambda: 50000.0
     ex.posicao = {
-        "tipo": "LONG", "entrada": 50000.0, "tamanho_btc": 0.001,
-        "stop_inicial": 49000.0, "stop_atual": 49000.0,
-        "target1": 51000.0, "target2": 52500.0, "parcial_feita": False,
-        "abertura": "2026-06-20T00:00:00", "order_id": "REAL-1",
+        "tipo": "LONG",
+        "entrada": 50000.0,
+        "tamanho_btc": 0.001,
+        "stop_inicial": 49000.0,
+        "stop_atual": 49000.0,
+        "target1": 51000.0,
+        "target2": 52500.0,
+        "parcial_feita": False,
+        "abertura": "2026-06-20T00:00:00",
+        "order_id": "REAL-1",
     }
     ex._ativo = True
     gestao_risco_mock._estado_risco["posicoes_abertas"] = 1
@@ -550,6 +582,7 @@ def test_fechar_total_real_filled_fecha(gestao_risco_mock, database_mock, monkey
 # ══════════════════════════════════════════════════════════════
 # ADVERSARIAL — status(): valores exatos de PnL
 # ══════════════════════════════════════════════════════════════
+
 
 def test_status_pnl_valores_exatos(ex_sim):
     ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
@@ -568,8 +601,16 @@ def test_status_inclui_todas_as_chaves(ex_sim):
     ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
     st = ex_sim.status()
     esperadas = {
-        "tipo", "entrada", "preco_atual", "pnl_%", "pnl_usdt",
-        "stop_atual", "target1", "target2", "parcial_feita", "tamanho_btc",
+        "tipo",
+        "entrada",
+        "preco_atual",
+        "pnl_%",
+        "pnl_usdt",
+        "stop_atual",
+        "target1",
+        "target2",
+        "parcial_feita",
+        "tamanho_btc",
     }
     assert esperadas.issubset(st.keys())
 
@@ -577,8 +618,10 @@ def test_status_inclui_todas_as_chaves(ex_sim):
 def test_get_preco_excecao_retorna_zero(gestao_risco_mock, database_mock, monkeypatch):
     # get_preco real: se requests falhar, retorna 0.0 (sem propagar exceção)
     ex = Executor(simulacao=True, symbol="BTCUSDT")
+
     class _ReqFake:
         def get(self, *a, **k):
             raise RuntimeError("sem rede")
+
     monkeypatch.setattr(executor_mod, "requests", _ReqFake())
     assert ex.get_preco() == 0.0

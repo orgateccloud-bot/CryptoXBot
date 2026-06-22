@@ -50,16 +50,14 @@ from health import start_health_server
 from logger import logger
 
 # Retreinamento automático semanal (domingo 02h)
-_RETREINAMENTO_HORA  = 2    # hora do dia (02:00)
-_RETREINAMENTO_DIA   = 6    # 6 = domingo (weekday())
+_RETREINAMENTO_HORA = 2  # hora do dia (02:00)
+_RETREINAMENTO_DIA = 6  # 6 = domingo (weekday())
 
 # Configurar logging estruturado para WebSocket
 ws_logger = logging.getLogger("websocket")
 ws_logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
-formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 ws_logger.addHandler(handler)
 
@@ -67,10 +65,10 @@ ws_logger.addHandler(handler)
 PARES_ATIVOS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
 # ── Estado global ──────────────────────────────────────────────
-cvd_btc       = 0.0
+cvd_btc = 0.0
 total_compras = 0.0
-total_vendas  = 0.0
-preco_atual   = 0.0
+total_vendas = 0.0
+preco_atual = 0.0
 _lock = threading.Lock()
 
 # Estado WebSocket
@@ -82,16 +80,18 @@ ws_state = {
 }
 
 # Estado por par (executor e scale-in independentes)
-_estado_pares = {}   # symbol → {"executor": Executor, "scale_in": ScaleIn|None}
+_estado_pares = {}  # symbol → {"executor": Executor, "scale_in": ScaleIn|None}
 
 
 # ── Helpers ────────────────────────────────────────────────────
+
 
 def formatar_valor(v):
     return f"${v/1e6:.2f}M" if v >= 1e6 else f"${v/1e3:.1f}K"
 
 
 # ── WebSocket Binance Assíncrono com Retry ──────────────────
+
 
 async def websocket_handler():
     """
@@ -109,53 +109,64 @@ async def websocket_handler():
             async with websockets.connect(url, ping_interval=30, ping_timeout=10) as websocket_conn:
                 ws_state["connected"] = True
                 ws_state["last_message_time"] = time.time()
-                ws_logger.info("WebSocket conectado", extra={"symbol": SYMBOL_WS, "attempt": attempt})
+                ws_logger.info(
+                    "WebSocket conectado", extra={"symbol": SYMBOL_WS, "attempt": attempt}
+                )
 
                 async for message in websocket_conn:
                     try:
                         await process_message(message)
                         ws_state["last_message_time"] = time.time()
                     except Exception as e:
-                        ws_logger.error("Erro processando mensagem", extra={
-                            "error": str(e),
-                            "symbol": SYMBOL_WS,
-                            "latency_ms": ws_state["latency_ms"]
-                        })
+                        ws_logger.error(
+                            "Erro processando mensagem",
+                            extra={
+                                "error": str(e),
+                                "symbol": SYMBOL_WS,
+                                "latency_ms": ws_state["latency_ms"],
+                            },
+                        )
 
-        except (websockets.exceptions.ConnectionClosedError,
-                websockets.exceptions.WebSocketException,
-                asyncio.TimeoutError) as e:
+        except (
+            websockets.exceptions.ConnectionClosedError,
+            websockets.exceptions.WebSocketException,
+            asyncio.TimeoutError,
+        ) as e:
             ws_state["connected"] = False
             latency = (time.time() - ws_state["last_message_time"]) * 1000
             ws_state["latency_ms"] = latency
 
             # Backoff exponencial com jitter
-            delay = min(base_delay * (2 ** attempt), max_delay)
+            delay = min(base_delay * (2**attempt), max_delay)
             jitter = random.uniform(-jitter_factor * delay, jitter_factor * delay)
             delay += jitter
             delay = max(0.1, delay)  # mínimo 100ms
 
-            logger.warning("WebSocket desconectado", extra={
-                "error": str(e),
-                "symbol": SYMBOL_WS,
-                "attempt": attempt,
-                "latency_ms": latency,
-                "next_retry_in_s": delay
-            })
+            logger.warning(
+                "WebSocket desconectado",
+                extra={
+                    "error": str(e),
+                    "symbol": SYMBOL_WS,
+                    "attempt": attempt,
+                    "latency_ms": latency,
+                    "next_retry_in_s": delay,
+                },
+            )
 
             await asyncio.sleep(delay)
             attempt += 1
 
         except Exception as e:
-            logger.error("Erro crítico WebSocket", extra={
-                "error": str(e),
-                "symbol": SYMBOL_WS,
-                "attempt": attempt
-            })
+            logger.error(
+                "Erro crítico WebSocket",
+                extra={"error": str(e), "symbol": SYMBOL_WS, "attempt": attempt},
+            )
             attempt += 1
             await asyncio.sleep(1.0)
 
-    logger.critical("Máximo de tentativas atingido", extra={"symbol": SYMBOL_WS, "max_retries": max_retries})
+    logger.critical(
+        "Máximo de tentativas atingido", extra={"symbol": SYMBOL_WS, "max_retries": max_retries}
+    )
 
 
 async def process_message(message):
@@ -197,7 +208,9 @@ async def process_message(message):
     # Salvar trades grandes
     if quantity >= 0.1:
         try:
-            database.salvar_trade(price, quantity, direcao, WHALE_BTC_VOLUME, symbol="BTCUSDT", trade_id=trade_id)
+            database.salvar_trade(
+                price, quantity, direcao, WHALE_BTC_VOLUME, symbol="BTCUSDT", trade_id=trade_id
+            )
         except Exception as e:
             logger.error("Erro salvando trade", extra={"error": str(e)})
 
@@ -209,17 +222,22 @@ async def process_message(message):
             print(f"  BALEIA! {direcao} {quantity:.3f} BTC ({formatar_valor(price*quantity)})")
             print(f"{'='*54}\033[0m")
         else:
-            print(f"{cor}[{hora}] {seta} {direcao:6s}{reset}  "
-                  f"{cinza}${price:,.2f}  {quantity:.3f} BTC ({formatar_valor(price*quantity)}){reset}")
+            print(
+                f"{cor}[{hora}] {seta} {direcao:6s}{reset}  "
+                f"{cinza}${price:,.2f}  {quantity:.3f} BTC ({formatar_valor(price*quantity)}){reset}"
+            )
         cvd_cor = "\033[92m" if cvd_btc >= 0 else "\033[91m"
-        print(f"  {cinza}CVD: {cvd_cor}{cvd_btc:+.3f}{reset}  "
-              f"{cinza}C:{total_compras:.2f} V:{total_vendas:.2f}{reset}")
+        print(
+            f"  {cinza}CVD: {cvd_cor}{cvd_btc:+.3f}{reset}  "
+            f"{cinza}C:{total_compras:.2f} V:{total_vendas:.2f}{reset}"
+        )
 
 
 def iniciar_websocket_async():
     """
     Inicia o loop assíncrono do WebSocket em uma thread separada.
     """
+
     def run_async():
         asyncio.run(websocket_handler())
 
@@ -229,9 +247,12 @@ def iniciar_websocket_async():
 
 # ── Retreinamento Automático Semanal ──────────────────────────
 
+
 def _retreinar_modelos(pares: list[str]):
     """Retreina XGBoost e MLP para todos os pares. Chamado automaticamente."""
-    print(f"\n\033[94m[RETRAIN] Iniciando retreinamento semanal — {datetime.now().strftime('%d/%m/%Y %H:%M')}\033[0m")
+    print(
+        f"\n\033[94m[RETRAIN] Iniciando retreinamento semanal — {datetime.now().strftime('%d/%m/%Y %H:%M')}\033[0m"
+    )
     try:
         from ml_filtro import treinar as treinar_xgb
         from lstm_modelo import treinar as treinar_mlp
@@ -262,18 +283,19 @@ def iniciar_retreinamento_automatico(pares: list[str]):
     Thread que verifica todo domingo às 02h e retreina os modelos ML.
     Não bloqueia o loop principal.
     """
+
     def _loop_retrain():
         ultimo_retreinamento = None
 
         while True:
             agora = datetime.now()
             domingo_e_hora_certa = (
-                agora.weekday() == _RETREINAMENTO_DIA and
-                agora.hour == _RETREINAMENTO_HORA and
-                agora.minute < 10  # janela de 10 min para não falhar se bot reiniciar
+                agora.weekday() == _RETREINAMENTO_DIA
+                and agora.hour == _RETREINAMENTO_HORA
+                and agora.minute < 10  # janela de 10 min para não falhar se bot reiniciar
             )
             data_hoje = agora.date()
-            ja_retreinou_hoje = (ultimo_retreinamento == data_hoje)
+            ja_retreinou_hoje = ultimo_retreinamento == data_hoje
 
             if domingo_e_hora_certa and not ja_retreinou_hoje:
                 _retreinar_modelos(pares)
@@ -283,10 +305,13 @@ def iniciar_retreinamento_automatico(pares: list[str]):
 
     thread = threading.Thread(target=_loop_retrain, daemon=True, name="retrain-weekly")
     thread.start()
-    print(f"\033[94m[RETRAIN] Retreinamento automático agendado — todo domingo às {_RETREINAMENTO_HORA:02d}h\033[0m")
+    print(
+        f"\033[94m[RETRAIN] Retreinamento automático agendado — todo domingo às {_RETREINAMENTO_HORA:02d}h\033[0m"
+    )
 
 
 # ── Loop de Estratégia por Par ────────────────────────────────
+
 
 def loop_par(par, intervalo_min, simulacao):
     """Loop independente para cada par operado."""
@@ -301,6 +326,7 @@ def loop_par(par, intervalo_min, simulacao):
     ensemble_disponivel = False
     try:
         import ensemble as ens_mod
+
         ensemble_disponivel = True
         print(f"\033[94m[BOT] {par} — Ensemble ML carregado.\033[0m")
     except Exception:
@@ -320,13 +346,21 @@ def loop_par(par, intervalo_min, simulacao):
             ml_prob = None
             if ensemble_disponivel:
                 try:
-                    ensemble_result = ens_mod.prever(symbol=par) if hasattr(ens_mod, 'symbol') else ens_mod.prever()
+                    ensemble_result = (
+                        ens_mod.prever(symbol=par)
+                        if hasattr(ens_mod, "symbol")
+                        else ens_mod.prever()
+                    )
                     ml_prob = ensemble_result.get("prob_ensemble")
                 except Exception:
                     pass
 
-            resultado = analisar_otimizada(symbol=par, cvd_atual=cvd_snap, ml_prob=ml_prob, ensemble_result=ensemble_result)
-            imprimir_otimizada(symbol=par, cvd_atual=cvd_snap, ml_prob=ml_prob, ensemble_result=ensemble_result)
+            resultado = analisar_otimizada(
+                symbol=par, cvd_atual=cvd_snap, ml_prob=ml_prob, ensemble_result=ensemble_result
+            )
+            imprimir_otimizada(
+                symbol=par, cvd_atual=cvd_snap, ml_prob=ml_prob, ensemble_result=ensemble_result
+            )
 
             try:
                 logger.registrar_avaliacao(resultado, symbol=par)
@@ -339,63 +373,80 @@ def loop_par(par, intervalo_min, simulacao):
 
             # Salvar snapshot (apenas BTC por ora, para não sobrecarregar a tabela)
             if par == "BTCUSDT":
-                database.salvar_snapshot({
-                    "symbol":             par,
-                    "preco":             resultado["preco"],
-                    "variacao_24h_%":    0,
-                    "volume_24h_btc":    0,
-                    "funding_rate_%":    resultado["funding_%"],
-                    "open_interest_btc": 0,
-                    "ema20_1h":          resultado["ema20_1h"],
-                    "ema50_1h":          resultado["ema50_1h"],
-                    "rsi_1h":            resultado["rsi"],
-                    "tendencia":         resultado["tend_4h"],
-                    "pressao_dominante": "COMPRA" if (cvd_snap or 0) > 0 else "VENDA",
-                    "liquidez_compra_usdt": 0,
-                    "liquidez_venda_usdt":  0,
-                }, symbol=par)
+                database.salvar_snapshot(
+                    {
+                        "symbol": par,
+                        "preco": resultado["preco"],
+                        "variacao_24h_%": 0,
+                        "volume_24h_btc": 0,
+                        "funding_rate_%": resultado["funding_%"],
+                        "open_interest_btc": 0,
+                        "ema20_1h": resultado["ema20_1h"],
+                        "ema50_1h": resultado["ema50_1h"],
+                        "rsi_1h": resultado["rsi"],
+                        "tendencia": resultado["tend_4h"],
+                        "pressao_dominante": "COMPRA" if (cvd_snap or 0) > 0 else "VENDA",
+                        "liquidez_compra_usdt": 0,
+                        "liquidez_venda_usdt": 0,
+                    },
+                    symbol=par,
+                )
 
             # Executar sinal (apenas LONG: o Executor ainda nao suporta short —
             # ver C-3 em RELATORIO_MAPEAMENTO_MELHORIAS.md)
             if sinal == "COMPRA" and not exec_par.posicao:
-                preco  = resultado["preco"]
-                stop   = resultado["stop_loss"]
+                preco = resultado["preco"]
+                stop = resultado["stop_loss"]
                 target = resultado["take_profit"]
-                saldo  = gestao_risco.get_saldo_usdt()
+                saldo = gestao_risco.get_saldo_usdt()
 
                 validacao = gestao_risco.validar_trade(sinal, preco, saldo if saldo > 0 else 100)
                 if validacao["pode"]:
                     tamanho_base = validacao["tamanho_btc"]
-                    fator        = resultado.get("tamanho_fator", 1.0)
-                    tamanho      = round(tamanho_base * fator, 6)
-                    score_val    = resultado.get("score", 0)
+                    fator = resultado.get("tamanho_fator", 1.0)
+                    tamanho = round(tamanho_base * fator, 6)
+                    score_val = resultado.get("score", 0)
 
                     # Scale-In
-                    sup_forte  = resultado.get("suporte_forte", 0)
-                    scale_in   = estado["scale_in"]
+                    sup_forte = resultado.get("suporte_forte", 0)
+                    scale_in = estado["scale_in"]
                     if scale_in is None or scale_in.completo:
                         scale_in = ScaleIn(tamanho, sup_forte)
                         estado["scale_in"] = scale_in
                         parcela = scale_in.entrada_parcela1(preco)
-                        print(f"\n\033[93m[{par}][SCALE-IN] Parcela 1/3: {parcela:.6f} @ ${preco:,.2f} "
-                              f"(Score:{score_val}){reset}")
+                        print(
+                            f"\n\033[93m[{par}][SCALE-IN] Parcela 1/3: {parcela:.6f} @ ${preco:,.2f} "
+                            f"(Score:{score_val}){reset}"
+                        )
                     elif scale_in.parcela_atual == 1:
                         parcela = scale_in.entrada_parcela2(preco)
-                        print(f"\n\033[93m[{par}][SCALE-IN] Parcela 2/3: {parcela:.6f} @ ${preco:,.2f} "
-                              f"(PM: ${scale_in.preco_medio:,.2f}){reset}")
+                        print(
+                            f"\n\033[93m[{par}][SCALE-IN] Parcela 2/3: {parcela:.6f} @ ${preco:,.2f} "
+                            f"(PM: ${scale_in.preco_medio:,.2f}){reset}"
+                        )
                     elif scale_in.parcela_atual == 2:
                         parcela = scale_in.entrada_parcela3(preco)
-                        print(f"\n\033[93m[{par}][SCALE-IN] Parcela 3/3: {parcela:.6f} @ ${preco:,.2f} "
-                              f"(PM: ${scale_in.preco_medio:,.2f}) COMPLETO{reset}")
+                        print(
+                            f"\n\033[93m[{par}][SCALE-IN] Parcela 3/3: {parcela:.6f} @ ${preco:,.2f} "
+                            f"(PM: ${scale_in.preco_medio:,.2f}) COMPLETO{reset}"
+                        )
                     else:
                         parcela = tamanho
 
                     # Telegram
                     try:
                         from telegram_bot import alerta_sinal
-                        alerta_sinal(sinal, preco, stop, target,
-                                     resultado["filtros_ok"], resultado["filtros_total"], ml_prob,
-                                     par=par)
+
+                        alerta_sinal(
+                            sinal,
+                            preco,
+                            stop,
+                            target,
+                            resultado["filtros_ok"],
+                            resultado["filtros_total"],
+                            ml_prob,
+                            par=par,
+                        )
                     except Exception:
                         pass
 
@@ -408,8 +459,10 @@ def loop_par(par, intervalo_min, simulacao):
                 # Antes este sinal consumia validacao + scale-in + alerta Telegram
                 # e era descartado em silencio. Agora e ignorado explicitamente,
                 # sem efeitos colaterais.
-                print(f"\033[90m[{par}][INFO] Sinal VENDA (short) ignorado: "
-                      f"executor opera apenas LONG no momento.\033[0m")
+                print(
+                    f"\033[90m[{par}][INFO] Sinal VENDA (short) ignorado: "
+                    f"executor opera apenas LONG no momento.\033[0m"
+                )
 
             # CVD snapshot periódico (BTC apenas)
             if par == "BTCUSDT":
@@ -421,41 +474,58 @@ def loop_par(par, intervalo_min, simulacao):
 
 # ── Ponto de entrada ───────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="BotBinance v2")
-    parser.add_argument("--intervalo",  type=int, default=15)
-    parser.add_argument("--simulacao",  action="store_true", default=True,
-                        help="Paper trading (padrao: ativado por seguranca)")
-    parser.add_argument("--real",       action="store_true",
-                        help="Ativar ordens reais (desativa simulacao)")
-    parser.add_argument("--relatorio",  action="store_true")
+    parser.add_argument("--intervalo", type=int, default=15)
+    parser.add_argument(
+        "--simulacao",
+        action="store_true",
+        default=True,
+        help="Paper trading (padrao: ativado por seguranca)",
+    )
+    parser.add_argument(
+        "--real", action="store_true", help="Ativar ordens reais (desativa simulacao)"
+    )
+    parser.add_argument("--relatorio", action="store_true")
     parser.add_argument("--estrategia", action="store_true")
-    parser.add_argument("--backtest",   type=str, metavar="INTERVALO")
+    parser.add_argument("--backtest", type=str, metavar="INTERVALO")
     parser.add_argument("--treinar-ml", action="store_true")
-    parser.add_argument("--par",        type=str, default=None,
-                        help="Operar apenas um par (ex: BTCUSDT). Padrao: todos os pares ativos.")
+    parser.add_argument(
+        "--par",
+        type=str,
+        default=None,
+        help="Operar apenas um par (ex: BTCUSDT). Padrao: todos os pares ativos.",
+    )
     args = parser.parse_args()
 
     simulacao = not args.real
     if args.real and not ALLOW_REAL_TRADING:
         simulacao = True
-        print("[SEGURANCA] --real ignorado: defina ALLOW_REAL_TRADING=true para liberar ordens reais.")
+        print(
+            "[SEGURANCA] --real ignorado: defina ALLOW_REAL_TRADING=true para liberar ordens reais."
+        )
 
     # Validação de boot: fail-fast em modo real sem credenciais
     if not simulacao:
         from config.runtime_settings import API_KEY, API_SECRET, APP_ENV
+
         erros_boot = []
         if not API_KEY:
             erros_boot.append("BINANCE_API_KEY nao definida")
         if not API_SECRET:
             erros_boot.append("BINANCE_API_SECRET nao definida")
         if APP_ENV != "production":
-            erros_boot.append(f"ENV/APP_ENV deve ser 'production' em modo real (atual: '{APP_ENV}')")
+            erros_boot.append(
+                f"ENV/APP_ENV deve ser 'production' em modo real (atual: '{APP_ENV}')"
+            )
         if erros_boot:
             print("[BOOT ERROR] Modo real requer configuracao correta:")
             for e in erros_boot:
                 print(f"  - {e}")
-            print("Abortando. Use --simulacao para paper trading ou configure as variaveis de ambiente.")
+            print(
+                "Abortando. Use --simulacao para paper trading ou configure as variaveis de ambiente."
+            )
             raise SystemExit(1)
 
     # Definir pares a operar
@@ -466,7 +536,8 @@ def main():
 
     # Modos de uso único
     if args.relatorio:
-        relatorio_completo(); return
+        relatorio_completo()
+        return
 
     if args.estrategia:
         database.inicializar()
@@ -476,13 +547,16 @@ def main():
 
     if args.backtest:
         from backtesting.motor import rodar_backtest, imprimir_relatorio
+
         database.inicializar()
         r = rodar_backtest(args.backtest, 1000.0)
-        if r: imprimir_relatorio(r)
+        if r:
+            imprimir_relatorio(r)
         return
 
     if args.treinar_ml:
         from ml_filtro import treinar
+
         for par in pares:
             treinar("1h", par)
         return
@@ -500,12 +574,12 @@ def main():
             severity="WARNING",
         )
 
-    print("\n" + "="*56)
+    print("\n" + "=" * 56)
     print("  BOTBINANCE v2 — INICIANDO")
     print(f"  {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
     print(f"  Modo: {'SIMULACAO (Paper Trading)' if simulacao else 'REAL'}")
     print(f"  Pares: {', '.join(pares)}")
-    print("="*56)
+    print("=" * 56)
     print("  Modulos ativos:")
     print("  [OK] WebSocket BTC/USDT Futures (CVD em tempo real)")
     print(f"  [OK] Estrategia Otimizada MTF+ATR+Volume+VWAP+ML (por par)")
@@ -515,7 +589,7 @@ def main():
     print(f"  [OK] Retreinamento automatico (domingo 02h)")
     print(f"\n  Avaliacao de sinal: a cada {args.intervalo} minutos")
     print("  Ctrl+C para encerrar")
-    print("="*56 + "\n")
+    print("=" * 56 + "\n")
 
     relatorio_completo()
 
@@ -531,13 +605,14 @@ def main():
 
     # Threads — uma por par
     for par in pares:
-        threading.Thread(target=loop_par,
-                         args=(par, args.intervalo, simulacao),
-                         daemon=True, name=f"loop-{par}").start()
+        threading.Thread(
+            target=loop_par, args=(par, args.intervalo, simulacao), daemon=True, name=f"loop-{par}"
+        ).start()
 
     # Encerramento limpo: Railway envia SIGTERM no restart/redeploy.
     def _encerrar(signum, frame):
         raise KeyboardInterrupt
+
     try:
         signal.signal(signal.SIGTERM, _encerrar)
     except (ValueError, OSError):

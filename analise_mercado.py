@@ -81,11 +81,9 @@ def get_open_interest():
 
 def get_medias_moveis():
     """EMA 20, EMA 50 e RSI calculados a partir das klines de 1h."""
-    r = requests.get(f"{BASE_URL}/fapi/v1/klines", params={
-        "symbol": SYMBOL,
-        "interval": "1h",
-        "limit": 60
-    })
+    r = requests.get(
+        f"{BASE_URL}/fapi/v1/klines", params={"symbol": SYMBOL, "interval": "1h", "limit": 60}
+    )
     klines = r.json()
     fechamentos = [float(k[4]) for k in klines]
 
@@ -143,12 +141,18 @@ def relatorio_completo():
     print(f"  Variação 24h:  {sinal}{preco['variacao_24h_%']:.2f}%")
     print(f"  Máxima 24h:    ${preco['maximo_24h']:,.2f}")
     print(f"  Mínima 24h:    ${preco['minimo_24h']:,.2f}")
-    print(f"  Volume 24h:    {preco['volume_24h_btc']:,.1f} BTC  (${preco['volume_24h_usdt']/1e9:.2f}B)")
+    print(
+        f"  Volume 24h:    {preco['volume_24h_btc']:,.1f} BTC  (${preco['volume_24h_usdt']/1e9:.2f}B)"
+    )
 
     print("\n[2] LIVRO DE ORDENS (Order Book)")
     ob = get_order_book()
-    print(f"  Maior Suporte:     ${ob['maior_suporte_preco']:,.2f}  ({ob['maior_suporte_btc']:.3f} BTC)")
-    print(f"  Maior Resistência: ${ob['maior_resistencia_preco']:,.2f}  ({ob['maior_resistencia_btc']:.3f} BTC)")
+    print(
+        f"  Maior Suporte:     ${ob['maior_suporte_preco']:,.2f}  ({ob['maior_suporte_btc']:.3f} BTC)"
+    )
+    print(
+        f"  Maior Resistência: ${ob['maior_resistencia_preco']:,.2f}  ({ob['maior_resistencia_btc']:.3f} BTC)"
+    )
     print(f"  Liquidez Compra:   ${ob['liquidez_compra_usdt']:,.0f}")
     print(f"  Liquidez Venda:    ${ob['liquidez_venda_usdt']:,.0f}")
     print(f"  Pressão Dominante: *** {ob['pressao_dominante']} ***")
@@ -160,13 +164,17 @@ def relatorio_completo():
 
     print("\n[4] OPEN INTEREST (Contratos em Aberto)")
     oi = get_open_interest()
-    print(f"  Open Interest: {oi['open_interest_btc']:,.1f} BTC  (${oi['open_interest_usdt']/1e9:.2f}B)")
+    print(
+        f"  Open Interest: {oi['open_interest_btc']:,.1f} BTC  (${oi['open_interest_usdt']/1e9:.2f}B)"
+    )
 
     print("\n[5] INDICADORES TÉCNICOS (Gráfico 1H)")
     mm = get_medias_moveis()
     print(f"  EMA 20:    ${mm['ema20_1h']:,.2f}")
     print(f"  EMA 50:    ${mm['ema50_1h']:,.2f}")
-    print(f"  RSI (14):  {mm['rsi_1h']}  {'(SOBRECOMPRADO)' if mm['rsi_1h'] > 70 else '(SOBREVENDIDO)' if mm['rsi_1h'] < 30 else '(NEUTRO)'}")
+    print(
+        f"  RSI (14):  {mm['rsi_1h']}  {'(SOBRECOMPRADO)' if mm['rsi_1h'] > 70 else '(SOBREVENDIDO)' if mm['rsi_1h'] < 30 else '(NEUTRO)'}"
+    )
     print(f"  Tendência: {mm['tendencia']}")
 
     print("\n" + "=" * 60)

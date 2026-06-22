@@ -22,10 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import indicadores
 
-
 # ══════════════════════════════════════════════════════════════
 # EMA — bordas
 # ══════════════════════════════════════════════════════════════
+
 
 def test_ema_len_igual_periodo_so_ultimo_definido():
     # len == periodo: índice periodo-1 (=último) é a média; resto nan.
@@ -56,6 +56,7 @@ def test_ema_lista_vazia_retorna_vazio():
 # SMA — bordas
 # ══════════════════════════════════════════════════════════════
 
+
 def test_sma_len_igual_periodo_um_unico_ponto():
     valores = np.array([3.0, 5.0, 7.0])
     out = indicadores.sma(valores, 3)
@@ -73,6 +74,7 @@ def test_sma_periodo_um_identidade():
 # ══════════════════════════════════════════════════════════════
 # RSI — limiar exato e valor a mão
 # ══════════════════════════════════════════════════════════════
+
 
 def test_rsi_len_exatamente_periodo_mais_um():
     # len == periodo+1 -> exatamente 1 ponto definido (o último).
@@ -115,6 +117,7 @@ def test_rsi_sem_perdas_usa_epsilon_nao_divzero():
 # MACD — propagação de nan em série curta
 # ══════════════════════════════════════════════════════════════
 
+
 def test_macd_serie_curta_tudo_nan():
     # len < lento (26) -> ema_len toda nan -> linha toda nan -> sig/hist nan.
     valores = np.linspace(1, 10, 10)
@@ -131,9 +134,9 @@ def test_macd_sinal_propaga_nan_da_linha():
     # fica TODA nan. Consequentemente hist = linha - sig também fica toda nan.
     valores = np.linspace(50, 250, 80)
     linha, sig, hist = indicadores.macd(valores, 5, 13, 4)
-    assert np.any(~np.isnan(linha))   # linha tem valores definidos
-    assert np.all(np.isnan(sig))      # sig contaminada por nan
-    assert np.all(np.isnan(hist))     # hist herda os nan
+    assert np.any(~np.isnan(linha))  # linha tem valores definidos
+    assert np.all(np.isnan(sig))  # sig contaminada por nan
+    assert np.all(np.isnan(hist))  # hist herda os nan
     # onde ambos definidos (conjunto vazio aqui) a relação ainda vale vacuamente
     mask = ~np.isnan(linha) & ~np.isnan(sig)
     assert np.allclose(hist[mask], (linha - sig)[mask])
@@ -142,6 +145,7 @@ def test_macd_sinal_propaga_nan_da_linha():
 # ══════════════════════════════════════════════════════════════
 # ATR — suavização real e default
 # ══════════════════════════════════════════════════════════════
+
 
 def test_atr_suavizacao_com_tr_variavel():
     # TR conhecido e variável -> conferimos a média e o passo de suavização.
@@ -177,6 +181,7 @@ def test_atr_default_periodo_qucatorze_padding():
 # BOLLINGER — default, negativos, regressão NameError no warmup
 # ══════════════════════════════════════════════════════════════
 
+
 def test_bollinger_warmup_nao_lanca_nameerror_serie_longa():
     # Garante que o caminho do warmup (i < periodo-1) e o cálculo (math.sqrt)
     # coexistem sem NameError ao longo de toda a série.
@@ -211,6 +216,7 @@ def test_bollinger_desvios_zero_colapsa_em_mid():
 # BANDWIDTH — mid negativo (truthy) e mid None
 # ══════════════════════════════════════════════════════════════
 
+
 def test_bandwidth_mid_negativo_eh_calculado():
     # mid != 0 e truthy (negativo) -> entra no ramo de cálculo.
     upper = [-2.0]
@@ -231,6 +237,7 @@ def test_bandwidth_todos_none_retorna_lista_de_none():
 # ══════════════════════════════════════════════════════════════
 # VWAP — todos volumes zero / monotonia cumulativa
 # ══════════════════════════════════════════════════════════════
+
 
 def test_vwap_todos_volumes_zero_usa_fechamento_em_cada_ponto():
     maximas = [10.0, 12.0, 14.0]
@@ -259,6 +266,7 @@ def test_vwap_segundo_ponto_volume_zero_mantem_acumulado():
 # VWAP rolling — janela com v_sum zero usa fechamento
 # ══════════════════════════════════════════════════════════════
 
+
 def test_vwap_rolling_janela_volume_zero_usa_fechamento():
     maximas = [10.0, 10.0, 10.0]
     minimas = [8.0, 8.0, 8.0]
@@ -286,13 +294,14 @@ def test_vwap_rolling_ponderado_a_mao():
 # VOLUME_RELATIVO — média zero -> None, periodo==n, regressão IndexError
 # ══════════════════════════════════════════════════════════════
 
+
 def test_volume_relativo_media_zero_retorna_none_no_ponto():
     # janela de volumes somando zero -> m==0 -> None nesse ponto.
     volumes = [0.0, 0.0, 5.0]
     periodo = 2
     out = indicadores.volume_relativo(volumes, periodo)
     assert len(out) == 3
-    assert out[0] is None            # warmup
+    assert out[0] is None  # warmup
     # idx1: media janela [0,0]=0 -> None
     assert out[1] is None
     # idx2: media janela [0,5]=2.5 -> 5/2.5 = 2.0
@@ -322,14 +331,15 @@ def test_volume_relativo_sem_indexerror_extra(n, periodo):
     volumes = [float(i + 1) for i in range(n)]
     out = indicadores.volume_relativo(volumes, periodo)
     assert len(out) == n
-    assert out[:periodo - 1] == [None] * (periodo - 1)
-    for v in out[periodo - 1:]:
+    assert out[: periodo - 1] == [None] * (periodo - 1)
+    for v in out[periodo - 1 :]:
         assert v is not None and isinstance(v, float)
 
 
 # ══════════════════════════════════════════════════════════════
 # TENDENCIA_MTF — LATERAL -> CONFLITO e série curta (<50)
 # ══════════════════════════════════════════════════════════════
+
 
 def test_tendencia_mtf_lateral_resulta_conflito():
     # Série totalmente plana -> p == e20 == e50 -> nenhum ramo estrito ALTA/BAIXA
@@ -358,6 +368,7 @@ def test_tendencia_mtf_um_alta_um_lateral_eh_conflito():
 # MARKET_STRUCTURE — degenerados sem crash
 # ══════════════════════════════════════════════════════════════
 
+
 def test_market_structure_lista_vazia():
     assert indicadores.market_structure([], periodo=5) == []
 
@@ -372,17 +383,17 @@ def test_market_structure_serie_plana_sem_crash():
     fechamentos = [5.0] * 10
     out = indicadores.market_structure(fechamentos, periodo=2)
     assert len(out) == 10
-    permitido = {'HH', 'HL', 'LH', 'LL', None}
+    permitido = {"HH", "HL", "LH", "LL", None}
     assert all(v in permitido for v in out)
     # plano -> nenhum topo estritamente maior -> sem 'HH'
-    assert 'HH' not in out
+    assert "HH" not in out
 
 
 def test_market_structure_dominio_e_caudas_none():
     fechamentos = list(np.linspace(1, 40, 40))
     periodo = 4
     out = indicadores.market_structure(fechamentos, periodo)
-    permitido = {'HH', 'HL', 'LH', 'LL', None}
+    permitido = {"HH", "HL", "LH", "LL", None}
     assert all(v in permitido for v in out)
     assert out[0] is None
     assert out[-1] is None
@@ -393,4 +404,4 @@ def test_market_structure_ll_em_fundos_consecutivos():
     # Os dois últimos são L consecutivos; val(1.0) > val_ant(1.0) é False -> LL.
     fechamentos = [3.0, 2.0, 2.0, 1.0, 1.0, 3.0]
     out = indicadores.market_structure(fechamentos, periodo=1)
-    assert out[4] == 'LL'
+    assert out[4] == "LL"

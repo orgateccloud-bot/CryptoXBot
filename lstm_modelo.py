@@ -31,24 +31,27 @@ import indicadores as ind
 from ml_filtro import extrair_features
 
 MODEL_PATH = "data/modelo_lstm.pkl"
-DB_PATH    = "data/btc_data.db"
-SYMBOL     = "BTCUSDT"
-BASE_URL   = "https://api.binance.com"
-ALVO_PCT   = 0.015    # 1.5% de alta
-JANELA_FUTURA = 8     # velas a frente
-SEQ_LEN    = 24       # velas no passado
+DB_PATH = "data/btc_data.db"
+SYMBOL = "BTCUSDT"
+BASE_URL = "https://api.binance.com"
+ALVO_PCT = 0.015  # 1.5% de alta
+JANELA_FUTURA = 8  # velas a frente
+SEQ_LEN = 24  # velas no passado
 N_FEATURES = 11
 
 
 def preparar_sequencias(intervalo="1h"):
     """Prepara sequencias achatadas (flatten) para MLP."""
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT fechamento, maxima, minima, volume
         FROM klines
         WHERE symbol='BTCUSDT' AND intervalo=?
         ORDER BY timestamp ASC
-    """, (intervalo,)).fetchall()
+    """,
+        (intervalo,),
+    ).fetchall()
     conn.close()
 
     if len(rows) < 200:
@@ -56,13 +59,13 @@ def preparar_sequencias(intervalo="1h"):
         return None, None
 
     fechamentos = [r[0] for r in rows]
-    maximas     = [r[1] for r in rows]
-    minimas     = [r[2] for r in rows]
-    volumes     = [r[3] for r in rows]
+    maximas = [r[1] for r in rows]
+    minimas = [r[2] for r in rows]
+    volumes = [r[3] for r in rows]
 
     # Extrair features para cada vela
     all_features = []
-    all_indices  = []
+    all_indices = []
     for i in range(55, len(fechamentos)):
         feat = extrair_features(fechamentos, maximas, minimas, volumes, i)
         if feat:
@@ -90,7 +93,7 @@ def preparar_sequencias(intervalo="1h"):
         X.append(seq_flat)
 
         preco_entrada = fechamentos[idx]
-        preco_futuro  = max(fechamentos[idx + 1:idx + JANELA_FUTURA + 1])
+        preco_futuro = max(fechamentos[idx + 1 : idx + JANELA_FUTURA + 1])
         label = 1 if (preco_futuro - preco_entrada) / preco_entrada >= ALVO_PCT else 0
         y.append(label)
 
@@ -151,7 +154,7 @@ def treinar(intervalo="1h", max_iter=200):
 
     y_prob = modelo.predict_proba(X_te_s)[:, 1]
     y_pred = modelo.predict(X_te_s)
-    auc    = roc_auc_score(y_te, y_prob)
+    auc = roc_auc_score(y_te, y_prob)
 
     print(f"\n[SEQ] RESULTADO DO TREINAMENTO:")
     print(f"      AUC-ROC: {auc:.4f}")
@@ -160,14 +163,17 @@ def treinar(intervalo="1h", max_iter=200):
 
     os.makedirs("data", exist_ok=True)
     with open(MODEL_PATH, "wb") as f:
-        pickle.dump({
-            "modelo":    modelo,
-            "scaler":    scaler,
-            "intervalo": intervalo,
-            "auc":       float(auc),
-            "seq_len":   SEQ_LEN,
-            "n_features": N_FEATURES,
-        }, f)
+        pickle.dump(
+            {
+                "modelo": modelo,
+                "scaler": scaler,
+                "intervalo": intervalo,
+                "auc": float(auc),
+                "seq_len": SEQ_LEN,
+                "n_features": N_FEATURES,
+            },
+            f,
+        )
 
     print(f"[SEQ] Modelo salvo em: {MODEL_PATH}")
     return modelo
@@ -181,11 +187,12 @@ def prever():
     with open(MODEL_PATH, "rb") as f:
         artefato = pickle.load(f)
 
-    modelo    = artefato["modelo"]
-    scaler    = artefato["scaler"]
+    modelo = artefato["modelo"]
+    scaler = artefato["scaler"]
     intervalo = artefato.get("intervalo", "1h")
 
     import requests
+
     r = requests.get(
         f"{BASE_URL}/api/v3/klines",
         params={"symbol": SYMBOL, "interval": intervalo, "limit": 100},
@@ -193,9 +200,9 @@ def prever():
     )
     rows = r.json()
     fechamentos = [float(k[4]) for k in rows]
-    maximas     = [float(k[2]) for k in rows]
-    minimas     = [float(k[3]) for k in rows]
-    volumes     = [float(k[5]) for k in rows]
+    maximas = [float(k[2]) for k in rows]
+    minimas = [float(k[3]) for k in rows]
+    volumes = [float(k[5]) for k in rows]
 
     all_features = []
     for i in range(55, len(fechamentos)):
@@ -225,9 +232,9 @@ def prever():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--treinar",   action="store_true")
+    parser.add_argument("--treinar", action="store_true")
     parser.add_argument("--intervalo", default="1h")
-    parser.add_argument("--epocas",    type=int, default=200)
+    parser.add_argument("--epocas", type=int, default=200)
     args = parser.parse_args()
 
     if args.treinar:
@@ -239,7 +246,7 @@ if __name__ == "__main__":
 
         prob, msg = prever()
         if prob is not None:
-            cor   = "\033[92m" if prob >= 0.55 else "\033[91m"
+            cor = "\033[92m" if prob >= 0.55 else "\033[91m"
             reset = "\033[0m"
             print(f"\n[SEQ] Probabilidade de alta: {cor}{prob*100:.1f}%{reset}")
         else:

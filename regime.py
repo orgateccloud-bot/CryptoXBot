@@ -13,33 +13,36 @@ em um score. Somente opera se pelo menos 2 de 3 TFs concordam.
 """
 
 import sys, os
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
 import indicadores as ind
 
 BASE_URL = "https://api.binance.com"
-SYMBOL   = "BTCUSDT"
+SYMBOL = "BTCUSDT"
 
 # Limiares
-ADX_TENDENCIA    = 25    # ADX > 25 = tendencia presente
-ADX_FORTE        = 40    # ADX > 40 = tendencia forte
-ATR_EXTREMO      = 2.5   # ATR > 2.5x media = volatilidade extrema
-ATR_LATERAL      = 0.5   # ATR < 0.5x media = mercado parado demais
+ADX_TENDENCIA = 25  # ADX > 25 = tendencia presente
+ADX_FORTE = 40  # ADX > 40 = tendencia forte
+ATR_EXTREMO = 2.5  # ATR > 2.5x media = volatilidade extrema
+ATR_LATERAL = 0.5  # ATR < 0.5x media = mercado parado demais
 
 
 def _klines(intervalo, limite=60):
     try:
-        r = requests.get(f"{BASE_URL}/api/v3/klines",
-                         params={"symbol": SYMBOL, "interval": intervalo, "limit": limite},
-                         timeout=8)
+        r = requests.get(
+            f"{BASE_URL}/api/v3/klines",
+            params={"symbol": SYMBOL, "interval": intervalo, "limit": limite},
+            timeout=8,
+        )
         k = r.json()
         return {
-            "abertura":   [float(x[1]) for x in k],
-            "maxima":     [float(x[2]) for x in k],
-            "minima":     [float(x[3]) for x in k],
+            "abertura": [float(x[1]) for x in k],
+            "maxima": [float(x[2]) for x in k],
+            "minima": [float(x[3]) for x in k],
             "fechamento": [float(x[4]) for x in k],
-            "volume":     [float(x[5]) for x in k],
+            "volume": [float(x[5]) for x in k],
         }
     except Exception:
         return None
@@ -61,11 +64,11 @@ def _adx(maximas, minimas, fechamentos, periodo=14):
         tr = max(h - l, abs(h - pc), abs(l - pc))
         tr_list.append(tr)
 
-        up   = maximas[i] - maximas[i - 1]
+        up = maximas[i] - maximas[i - 1]
         down = minimas[i - 1] - minimas[i]
 
-        dm_plus.append(up   if up   > down and up   > 0 else 0)
-        dm_minus.append(down if down > up   and down > 0 else 0)
+        dm_plus.append(up if up > down and up > 0 else 0)
+        dm_minus.append(down if down > up and down > 0 else 0)
 
     def smooth(data, p):
         result = [sum(data[:p])]
@@ -73,11 +76,11 @@ def _adx(maximas, minimas, fechamentos, periodo=14):
             result.append(result[-1] - result[-1] / p + data[i])
         return result
 
-    atr_s  = smooth(tr_list,   periodo)
-    dmp_s  = smooth(dm_plus,   periodo)
-    dmm_s  = smooth(dm_minus,  periodo)
+    atr_s = smooth(tr_list, periodo)
+    dmp_s = smooth(dm_plus, periodo)
+    dmm_s = smooth(dm_minus, periodo)
 
-    di_plus  = [100 * dmp_s[i] / atr_s[i] if atr_s[i] > 0 else 0 for i in range(len(atr_s))]
+    di_plus = [100 * dmp_s[i] / atr_s[i] if atr_s[i] > 0 else 0 for i in range(len(atr_s))]
     di_minus = [100 * dmm_s[i] / atr_s[i] if atr_s[i] > 0 else 0 for i in range(len(atr_s))]
 
     dx = []
@@ -111,13 +114,13 @@ def _classificar_tf(dados, label=""):
     ema50 = ind.ema(f, 50)[-1]
     ema200 = ind.ema(f, min(200, len(f) - 1))[-1] if len(f) > 50 else ema50
 
-    atr_vals  = ind.atr(h, l, f, 14)
+    atr_vals = ind.atr(h, l, f, 14)
     atr_atual = atr_vals[-1] or 0
     atr_media = sum(x for x in atr_vals[-20:] if x) / max(1, len([x for x in atr_vals[-20:] if x]))
     atr_ratio = atr_atual / atr_media if atr_media > 0 else 1.0
 
     adx_vals = _adx(h, l, f, 14)
-    adx      = adx_vals[-1] if adx_vals else 0
+    adx = adx_vals[-1] if adx_vals else 0
 
     preco = f[-1]
 
@@ -145,16 +148,16 @@ def _classificar_tf(dados, label=""):
         regime = "LATERAL"
 
     return {
-        "regime":       regime,
-        "adx":          round(adx, 1),
-        "atr_ratio":    round(atr_ratio, 2),
-        "direcao":      direcao,
-        "ema20":        round(ema20, 2),
-        "ema50":        round(ema50, 2),
-        "ema200":       round(ema200, 2),
+        "regime": regime,
+        "adx": round(adx, 1),
+        "atr_ratio": round(atr_ratio, 2),
+        "direcao": direcao,
+        "ema20": round(ema20, 2),
+        "ema50": round(ema50, 2),
+        "ema200": round(ema200, 2),
         "vol_crescente": vol_crescente,
-        "preco":        preco,
-        "label":        label,
+        "preco": preco,
+        "label": label,
     }
 
 
@@ -184,56 +187,56 @@ def detectar():
 
     # Contar votos
     votos = {
-        "TENDENCIA_ALTA":  regimes.count("TENDENCIA_ALTA"),
+        "TENDENCIA_ALTA": regimes.count("TENDENCIA_ALTA"),
         "TENDENCIA_BAIXA": regimes.count("TENDENCIA_BAIXA"),
-        "LATERAL":         regimes.count("LATERAL"),
-        "VOLATILIDADE":    regimes.count("VOLATILIDADE"),
+        "LATERAL": regimes.count("LATERAL"),
+        "VOLATILIDADE": regimes.count("VOLATILIDADE"),
     }
 
     # Volatilidade extrema tem prioridade absoluta
     if "VOLATILIDADE" in regimes:
         regime_final = "VOLATILIDADE"
-        pode_operar  = False
+        pode_operar = False
         motivo = f"Volatilidade extrema detectada (ATR {tf1h['atr_ratio']:.1f}x media)"
 
     elif votos["TENDENCIA_ALTA"] >= 2:
         regime_final = "TENDENCIA_ALTA"
-        pode_operar  = True
+        pode_operar = True
         motivo = "Tendencia de alta confirmada em multiplos timeframes"
 
     elif votos["TENDENCIA_BAIXA"] >= 2:
         regime_final = "TENDENCIA_BAIXA"
-        pode_operar  = True
+        pode_operar = True
         motivo = "Tendencia de baixa confirmada (operar short ou aguardar)"
 
     elif votos["LATERAL"] >= 2:
         regime_final = "LATERAL"
-        pode_operar  = False
+        pode_operar = False
         motivo = "Mercado lateral — baixo ADX, sem direcao clara"
 
     else:
         # Conflito entre TFs — ser conservador
         regime_final = "INDEFINIDO"
-        pode_operar  = False
+        pode_operar = False
         motivo = f"Conflito entre timeframes: 1H={tf1h['regime']} 4H={tf4h['regime']} 1D={tf1d['regime']}"
 
     # Score 0-100
-    adx_medio  = (tf1h["adx"] + tf4h["adx"]) / 2
-    score_adx  = min(adx_medio / ADX_FORTE * 50, 50)
-    score_tf   = (votos.get(regime_final, 0) / 3) * 50
-    score      = round(score_adx + score_tf)
+    adx_medio = (tf1h["adx"] + tf4h["adx"]) / 2
+    score_adx = min(adx_medio / ADX_FORTE * 50, 50)
+    score_tf = (votos.get(regime_final, 0) / 3) * 50
+    score = round(score_adx + score_tf)
 
     return {
         "regime_final": regime_final,
-        "pode_operar":  pode_operar,
-        "motivo":       motivo,
-        "score":        score,
-        "votos":        votos,
+        "pode_operar": pode_operar,
+        "motivo": motivo,
+        "score": score,
+        "votos": votos,
         "detalhes_tf": {
             "1h": tf1h,
             "4h": tf4h,
             "1d": tf1d,
-        }
+        },
     }
 
 
@@ -241,31 +244,33 @@ def imprimir():
     r = detectar()
 
     cores = {
-        "TENDENCIA_ALTA":  "\033[92m",
+        "TENDENCIA_ALTA": "\033[92m",
         "TENDENCIA_BAIXA": "\033[91m",
-        "LATERAL":         "\033[93m",
-        "VOLATILIDADE":    "\033[91m",
-        "INDEFINIDO":      "\033[90m",
+        "LATERAL": "\033[93m",
+        "VOLATILIDADE": "\033[91m",
+        "INDEFINIDO": "\033[90m",
     }
-    cor    = cores.get(r["regime_final"], "\033[0m")
-    reset  = "\033[0m"
-    verde  = "\033[92m"
+    cor = cores.get(r["regime_final"], "\033[0m")
+    reset = "\033[0m"
+    verde = "\033[92m"
     vermelho = "\033[91m"
 
-    print("\n" + "="*58)
+    print("\n" + "=" * 58)
     print("  DETECCAO DE REGIME DE MERCADO")
-    print("="*58)
+    print("=" * 58)
 
     for tf, d in r["detalhes_tf"].items():
         cor_tf = cores.get(d["regime"], "\033[0m")
-        print(f"  [{tf.upper():3s}]  {cor_tf}{d['regime']:18s}{reset}  "
-              f"ADX:{d['adx']:5.1f}  ATRx:{d['atr_ratio']:.2f}  Dir:{d['direcao']}")
+        print(
+            f"  [{tf.upper():3s}]  {cor_tf}{d['regime']:18s}{reset}  "
+            f"ADX:{d['adx']:5.1f}  ATRx:{d['atr_ratio']:.2f}  Dir:{d['direcao']}"
+        )
 
     print(f"\n  Regime Final: {cor}{r['regime_final']}{reset}")
     print(f"  Score:        {r['score']}/100")
     print(f"  Pode Operar:  {verde+'SIM'+reset if r['pode_operar'] else vermelho+'NAO'+reset}")
     print(f"  Motivo:       {r['motivo']}")
-    print("="*58)
+    print("=" * 58)
     return r
 
 

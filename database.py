@@ -116,8 +116,7 @@ def _inicializar_sqlite() -> None:
     conn = conectar()
     c = conn.cursor()
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS trades (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp   TEXT    NOT NULL,
@@ -127,11 +126,9 @@ def _inicializar_sqlite() -> None:
             direcao     TEXT    NOT NULL,
             eh_baleia   INTEGER DEFAULT 0
         )
-        """
-    )
+        """)
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS snapshots_mercado (
             id                    INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp             TEXT    NOT NULL,
@@ -148,11 +145,9 @@ def _inicializar_sqlite() -> None:
             liquidez_compra_usdt  REAL,
             liquidez_venda_usdt   REAL
         )
-        """
-    )
+        """)
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS cvd_historico (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp   TEXT NOT NULL,
@@ -160,11 +155,9 @@ def _inicializar_sqlite() -> None:
             compras_btc REAL NOT NULL,
             vendas_btc  REAL NOT NULL
         )
-        """
-    )
+        """)
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS sinais (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp   TEXT    NOT NULL,
@@ -173,21 +166,17 @@ def _inicializar_sqlite() -> None:
             motivo      TEXT,
             executado   INTEGER DEFAULT 0
         )
-        """
-    )
+        """)
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS risk_state (
             name       TEXT PRIMARY KEY,
             updated_at TEXT NOT NULL,
             data       TEXT NOT NULL
         )
-        """
-    )
+        """)
 
-    c.execute(
-        """
+    c.execute("""
         CREATE TABLE IF NOT EXISTS bot_events (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp  TEXT NOT NULL,
@@ -198,8 +187,7 @@ def _inicializar_sqlite() -> None:
             message    TEXT NOT NULL,
             data       TEXT
         )
-        """
-    )
+        """)
 
     _sqlite_add_column(conn, "trades", "symbol", "TEXT DEFAULT 'BTCUSDT'")
     _sqlite_add_column(conn, "trades", "trade_id", "INTEGER")
@@ -211,9 +199,13 @@ def _inicializar_sqlite() -> None:
     _sqlite_add_column(conn, "sinais", "executado_em", "TEXT")
 
     c.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp)")
-    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id ON trades(trade_id) WHERE trade_id IS NOT NULL")
+    c.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id ON trades(trade_id) WHERE trade_id IS NOT NULL"
+    )
     c.execute("CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp ON sinais(symbol, timestamp)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp ON cvd_historico(symbol, timestamp)")
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp ON cvd_historico(symbol, timestamp)"
+    )
 
     conn.commit()
     conn.close()
@@ -221,8 +213,7 @@ def _inicializar_sqlite() -> None:
 
 def _inicializar_postgres() -> None:
     with _pg_connection() as conn:
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS trades (
                 id          BIGSERIAL PRIMARY KEY,
                 timestamp   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -235,10 +226,8 @@ def _inicializar_postgres() -> None:
                 trade_id    BIGINT,
                 created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             )
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS snapshots_mercado (
                 id                    BIGSERIAL PRIMARY KEY,
                 timestamp             TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -257,10 +246,8 @@ def _inicializar_postgres() -> None:
                 liquidez_venda_usdt   DOUBLE PRECISION,
                 raw_payload           JSONB
             )
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS cvd_historico (
                 id          BIGSERIAL PRIMARY KEY,
                 timestamp   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -269,10 +256,8 @@ def _inicializar_postgres() -> None:
                 compras_btc DOUBLE PRECISION NOT NULL,
                 vendas_btc  DOUBLE PRECISION NOT NULL
             )
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS sinais (
                 id          BIGSERIAL PRIMARY KEY,
                 timestamp   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -285,19 +270,15 @@ def _inicializar_postgres() -> None:
                 executado   BOOLEAN DEFAULT false,
                 executado_em TIMESTAMPTZ
             )
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS risk_state (
                 name       TEXT PRIMARY KEY,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 data       JSONB NOT NULL
             )
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS bot_events (
                 id         BIGSERIAL PRIMARY KEY,
                 timestamp  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -308,13 +289,22 @@ def _inicializar_postgres() -> None:
                 message    TEXT NOT NULL,
                 data       JSONB
             )
-            """
+            """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp DESC)"
         )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp DESC)")
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id ON trades(trade_id) WHERE trade_id IS NOT NULL")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp ON sinais(symbol, timestamp DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp ON cvd_historico(symbol, timestamp DESC)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_timestamp ON bot_events(timestamp DESC)")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id ON trades(trade_id) WHERE trade_id IS NOT NULL"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp ON sinais(symbol, timestamp DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp ON cvd_historico(symbol, timestamp DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON bot_events(timestamp DESC)"
+        )
         conn.commit()
 
 
@@ -385,7 +375,16 @@ def salvar_trade(
         (timestamp, symbol, preco, volume_btc, volume_usdt, direcao, eh_baleia, trade_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (datetime.now().isoformat(), sym, preco, volume_btc, volume_usdt, direcao, 1 if eh_baleia else 0, trade_id),
+        (
+            datetime.now().isoformat(),
+            sym,
+            preco,
+            volume_btc,
+            volume_usdt,
+            direcao,
+            1 if eh_baleia else 0,
+            trade_id,
+        ),
     )
     conn.commit()
     conn.close()
@@ -440,7 +439,9 @@ def salvar_snapshot(dados: dict[str, Any], symbol: str | None = None) -> None:
     conn.close()
 
 
-def salvar_cvd(cvd: float, compras_btc: float, vendas_btc: float, symbol: str | None = None) -> None:
+def salvar_cvd(
+    cvd: float, compras_btc: float, vendas_btc: float, symbol: str | None = None
+) -> None:
     sym = _symbol(symbol)
     if _backend() == "postgres":
         with _pg_connection() as conn:
@@ -484,7 +485,17 @@ def salvar_sinal(
                 (timestamp, symbol, tipo, preco, motivo, score, source, executado, executado_em)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (_utcnow(), sym, tipo, preco, motivo, score, source, executado, _utcnow() if executado else None),
+                (
+                    _utcnow(),
+                    sym,
+                    tipo,
+                    preco,
+                    motivo,
+                    score,
+                    source,
+                    executado,
+                    _utcnow() if executado else None,
+                ),
             )
             conn.commit()
     else:
@@ -533,7 +544,9 @@ def ultimos_snapshots(n: int = 10, symbol: str | None = None) -> list[dict[str, 
             (sym, n),
         ).fetchall()
     else:
-        rows = conn.execute("SELECT * FROM snapshots_mercado ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM snapshots_mercado ORDER BY id DESC LIMIT ?", (n,)
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -553,7 +566,9 @@ def buscar_sinais(limit: int = 30, symbol: str | None = None) -> list[dict[str, 
 
     conn = conectar()
     if sym:
-        rows = conn.execute("SELECT * FROM sinais WHERE symbol = ? ORDER BY id DESC LIMIT ?", (sym, limit)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM sinais WHERE symbol = ? ORDER BY id DESC LIMIT ?", (sym, limit)
+        ).fetchall()
     else:
         rows = conn.execute("SELECT * FROM sinais ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     conn.close()
@@ -593,7 +608,10 @@ def resumo_trades(minutos: int = 60, symbol: str | None = None) -> dict[str, dic
         sql += " GROUP BY direcao"
         with _pg_connection() as conn:
             rows = conn.execute(sql, params).fetchall()
-            return {r["direcao"]: {"qtd": r["qtd"], "total_btc": float(r["total_btc"] or 0)} for r in rows}
+            return {
+                r["direcao"]: {"qtd": r["qtd"], "total_btc": float(r["total_btc"] or 0)}
+                for r in rows
+            }
 
     conn = conectar()
     if sym:

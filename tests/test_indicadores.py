@@ -32,10 +32,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import indicadores
 
-
 # ══════════════════════════════════════════════════════════════
 # EMA
 # ══════════════════════════════════════════════════════════════
+
 
 def test_ema_formato_e_padding_nan():
     valores = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -73,6 +73,7 @@ def test_ema_curto_demais_retorna_tudo_nan():
 # SMA
 # ══════════════════════════════════════════════════════════════
 
+
 def test_sma_valores_e_comprimento():
     valores = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     out = indicadores.sma(valores, 3)
@@ -93,6 +94,7 @@ def test_sma_curto_demais_retorna_nan():
 # ══════════════════════════════════════════════════════════════
 # RSI
 # ══════════════════════════════════════════════════════════════
+
 
 def test_rsi_formato_e_padding():
     valores = np.arange(1, 21, dtype=float)  # 20 valores
@@ -133,6 +135,7 @@ def test_rsi_curto_demais_retorna_nan():
 # MACD
 # ══════════════════════════════════════════════════════════════
 
+
 def test_macd_formato_tripla():
     valores = np.linspace(100, 200, 60)
     linha, sig, hist = indicadores.macd(valores, rapido=12, lento=26, sinal=9)
@@ -156,6 +159,7 @@ def test_macd_linha_e_diferenca_de_emas():
 # ══════════════════════════════════════════════════════════════
 # ATR
 # ══════════════════════════════════════════════════════════════
+
 
 def test_atr_comprimento_e_padding_none():
     n = 10
@@ -193,6 +197,7 @@ def test_atr_primeiro_valor_a_mao():
 # BOLLINGER  (regressão: import math -> sem NameError)
 # ══════════════════════════════════════════════════════════════
 
+
 def test_bollinger_comprimento_e_warmup_none():
     fechamentos = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
     periodo = 3
@@ -201,9 +206,9 @@ def test_bollinger_comprimento_e_warmup_none():
         assert isinstance(banda, list)
         assert len(banda) == len(fechamentos)
     # None nos primeiros periodo-1
-    assert upper[:periodo - 1] == [None] * (periodo - 1)
-    assert mid[:periodo - 1] == [None] * (periodo - 1)
-    assert lower[:periodo - 1] == [None] * (periodo - 1)
+    assert upper[: periodo - 1] == [None] * (periodo - 1)
+    assert mid[: periodo - 1] == [None] * (periodo - 1)
+    assert lower[: periodo - 1] == [None] * (periodo - 1)
 
 
 def test_bollinger_nao_lanca_nameerror_math():
@@ -240,6 +245,7 @@ def test_bollinger_janela_constante_bandas_colapsam():
 # BANDWIDTH
 # ══════════════════════════════════════════════════════════════
 
+
 def test_bandwidth_formula_e_none_no_warmup():
     upper = [None, None, 12.0, 14.0]
     mid = [None, None, 10.0, 11.0]
@@ -263,6 +269,7 @@ def test_bandwidth_mid_zero_retorna_none():
 # ══════════════════════════════════════════════════════════════
 # VWAP cumulativo
 # ══════════════════════════════════════════════════════════════
+
 
 def test_vwap_cumulativo_comprimento_e_valores():
     maximas = [10.0, 12.0]
@@ -292,6 +299,7 @@ def test_vwap_volume_zero_usa_fechamento():
 # VWAP rolling
 # ══════════════════════════════════════════════════════════════
 
+
 def test_vwap_rolling_warmup_e_comprimento():
     n = 6
     periodo = 3
@@ -301,8 +309,8 @@ def test_vwap_rolling_warmup_e_comprimento():
     volumes = [100.0] * n
     out = indicadores.vwap_rolling(maximas, minimas, fechamentos, volumes, periodo)
     assert len(out) == n
-    assert out[:periodo - 1] == [None] * (periodo - 1)
-    for v in out[periodo - 1:]:
+    assert out[: periodo - 1] == [None] * (periodo - 1)
+    for v in out[periodo - 1 :]:
         assert v is not None
 
 
@@ -321,6 +329,7 @@ def test_vwap_rolling_ultima_janela_a_mao():
 # VOLUME_MEDIA
 # ══════════════════════════════════════════════════════════════
 
+
 def test_volume_media_eh_sma():
     volumes = np.array([100.0, 200.0, 300.0, 400.0])
     out = indicadores.volume_media(volumes, 2)
@@ -335,6 +344,7 @@ def test_volume_media_eh_sma():
 # VOLUME_RELATIVO  (REGRESSÃO IndexError)
 # ══════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize("n,periodo", [(5, 3), (10, 5), (20, 20), (25, 14), (6, 1)])
 def test_volume_relativo_sem_indexerror_varios_tamanhos(n, periodo):
     volumes = [float(i + 1) for i in range(n)]
@@ -343,9 +353,9 @@ def test_volume_relativo_sem_indexerror_varios_tamanhos(n, periodo):
     assert isinstance(out, list)
     assert len(out) == len(volumes)
     # None nos primeiros periodo-1
-    assert out[:periodo - 1] == [None] * (periodo - 1)
+    assert out[: periodo - 1] == [None] * (periodo - 1)
     # restante: floats (ou None se média 0, que não ocorre aqui)
-    for v in out[periodo - 1:]:
+    for v in out[periodo - 1 :]:
         assert v is not None
         assert isinstance(v, float)
 
@@ -375,6 +385,7 @@ def test_volume_relativo_alinhamento_completo():
 # TENDENCIA_MTF
 # ══════════════════════════════════════════════════════════════
 
+
 def test_tendencia_mtf_alta():
     # Série crescente em ambos os timeframes -> preço > e20 > e50 -> ALTA
     altos = list(np.linspace(1, 100, 60))
@@ -389,8 +400,8 @@ def test_tendencia_mtf_baixa():
 
 
 def test_tendencia_mtf_conflito():
-    altos = list(np.linspace(1, 100, 60))    # ALTA
-    baixos = list(np.linspace(100, 1, 60))   # BAIXA
+    altos = list(np.linspace(1, 100, 60))  # ALTA
+    baixos = list(np.linspace(100, 1, 60))  # BAIXA
     assert indicadores.tendencia_mtf(altos, baixos) == "CONFLITO"
 
 
@@ -398,13 +409,14 @@ def test_tendencia_mtf_conflito():
 # MARKET_STRUCTURE
 # ══════════════════════════════════════════════════════════════
 
+
 def test_market_structure_comprimento_e_dominio():
     fechamentos = list(np.linspace(1, 50, 50))
     periodo = 5
     out = indicadores.market_structure(fechamentos, periodo)
     assert isinstance(out, list)
     assert len(out) == len(fechamentos)
-    permitido = {'HH', 'HL', 'LH', 'LL', None}
+    permitido = {"HH", "HL", "LH", "LL", None}
     assert all(v in permitido for v in out)
     # warmup/cauda nunca rotulados (range vai de periodo a len-periodo)
     assert out[0] is None
@@ -418,7 +430,7 @@ def test_market_structure_detecta_hh():
     fechamentos = [1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 1.0, 1.0]
     out = indicadores.market_structure(fechamentos, periodo=2)
     assert len(out) == len(fechamentos)
-    assert out[5] == 'HH'
+    assert out[5] == "HH"
 
 
 def test_market_structure_detecta_hl():
@@ -426,7 +438,7 @@ def test_market_structure_detecta_hl():
     # Valor verificado: HL no índice 5.
     fechamentos = [1.0, 1.0, 1.0, 2.0, 3.0, 2.0, 4.0, 2.0]
     out = indicadores.market_structure(fechamentos, periodo=2)
-    assert out[5] == 'HL'
+    assert out[5] == "HL"
 
 
 def test_market_structure_detecta_lh():
@@ -434,7 +446,7 @@ def test_market_structure_detecta_lh():
     # Valor verificado: LH no índice 2.
     fechamentos = [1.0, 1.0, 1.0, 1.0]
     out = indicadores.market_structure(fechamentos, periodo=1)
-    assert out[2] == 'LH'
+    assert out[2] == "LH"
 
 
 def test_market_structure_detecta_ll():
@@ -442,7 +454,7 @@ def test_market_structure_detecta_ll():
     # Valor verificado: LL no índice 2.
     fechamentos = [2.0, 1.0, 1.0, 2.0]
     out = indicadores.market_structure(fechamentos, periodo=1)
-    assert out[2] == 'LL'
+    assert out[2] == "LL"
 
 
 def test_market_structure_curto_sem_pivos():

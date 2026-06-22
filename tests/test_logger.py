@@ -23,6 +23,7 @@ def lb(tmp_path):
 
 # ── Compat logging.Logger ──────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("metodo", ["info", "warning", "error", "critical", "debug"])
 def test_metodos_de_logging_existem_e_nao_lancam(lb, metodo):
     # exatamente o padrão de uso de main.py: msg + extra=dict
@@ -45,13 +46,25 @@ def test_instancia_global_tem_ambas_as_interfaces():
 
 # ── Analytics continua funcionando ─────────────────────────────────────────
 
+
 def test_registrar_avaliacao_grava_linha(lb):
     import sqlite3
+
     resultado = {
-        "preco": 100.0, "score": 72, "score_decisao": "OPERAR_CHEIO",
-        "sinal": "COMPRA", "tamanho_fator": 1.0, "regime": "TENDENCIA_ALTA",
-        "fear_greed": 55, "tend_4h": "ALTA", "rsi": 55.0, "ema20_1h": 100.0,
-        "ema50_1h": 99.0, "vwap": 100.0, "atr": 1.0, "vol_rel": 1.2,
+        "preco": 100.0,
+        "score": 72,
+        "score_decisao": "OPERAR_CHEIO",
+        "sinal": "COMPRA",
+        "tamanho_fator": 1.0,
+        "regime": "TENDENCIA_ALTA",
+        "fear_greed": 55,
+        "tend_4h": "ALTA",
+        "rsi": 55.0,
+        "ema20_1h": 100.0,
+        "ema50_1h": 99.0,
+        "vwap": 100.0,
+        "atr": 1.0,
+        "vol_rel": 1.2,
     }
     # não deve lançar mesmo com chaves faltando (usa .get internamente)
     lb.registrar_avaliacao(resultado, symbol="BTCUSDT")
@@ -63,8 +76,10 @@ def test_registrar_avaliacao_grava_linha(lb):
 
 def test_tabelas_criadas_no_init(lb):
     import sqlite3
+
     conn = sqlite3.connect(lb.db_path)
-    tabelas = {r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    tabelas = {
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
     conn.close()
     assert {"log_avaliacoes", "log_trades", "log_performance"} <= tabelas

@@ -27,14 +27,14 @@ from config.params_pares import get_params
 
 DB_PATH = "data/btc_data.db"
 
-TAXA        = 0.0004
-SLIPPAGE    = 0.0005
+TAXA = 0.0004
+SLIPPAGE = 0.0005
 ATR_MIN_RATIO = 0.5
 VOL_MIN_RATIO = 1.1
 
 # ADX para regime
 ADX_TENDENCIA = 25
-ATR_EXTREMO   = 2.5
+ATR_EXTREMO = 2.5
 
 
 def _adx(maximas, minimas, fechamentos, periodo=14):
@@ -48,10 +48,10 @@ def _adx(maximas, minimas, fechamentos, periodo=14):
         h, l, pc = maximas[i], minimas[i], fechamentos[i - 1]
         tr = max(h - l, abs(h - pc), abs(l - pc))
         tr_list.append(tr)
-        up   = maximas[i] - maximas[i - 1]
+        up = maximas[i] - maximas[i - 1]
         down = minimas[i - 1] - minimas[i]
-        dm_plus.append(up   if up   > down and up   > 0 else 0)
-        dm_minus.append(down if down > up   and down > 0 else 0)
+        dm_plus.append(up if up > down and up > 0 else 0)
+        dm_minus.append(down if down > up and down > 0 else 0)
 
     def smooth(data, p):
         result = [sum(data[:p])]
@@ -63,7 +63,7 @@ def _adx(maximas, minimas, fechamentos, periodo=14):
     dmp_s = smooth(dm_plus, periodo)
     dmm_s = smooth(dm_minus, periodo)
 
-    di_plus  = [100 * dmp_s[i] / atr_s[i] if atr_s[i] > 0 else 0 for i in range(len(atr_s))]
+    di_plus = [100 * dmp_s[i] / atr_s[i] if atr_s[i] > 0 else 0 for i in range(len(atr_s))]
     di_minus = [100 * dmm_s[i] / atr_s[i] if atr_s[i] > 0 else 0 for i in range(len(atr_s))]
 
     dx = []
@@ -81,9 +81,26 @@ def _adx(maximas, minimas, fechamentos, periodo=14):
     return pad + adx
 
 
-def _score_backtest(preco, ema20, ema50, rsi_v, atr_v, atr_med, vol_rel, bw_v, bw_med,
-                    vwap_v, tend_4h, adx_v, atr_ratio, ml_prob=None,
-                    rsi_min=42, rsi_max=60, score_operar=60, score_cheio=70):
+def _score_backtest(
+    preco,
+    ema20,
+    ema50,
+    rsi_v,
+    atr_v,
+    atr_med,
+    vol_rel,
+    bw_v,
+    bw_med,
+    vwap_v,
+    tend_4h,
+    adx_v,
+    atr_ratio,
+    ml_prob=None,
+    rsi_min=42,
+    rsi_max=60,
+    score_operar=60,
+    score_cheio=70,
+):
     """Calcula score simplificado para backtest (sem API calls)."""
     scores = {}
 
@@ -140,25 +157,43 @@ def _score_backtest(preco, ema20, ema50, rsi_v, atr_v, atr_med, vol_rel, bw_v, b
         scores["vwap"] = 50
 
     # Volume (4%)
-    if vol_rel >= 2.0:    scores["volume"] = 100
-    elif vol_rel >= 1.3:  scores["volume"] = 80
-    elif vol_rel >= 1.0:  scores["volume"] = 60
-    elif vol_rel >= 0.7:  scores["volume"] = 40
-    else:                 scores["volume"] = 20
+    if vol_rel >= 2.0:
+        scores["volume"] = 100
+    elif vol_rel >= 1.3:
+        scores["volume"] = 80
+    elif vol_rel >= 1.0:
+        scores["volume"] = 60
+    elif vol_rel >= 0.7:
+        scores["volume"] = 40
+    else:
+        scores["volume"] = 20
 
     # ATR (3%)
     if atr_med > 0:
         ratio = atr_v / atr_med
-        if ratio > 2.5:           scores["atr"] = 0
-        elif 0.7 <= ratio <= 1.8: scores["atr"] = 100
-        elif ratio < 0.7:         scores["atr"] = 30
-        else:                     scores["atr"] = 60
+        if ratio > 2.5:
+            scores["atr"] = 0
+        elif 0.7 <= ratio <= 1.8:
+            scores["atr"] = 100
+        elif ratio < 0.7:
+            scores["atr"] = 30
+        else:
+            scores["atr"] = 60
     else:
         scores["atr"] = 50
 
     # Calcular score ponderado
-    pesos = {"regime": 25, "mtf": 20, "ml": 15, "ema": 10, "fear_greed": 10,
-             "rsi": 8, "vwap": 5, "volume": 4, "atr": 3}
+    pesos = {
+        "regime": 25,
+        "mtf": 20,
+        "ml": 15,
+        "ema": 10,
+        "fear_greed": 10,
+        "rsi": 8,
+        "vwap": 5,
+        "volume": 4,
+        "atr": 3,
+    }
     total = sum(scores[k] * pesos[k] / 100 for k in pesos)
 
     # Bloqueios
@@ -186,26 +221,34 @@ def _score_backtest(preco, ema20, ema50, rsi_v, atr_v, atr_med, vol_rel, bw_v, b
 
 def carregar(symbol, intervalo):
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT timestamp, abertura, maxima, minima, fechamento, volume
         FROM klines WHERE symbol=? AND intervalo=?
         ORDER BY timestamp ASC
-    """, (symbol, intervalo)).fetchall()
+    """,
+        (symbol, intervalo),
+    ).fetchall()
     conn.close()
     return rows
 
 
-def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
-          capital_inicial=1000.0, usar_ml=True):
+def rodar(
+    symbol="BTCUSDT",
+    intervalo_entrada="1h",
+    intervalo_mtf="4h",
+    capital_inicial=1000.0,
+    usar_ml=True,
+):
     """Roda backtest com score unificado + ML ensemble, usando params otimizados por par."""
     # Carregar parâmetros otimizados para o par
     p = get_params(symbol)
-    STOP_PCT    = p["stop_pct"]
-    TARGET_PCT  = p["target_pct"]
-    RSI_MIN     = p["rsi_min"]
-    RSI_MAX     = p["rsi_max"]
-    SCORE_OP    = p["score_operar"]
-    SCORE_CH    = p["score_cheio"]
+    STOP_PCT = p["stop_pct"]
+    TARGET_PCT = p["target_pct"]
+    RSI_MIN = p["rsi_min"]
+    RSI_MAX = p["rsi_max"]
+    SCORE_OP = p["score_operar"]
+    SCORE_CH = p["score_cheio"]
 
     k1h = carregar(symbol, intervalo_entrada)
     k4h = carregar(symbol, intervalo_mtf)
@@ -228,10 +271,10 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
     ema50 = ind.ema(f1h, 50)
     rsi14 = ind.rsi(f1h, 14)
     atr14 = ind.atr(m1h, n1h, f1h, 14)
-    volr  = ind.volume_relativo(v1h, 20)
+    volr = ind.volume_relativo(v1h, 20)
     bbu, bbm, bbl = ind.bollinger(f1h, 20, 2)
-    bw    = ind.bandwidth(bbu, bbm, bbl)
-    vwap  = ind.vwap_rolling(m1h, n1h, f1h, v1h, periodo=20)
+    bw = ind.bandwidth(bbu, bbm, bbl)
+    vwap = ind.vwap_rolling(m1h, n1h, f1h, v1h, periodo=20)
     adx_vals = _adx(m1h, n1h, f1h, 14)
 
     # Pre-computar 4H
@@ -252,7 +295,7 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
                 feat = extrair_features(f1h, m1h, n1h, v1h, i)
                 if feat is None:
                     continue
-                preco_futuro = max(f1h[i+1:i+9])
+                preco_futuro = max(f1h[i + 1 : i + 9])
                 label = 1 if (preco_futuro - f1h[i]) / f1h[i] >= 0.015 else 0
                 X_train.append(feat)
                 y_train.append(label)
@@ -263,9 +306,15 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
                 ratio = (len(y_tr) - y_tr.sum()) / max(y_tr.sum(), 1)
 
                 modelo = XGBClassifier(
-                    n_estimators=200, max_depth=4, learning_rate=0.03,
-                    subsample=0.8, colsample_bytree=0.8,
-                    scale_pos_weight=ratio, eval_metric="logloss", verbosity=0)
+                    n_estimators=200,
+                    max_depth=4,
+                    learning_rate=0.03,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    scale_pos_weight=ratio,
+                    eval_metric="logloss",
+                    verbosity=0,
+                )
                 modelo.fit(X_tr, y_tr)
 
                 # Prever no restante (out-of-sample)
@@ -274,8 +323,10 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
                     if feat:
                         ml_probs[i] = float(modelo.predict_proba([feat])[0][1])
 
-                print(f"  [ML] Modelo treinado com {len(X_train)} amostras, "
-                      f"prevendo {sum(1 for p in ml_probs if p is not None)} candles")
+                print(
+                    f"  [ML] Modelo treinado com {len(X_train)} amostras, "
+                    f"prevendo {sum(1 for p in ml_probs if p is not None)} candles"
+                )
         except Exception as e:
             print(f"  [ML] Erro no treinamento: {e}")
 
@@ -284,32 +335,38 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
         p = f4h[idx4]
         e20 = ema20_4h[idx4]
         e50 = ema50_4h[idx4]
-        if p > e20 > e50:  return "ALTA"
-        if p < e20 < e50:  return "BAIXA"
+        if p > e20 > e50:
+            return "ALTA"
+        if p < e20 < e50:
+            return "BAIXA"
         return "LATERAL"
 
-    capital   = capital_inicial
-    posicao   = None
+    capital = capital_inicial
+    posicao = None
     operacoes = []
     scores_hist = []
     start_idx = int(len(f1h) * 0.6) if usar_ml else 55
 
     for i in range(max(55, start_idx), len(k1h)):
-        preco  = f1h[i]
-        e20    = ema20[i]
-        e50    = ema50[i]
-        rsi_v  = rsi14[i]
-        atr_v  = atr14[i]
-        vr     = volr[i]
-        bw_v   = bw[i]
+        preco = f1h[i]
+        e20 = ema20[i]
+        e50 = ema50[i]
+        rsi_v = rsi14[i]
+        atr_v = atr14[i]
+        vr = volr[i]
+        bw_v = bw[i]
         vwap_v = vwap[i]
-        adx_v  = adx_vals[i]
+        adx_v = adx_vals[i]
 
         if any(x is None for x in [rsi_v, atr_v, vr, bw_v, vwap_v]):
             continue
 
-        atr_med = sum(x for x in atr14[max(0,i-20):i] if x) / max(1, len([x for x in atr14[max(0,i-20):i] if x]))
-        bw_med  = sum(x for x in bw[max(0,i-20):i] if x) / max(1, len([x for x in bw[max(0,i-20):i] if x]))
+        atr_med = sum(x for x in atr14[max(0, i - 20) : i] if x) / max(
+            1, len([x for x in atr14[max(0, i - 20) : i] if x])
+        )
+        bw_med = sum(x for x in bw[max(0, i - 20) : i] if x) / max(
+            1, len([x for x in bw[max(0, i - 20) : i] if x])
+        )
         atr_ratio = atr_v / atr_med if atr_med > 0 else 1.0
 
         # Verificar saida
@@ -318,36 +375,54 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
             mx = m1h[i]
 
             if mn <= posicao["stop"]:
-                ps  = posicao["stop"] * (1 - SLIPPAGE)
-                pnl = posicao["usdt"] * ((ps - posicao["entrada"]) / posicao["entrada"]) - posicao["usdt"] * TAXA * 2
+                ps = posicao["stop"] * (1 - SLIPPAGE)
+                pnl = (
+                    posicao["usdt"] * ((ps - posicao["entrada"]) / posicao["entrada"])
+                    - posicao["usdt"] * TAXA * 2
+                )
                 capital += pnl
-                operacoes.append({
-                    "resultado": pnl,
-                    "resultado_pct": round((ps - posicao["entrada"]) / posicao["entrada"] * 100, 2),
-                    "tipo_saida": "STOP",
-                    "entrada_dt": posicao.get("dt", ""),
-                    "saida_dt": datetime.fromtimestamp(ts1h[i]/1000).strftime("%d/%m/%Y %H:%M"),
-                    "preco_entrada": posicao["entrada"],
-                    "preco_saida": round(ps, 2),
-                    "score": posicao.get("score", 0),
-                    "ml_prob": posicao.get("ml_prob"),
-                })
+                operacoes.append(
+                    {
+                        "resultado": pnl,
+                        "resultado_pct": round(
+                            (ps - posicao["entrada"]) / posicao["entrada"] * 100, 2
+                        ),
+                        "tipo_saida": "STOP",
+                        "entrada_dt": posicao.get("dt", ""),
+                        "saida_dt": datetime.fromtimestamp(ts1h[i] / 1000).strftime(
+                            "%d/%m/%Y %H:%M"
+                        ),
+                        "preco_entrada": posicao["entrada"],
+                        "preco_saida": round(ps, 2),
+                        "score": posicao.get("score", 0),
+                        "ml_prob": posicao.get("ml_prob"),
+                    }
+                )
                 posicao = None
             elif mx >= posicao["target"]:
-                pt  = posicao["target"] * (1 - SLIPPAGE)
-                pnl = posicao["usdt"] * ((pt - posicao["entrada"]) / posicao["entrada"]) - posicao["usdt"] * TAXA * 2
+                pt = posicao["target"] * (1 - SLIPPAGE)
+                pnl = (
+                    posicao["usdt"] * ((pt - posicao["entrada"]) / posicao["entrada"])
+                    - posicao["usdt"] * TAXA * 2
+                )
                 capital += pnl
-                operacoes.append({
-                    "resultado": pnl,
-                    "resultado_pct": round((pt - posicao["entrada"]) / posicao["entrada"] * 100, 2),
-                    "tipo_saida": "TARGET",
-                    "entrada_dt": posicao.get("dt", ""),
-                    "saida_dt": datetime.fromtimestamp(ts1h[i]/1000).strftime("%d/%m/%Y %H:%M"),
-                    "preco_entrada": posicao["entrada"],
-                    "preco_saida": round(pt, 2),
-                    "score": posicao.get("score", 0),
-                    "ml_prob": posicao.get("ml_prob"),
-                })
+                operacoes.append(
+                    {
+                        "resultado": pnl,
+                        "resultado_pct": round(
+                            (pt - posicao["entrada"]) / posicao["entrada"] * 100, 2
+                        ),
+                        "tipo_saida": "TARGET",
+                        "entrada_dt": posicao.get("dt", ""),
+                        "saida_dt": datetime.fromtimestamp(ts1h[i] / 1000).strftime(
+                            "%d/%m/%Y %H:%M"
+                        ),
+                        "preco_entrada": posicao["entrada"],
+                        "preco_saida": round(pt, 2),
+                        "score": posicao.get("score", 0),
+                        "ml_prob": posicao.get("ml_prob"),
+                    }
+                )
                 posicao = None
 
         # Verificar entrada
@@ -356,57 +431,78 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
             ml_p = ml_probs[i]
 
             score, decisao, fator, scores_det = _score_backtest(
-                preco, e20, e50, rsi_v, atr_v, atr_med, vr, bw_v, bw_med,
-                vwap_v, t4h, adx_v, atr_ratio, ml_p,
-                rsi_min=RSI_MIN, rsi_max=RSI_MAX,
-                score_operar=SCORE_OP, score_cheio=SCORE_CH)
+                preco,
+                e20,
+                e50,
+                rsi_v,
+                atr_v,
+                atr_med,
+                vr,
+                bw_v,
+                bw_med,
+                vwap_v,
+                t4h,
+                adx_v,
+                atr_ratio,
+                ml_p,
+                rsi_min=RSI_MIN,
+                rsi_max=RSI_MAX,
+                score_operar=SCORE_OP,
+                score_cheio=SCORE_CH,
+            )
 
             scores_hist.append(score)
 
             if decisao in ("OPERAR_CHEIO", "OPERAR_REDUZIDO"):
                 entrada = preco * (1 + SLIPPAGE)
-                usdt    = min(capital * 0.02 / STOP_PCT, capital) * fator
+                usdt = min(capital * 0.02 / STOP_PCT, capital) * fator
                 posicao = {
                     "entrada": entrada,
-                    "stop":    entrada * (1 - STOP_PCT),
-                    "target":  entrada * (1 + TARGET_PCT),
-                    "usdt":    usdt,
-                    "dt":      datetime.fromtimestamp(ts1h[i]/1000).strftime("%d/%m/%Y %H:%M"),
-                    "score":   score,
+                    "stop": entrada * (1 - STOP_PCT),
+                    "target": entrada * (1 + TARGET_PCT),
+                    "usdt": usdt,
+                    "dt": datetime.fromtimestamp(ts1h[i] / 1000).strftime("%d/%m/%Y %H:%M"),
+                    "score": score,
                     "ml_prob": ml_p,
-                    "fator":   fator,
+                    "fator": fator,
                 }
 
     # Metricas
     if not operacoes:
         return {"erro": "Nenhuma operacao encontrada com score unificado."}
 
-    total   = len(operacoes)
-    ganhos  = [o for o in operacoes if o["resultado"] > 0]
-    perdas  = [o for o in operacoes if o["resultado"] <= 0]
-    wrate   = len(ganhos) / total * 100
-    lucro   = sum(o["resultado"] for o in ganhos)
-    perda   = abs(sum(o["resultado"] for o in perdas))
-    pf      = lucro / perda if perda else 999.0
+    total = len(operacoes)
+    ganhos = [o for o in operacoes if o["resultado"] > 0]
+    perdas = [o for o in operacoes if o["resultado"] <= 0]
+    wrate = len(ganhos) / total * 100
+    lucro = sum(o["resultado"] for o in ganhos)
+    perda = abs(sum(o["resultado"] for o in perdas))
+    pf = lucro / perda if perda else 999.0
     retorno = (capital - capital_inicial) / capital_inicial * 100
 
     # Max Drawdown
     pico = capital_inicial
-    cap  = capital_inicial
+    cap = capital_inicial
     max_dd = 0
     for o in operacoes:
         cap += o["resultado"]
-        if cap > pico: pico = cap
+        if cap > pico:
+            pico = cap
         dd = (pico - cap) / pico * 100
-        if dd > max_dd: max_dd = dd
+        if dd > max_dd:
+            max_dd = dd
 
     # Sharpe
     rets = [o["resultado_pct"] for o in operacoes]
-    sharpe = (statistics.mean(rets) / statistics.stdev(rets) * (252**0.5)) if len(rets) > 1 and statistics.stdev(rets) > 0 else 0
+    sharpe = (
+        (statistics.mean(rets) / statistics.stdev(rets) * (252**0.5))
+        if len(rets) > 1 and statistics.stdev(rets) > 0
+        else 0
+    )
 
     mg = sum(o["resultado_pct"] for o in ganhos) / len(ganhos) if ganhos else 0
     mp = abs(sum(o["resultado_pct"] for o in perdas) / len(perdas)) if perdas else 0
-    exp = (wrate/100 * mg) - ((1-wrate/100) * mp)
+    exp = (wrate / 100 * mg) - ((1 - wrate / 100) * mp)
 
     # Score medio das entradas
     scores_entradas = [o.get("score", 0) for o in operacoes]
@@ -424,33 +520,33 @@ def rodar(symbol="BTCUSDT", intervalo_entrada="1h", intervalo_mtf="4h",
             wr_por_score[faixa]["ganhos"] += 1
 
     return {
-        "symbol":          symbol,
-        "intervalo":       f"{intervalo_entrada}+{intervalo_mtf}(MTF+Score+ML)",
+        "symbol": symbol,
+        "intervalo": f"{intervalo_entrada}+{intervalo_mtf}(MTF+Score+ML)",
         "params": {
-            "stop_pct":     STOP_PCT,
-            "target_pct":   TARGET_PCT,
-            "rsi_min":      RSI_MIN,
-            "rsi_max":      RSI_MAX,
+            "stop_pct": STOP_PCT,
+            "target_pct": TARGET_PCT,
+            "rsi_min": RSI_MIN,
+            "rsi_max": RSI_MAX,
             "score_operar": SCORE_OP,
-            "score_cheio":  SCORE_CH,
+            "score_cheio": SCORE_CH,
         },
-        "total_trades":    total,
-        "win_rate_%":      round(wrate, 1),
-        "trades_ganhos":   len(ganhos),
-        "trades_perdas":   len(perdas),
-        "profit_factor":   round(pf, 2),
+        "total_trades": total,
+        "win_rate_%": round(wrate, 1),
+        "trades_ganhos": len(ganhos),
+        "trades_perdas": len(perdas),
+        "profit_factor": round(pf, 2),
         "retorno_total_%": round(retorno, 2),
         "capital_inicial": capital_inicial,
-        "capital_final":   round(capital, 2),
-        "max_drawdown_%":  round(max_dd, 2),
-        "sharpe_ratio":    round(sharpe, 2),
-        "expectancia_%":   round(exp, 2),
-        "media_ganho_%":   round(mg, 2),
-        "media_perda_%":   round(mp, 2),
-        "score_medio":     round(score_medio, 1),
-        "wr_por_score":    wr_por_score,
-        "ml_usado":        usar_ml,
-        "operacoes":       operacoes,
+        "capital_final": round(capital, 2),
+        "max_drawdown_%": round(max_dd, 2),
+        "sharpe_ratio": round(sharpe, 2),
+        "expectancia_%": round(exp, 2),
+        "media_ganho_%": round(mg, 2),
+        "media_perda_%": round(mp, 2),
+        "score_medio": round(score_medio, 1),
+        "wr_por_score": wr_por_score,
+        "ml_usado": usar_ml,
+        "operacoes": operacoes,
     }
 
 
@@ -461,21 +557,27 @@ def imprimir_relatorio(r):
 
     def nota(valor, ref_bom, ref_otimo, maior_melhor=True):
         if maior_melhor:
-            if valor >= ref_otimo: return "[OTIMO]"
-            if valor >= ref_bom:   return "[BOM]  "
+            if valor >= ref_otimo:
+                return "[OTIMO]"
+            if valor >= ref_bom:
+                return "[BOM]  "
             return "[RUIM] "
         else:
-            if valor <= ref_otimo: return "[OTIMO]"
-            if valor <= ref_bom:   return "[BOM]  "
+            if valor <= ref_otimo:
+                return "[OTIMO]"
+            if valor <= ref_bom:
+                return "[BOM]  "
             return "[RUIM] "
 
     p = r.get("params", {})
-    print("\n" + "="*62)
+    print("\n" + "=" * 62)
     print(f"  BACKTEST ENSEMBLE — {r.get('symbol', 'BTCUSDT')}  [{r['intervalo']}]")
-    print("="*62)
+    print("=" * 62)
     if p:
-        print(f"  Params: Stop {p['stop_pct']*100:.1f}% / Target {p['target_pct']*100:.1f}% / "
-              f"RSI {p['rsi_min']}-{p['rsi_max']} / Score {p['score_operar']}/{p['score_cheio']}")
+        print(
+            f"  Params: Stop {p['stop_pct']*100:.1f}% / Target {p['target_pct']*100:.1f}% / "
+            f"RSI {p['rsi_min']}-{p['rsi_max']} / Score {p['score_operar']}/{p['score_cheio']}"
+        )
     print(f"  Total de operacoes:  {r['total_trades']}")
     print(f"  Ganhos / Perdas:     {r['trades_ganhos']} / {r['trades_perdas']}")
     print(f"  ML Ensemble:         {'SIM' if r.get('ml_usado') else 'NAO'}")
@@ -485,7 +587,9 @@ def imprimir_relatorio(r):
     print(f"  Profit Factor: {r['profit_factor']:6.2f}    {nota(r['profit_factor'], 1.3, 1.8)}")
     print(f"  Sharpe Ratio:  {r['sharpe_ratio']:6.2f}    {nota(r['sharpe_ratio'], 1.0, 1.5)}")
     print(f"  Expectancia:   {r['expectancia_%']:6.2f}%   {nota(r['expectancia_%'], 0.1, 0.5)}")
-    print(f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   {nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}")
+    print(
+        f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   {nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}"
+    )
     print(f"  Retorno Total: {r['retorno_total_%']:6.2f}%")
     print()
     print(f"  Capital Inicial: ${r['capital_inicial']:,.2f}")
@@ -505,13 +609,18 @@ def imprimir_relatorio(r):
             print(f"    Score {faixa:5s}: {wr:5.1f}% ({dados['ganhos']}/{dados['total']}) {bar}")
 
     # Veredicto
-    print("\n" + "-"*62)
+    print("\n" + "-" * 62)
     score = 0
-    if r['win_rate_%']       >= 52:  score += 1
-    if r['profit_factor']    >= 1.3: score += 1
-    if r['sharpe_ratio']     >= 1.0: score += 1
-    if r['max_drawdown_%']   <= 15:  score += 1
-    if r['expectancia_%']    > 0:    score += 1
+    if r["win_rate_%"] >= 52:
+        score += 1
+    if r["profit_factor"] >= 1.3:
+        score += 1
+    if r["sharpe_ratio"] >= 1.0:
+        score += 1
+    if r["max_drawdown_%"] <= 15:
+        score += 1
+    if r["expectancia_%"] > 0:
+        score += 1
 
     if score == 5:
         veredito = "ESTRATEGIA EXCELENTE"
@@ -522,22 +631,26 @@ def imprimir_relatorio(r):
 
     print(f"  CRITERIOS APROVADOS: {score}/5")
     print(f"  VEREDITO: {veredito}")
-    print("="*62)
+    print("=" * 62)
 
     # Ultimas 10 operacoes
     print(f"\n  ULTIMAS 10 OPERACOES:")
-    print(f"  {'Data Entrada':16s} {'Entrada':>10s} {'Saida':>10s} {'Result':>8s} {'Score':>5s} {'ML%':>5s} {'Tipo'}")
-    print("  " + "-"*68)
+    print(
+        f"  {'Data Entrada':16s} {'Entrada':>10s} {'Saida':>10s} {'Result':>8s} {'Score':>5s} {'ML%':>5s} {'Tipo'}"
+    )
+    print("  " + "-" * 68)
     for o in r["operacoes"][-10:]:
         sinal = "+" if o["resultado"] > 0 else ""
         ml_str = f"{o.get('ml_prob',0)*100:4.0f}%" if o.get("ml_prob") else "  N/A"
-        print(f"  {o['entrada_dt']:16s} "
-              f"${o['preco_entrada']:>9,.0f} "
-              f"${o['preco_saida']:>9,.0f} "
-              f"{sinal}{o['resultado_pct']:>6.2f}% "
-              f"{o.get('score',0):>4}  "
-              f"{ml_str}  "
-              f"{o['tipo_saida']}")
+        print(
+            f"  {o['entrada_dt']:16s} "
+            f"${o['preco_entrada']:>9,.0f} "
+            f"${o['preco_saida']:>9,.0f} "
+            f"{sinal}{o['resultado_pct']:>6.2f}% "
+            f"{o.get('score',0):>4}  "
+            f"{ml_str}  "
+            f"{o['tipo_saida']}"
+        )
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 class TickData(BaseModel):
     """Modelo Pydantic para tick."""
+
     price: float
     quantity: float
     is_buyer_maker: bool
@@ -29,10 +30,11 @@ class TickData(BaseModel):
 
 class CVDResult(BaseModel):
     """Modelo Pydantic para resultado CVD."""
+
     cvd_values: List[float]
     timestamps: List[int]
     divergence_score: float  # -1 a 1: negativo = bearish divergence
-    trend_strength: float    # 0-1: força da tendência CVD
+    trend_strength: float  # 0-1: força da tendência CVD
 
 
 def calculate_cvd(ticks: List[Dict[str, Any]], window_size: int = 100) -> CVDResult:
@@ -47,17 +49,12 @@ def calculate_cvd(ticks: List[Dict[str, Any]], window_size: int = 100) -> CVDRes
         CVDResult com valores vetorizados e métricas
     """
     if not ticks:
-        return CVDResult(
-            cvd_values=[],
-            timestamps=[],
-            divergence_score=0.0,
-            trend_strength=0.0
-        )
+        return CVDResult(cvd_values=[], timestamps=[], divergence_score=0.0, trend_strength=0.0)
 
     # Converter para arrays numpy
-    quantities = np.array([t['quantity'] for t in ticks])
-    is_buyer = np.array([t['is_buyer_maker'] for t in ticks])
-    timestamps = np.array([t['timestamp'] for t in ticks])
+    quantities = np.array([t["quantity"] for t in ticks])
+    is_buyer = np.array([t["is_buyer_maker"] for t in ticks])
+    timestamps = np.array([t["timestamp"] for t in ticks])
 
     # CVD vetorizado: +quantity se not is_buyer (compra), - se is_buyer (venda)
     cvd_deltas = np.where(is_buyer, -quantities, quantities)
@@ -70,7 +67,9 @@ def calculate_cvd(ticks: List[Dict[str, Any]], window_size: int = 100) -> CVDRes
 
         # Regressão linear para slope
         slope, _ = np.polyfit(x, recent_cvd, 1)
-        trend_strength = min(abs(slope) / np.std(recent_cvd), 1.0) if np.std(recent_cvd) > 0 else 0.0
+        trend_strength = (
+            min(abs(slope) / np.std(recent_cvd), 1.0) if np.std(recent_cvd) > 0 else 0.0
+        )
 
         # Divergence score: normalizar slope
         divergence_score = np.tanh(slope / (np.std(recent_cvd) + 1e-10))
@@ -82,11 +81,13 @@ def calculate_cvd(ticks: List[Dict[str, Any]], window_size: int = 100) -> CVDRes
         cvd_values=cvd_values,
         timestamps=timestamps.tolist(),
         divergence_score=divergence_score,
-        trend_strength=trend_strength
+        trend_strength=trend_strength,
     )
 
 
-def calculate_cvd_from_prices(prices: np.ndarray, volumes: np.ndarray, directions: np.ndarray) -> np.ndarray:
+def calculate_cvd_from_prices(
+    prices: np.ndarray, volumes: np.ndarray, directions: np.ndarray
+) -> np.ndarray:
     """
     Calcula CVD diretamente de arrays numpy (para backtest otimizado).
 

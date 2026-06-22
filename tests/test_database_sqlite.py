@@ -15,8 +15,8 @@ os.environ["DATABASE_BACKEND"] = "sqlite"
 
 import database  # noqa: E402 — importar após setar env
 
-
 # ── Fixture: banco temporário ─────────────────────────────────────────────────
+
 
 @pytest.fixture(autouse=True)
 def sqlite_tmp(tmp_path, monkeypatch):
@@ -35,50 +35,57 @@ def _raw(db_path: str):
 
 # ── Testes: inicializar ───────────────────────────────────────────────────────
 
+
 class TestInicializar:
     def test_cria_tabela_sinais(self, sqlite_tmp):
         conn = _raw(sqlite_tmp)
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
         conn.close()
         assert "sinais" in tables
 
     def test_cria_tabela_snapshots(self, sqlite_tmp):
         conn = _raw(sqlite_tmp)
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
         conn.close()
         assert "snapshots_mercado" in tables
 
     def test_cria_tabela_trades(self, sqlite_tmp):
         conn = _raw(sqlite_tmp)
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
         conn.close()
         assert "trades" in tables
 
     def test_cria_tabela_risk_state(self, sqlite_tmp):
         conn = _raw(sqlite_tmp)
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
         conn.close()
         assert "risk_state" in tables
 
     def test_idempotente(self, sqlite_tmp):
         database.inicializar()  # segunda chamada não deve falhar
         conn = _raw(sqlite_tmp)
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
         conn.close()
         assert "sinais" in tables
 
 
 # ── Testes: salvar_sinal ──────────────────────────────────────────────────────
+
 
 class TestSalvarSinal:
     def test_salva_compra(self, sqlite_tmp):
@@ -116,6 +123,7 @@ class TestSalvarSinal:
 
 # ── Testes: salvar_snapshot ───────────────────────────────────────────────────
 
+
 class TestSalvarSnapshot:
     def test_salva_snapshot_basico(self, sqlite_tmp):
         dados = {"preco": 64500.0, "symbol": "BTCUSDT", "rsi_1h": 55.0}
@@ -142,6 +150,7 @@ class TestSalvarSnapshot:
 
 # ── Testes: buscar_sinais ─────────────────────────────────────────────────────
 
+
 class TestBuscarSinais:
     def test_retorna_lista_vazia(self, sqlite_tmp):
         sinais = database.buscar_sinais(limit=10)
@@ -163,6 +172,7 @@ class TestBuscarSinais:
 
 # ── Testes: healthcheck ───────────────────────────────────────────────────────
 
+
 class TestHealthcheck:
     def test_retorna_true_com_banco_ok(self, sqlite_tmp):
         assert database.healthcheck() is True
@@ -170,6 +180,7 @@ class TestHealthcheck:
     def test_retorna_false_quando_sqlite_falha(self, monkeypatch):
         # Simula falha forçando sqlite3.connect a levantar exceção
         import sqlite3 as _sqlite3
+
         original_connect = _sqlite3.connect
 
         def _connect_fail(*args, **kwargs):
@@ -184,6 +195,7 @@ class TestHealthcheck:
 
 
 # ── Testes: salvar_risk_state / carregar_risk_state ───────────────────────────
+
 
 class TestRiskState:
     def test_round_trip(self, sqlite_tmp):

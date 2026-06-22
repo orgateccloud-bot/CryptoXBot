@@ -30,21 +30,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # FSRS — filtro adaptativo (opcional, não bloqueia se ausente)
 try:
     from fsrs_trading import get_fsrs as _get_fsrs
+
     _FSRS_DISPONIVEL = True
 except ImportError:
     _FSRS_DISPONIVEL = False
 
 # Pesos base
-PESO_XGB_BASE  = 0.55
+PESO_XGB_BASE = 0.55
 PESO_LSTM_BASE = 0.45
 
 # Ajustes por regime
 AJUSTES_REGIME = {
-    "TENDENCIA_ALTA":   {"xgb": 0.55, "lstm": 0.45, "threshold": 0.55},
-    "TENDENCIA_BAIXA":  {"xgb": 0.55, "lstm": 0.45, "threshold": 0.55},
-    "LATERAL":          {"xgb": 0.70, "lstm": 0.30, "threshold": 0.60},  # Penaliza LSTM em lateral
-    "VOLATILIDADE":     {"xgb": 0.60, "lstm": 0.40, "threshold": 0.65},  # Mais conservador
-    "INDEFINIDO":       {"xgb": 0.55, "lstm": 0.45, "threshold": 0.60},
+    "TENDENCIA_ALTA": {"xgb": 0.55, "lstm": 0.45, "threshold": 0.55},
+    "TENDENCIA_BAIXA": {"xgb": 0.55, "lstm": 0.45, "threshold": 0.55},
+    "LATERAL": {"xgb": 0.70, "lstm": 0.30, "threshold": 0.60},  # Penaliza LSTM em lateral
+    "VOLATILIDADE": {"xgb": 0.60, "lstm": 0.40, "threshold": 0.65},  # Mais conservador
+    "INDEFINIDO": {"xgb": 0.55, "lstm": 0.45, "threshold": 0.60},
 }
 
 
@@ -70,15 +71,16 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
       pesos_aplicados: dict com pesos finais
       fator_fsrs:     float — fator de confiança adaptativo (0-1)
     """
-    prob_xgb  = None
+    prob_xgb = None
     prob_lstm = None
-    msg_xgb   = ""
-    msg_lstm  = ""
+    msg_xgb = ""
+    msg_lstm = ""
 
     # Detectar regime se nao fornecido
     if regime_atual == "INDEFINIDO":
         try:
             import regime as reg
+
             regime_info = reg.detectar()
             regime_atual = regime_info.get("regime_final", "INDEFINIDO")
         except Exception:
@@ -93,6 +95,7 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
     # XGBoost
     try:
         from ml_filtro import prever as xgb_prever
+
         prob_xgb, msg_xgb = xgb_prever()
     except Exception as e:
         msg_xgb = str(e)
@@ -100,6 +103,7 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
     # LSTM
     try:
         from lstm_modelo import prever as lstm_prever
+
         prob_lstm, msg_lstm = lstm_prever()
     except Exception as e:
         msg_lstm = str(e)
@@ -108,42 +112,42 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
     if prob_xgb is not None and prob_lstm is not None:
         prob_ensemble = prob_xgb * peso_xgb + prob_lstm * peso_lstm
 
-        xgb_positivo  = prob_xgb  >= 0.50
+        xgb_positivo = prob_xgb >= 0.50
         lstm_positivo = prob_lstm >= 0.50
-        concordancia  = xgb_positivo == lstm_positivo
+        concordancia = xgb_positivo == lstm_positivo
 
         if concordancia and prob_ensemble >= limiar:
-            confianca   = "ALTA"
+            confianca = "ALTA"
             pode_operar = True
             motivo = f"Ensemble {prob_ensemble*100:.1f}% — XGB e LSTM concordam (ALTA) | Regime: {regime_atual}"
         elif prob_ensemble >= limiar:
-            confianca   = "MEDIA"
+            confianca = "MEDIA"
             pode_operar = True
             motivo = f"Ensemble {prob_ensemble*100:.1f}% — modelos divergem (MEDIA) | Regime: {regime_atual}"
         else:
-            confianca   = "BAIXA"
+            confianca = "BAIXA"
             pode_operar = False
             motivo = f"Ensemble {prob_ensemble*100:.1f}% — abaixo do limiar {limiar*100:.0f}% | Regime: {regime_atual}"
 
     elif prob_xgb is not None:
         prob_ensemble = prob_xgb
-        concordancia  = False
-        confianca     = "MEDIA"
-        pode_operar   = prob_xgb >= limiar
+        concordancia = False
+        confianca = "MEDIA"
+        pode_operar = prob_xgb >= limiar
         motivo = f"Apenas XGBoost: {prob_xgb*100:.1f}% (LSTM indisponivel: {msg_lstm}) | Regime: {regime_atual}"
 
     elif prob_lstm is not None:
         prob_ensemble = prob_lstm
-        concordancia  = False
-        confianca     = "MEDIA"
-        pode_operar   = prob_lstm >= limiar
+        concordancia = False
+        confianca = "MEDIA"
+        pode_operar = prob_lstm >= limiar
         motivo = f"Apenas LSTM: {prob_lstm*100:.1f}% (XGBoost indisponivel: {msg_xgb}) | Regime: {regime_atual}"
 
     else:
         prob_ensemble = 0.5
-        concordancia  = False
-        confianca     = "NENHUM"
-        pode_operar   = False
+        concordancia = False
+        confianca = "NENHUM"
+        pode_operar = False
         motivo = f"Nenhum modelo disponivel — XGB: {msg_xgb} | LSTM: {msg_lstm}"
 
     # ── FSRS: ajuste adaptativo por histórico de padrões ─────────
@@ -180,32 +184,32 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
 
     return {
         "prob_ensemble": round(prob_ensemble, 4),
-        "prob_xgb":      prob_xgb,
-        "prob_lstm":     prob_lstm,
-        "concordancia":  concordancia,
-        "confianca":     confianca,
-        "pode_operar":   pode_operar,
-        "motivo":        motivo,
-        "regime":        regime_atual,
+        "prob_xgb": prob_xgb,
+        "prob_lstm": prob_lstm,
+        "concordancia": concordancia,
+        "confianca": confianca,
+        "pode_operar": pode_operar,
+        "motivo": motivo,
+        "regime": regime_atual,
         "pesos_aplicados": {"xgb": peso_xgb, "lstm": peso_lstm, "threshold": limiar},
-        "fator_fsrs":    fator_fsrs,
-        "fsrs_detalhe":  fsrs_detalhe,
+        "fator_fsrs": fator_fsrs,
+        "fsrs_detalhe": fsrs_detalhe,
     }
 
 
 def imprimir(regime_atual="INDEFINIDO"):
     r = prever(regime_atual)
 
-    verde    = "\033[92m"
+    verde = "\033[92m"
     vermelho = "\033[91m"
-    amarelo  = "\033[93m"
-    cinza    = "\033[90m"
-    reset    = "\033[0m"
+    amarelo = "\033[93m"
+    cinza = "\033[90m"
+    reset = "\033[0m"
 
     cor_conf = {
-        "ALTA":   verde,
-        "MEDIA":  amarelo,
-        "BAIXA":  vermelho,
+        "ALTA": verde,
+        "MEDIA": amarelo,
+        "BAIXA": vermelho,
         "NENHUM": cinza,
     }
     cor = cor_conf.get(r["confianca"], cinza)
@@ -216,13 +220,15 @@ def imprimir(regime_atual="INDEFINIDO"):
     pos = int(p / 100 * barra_len)
     barra = "[" + "#" * pos + "-" * (barra_len - pos) + "]"
 
-    print("\n" + "="*55)
+    print("\n" + "=" * 55)
     print("  ENSEMBLE ML (XGBoost + LSTM)")
-    print("="*55)
+    print("=" * 55)
 
     # Regime e pesos
     print(f"  Regime: {r['regime']}")
-    print(f"  Pesos:  XGB {r['pesos_aplicados']['xgb']*100:.0f}% / LSTM {r['pesos_aplicados']['lstm']*100:.0f}%")
+    print(
+        f"  Pesos:  XGB {r['pesos_aplicados']['xgb']*100:.0f}% / LSTM {r['pesos_aplicados']['lstm']*100:.0f}%"
+    )
     print(f"  Threshold: {r['pesos_aplicados']['threshold']*100:.0f}%")
     print()
 
@@ -258,7 +264,7 @@ def imprimir(regime_atual="INDEFINIDO"):
 
     print(f"  Opera:     {verde+'SIM'+reset if r['pode_operar'] else vermelho+'NAO'+reset}")
     print(f"  {r['motivo']}")
-    print("="*55)
+    print("=" * 55)
     return r
 
 

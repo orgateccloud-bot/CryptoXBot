@@ -26,10 +26,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import risco
 
-
 # ══════════════════════════════════════════════════════════════
 # Fixtures
 # ══════════════════════════════════════════════════════════════
+
 
 @pytest.fixture(autouse=True)
 def _isolar_estado_risco(monkeypatch):
@@ -46,10 +46,8 @@ def _isolar_estado_risco(monkeypatch):
     # no banco; mesmo assim mockamos database para hermeticidade total.
     risco._estado_carregado = True
 
-    monkeypatch.setattr(risco.database, "salvar_risk_state",
-                        lambda *a, **k: None, raising=True)
-    monkeypatch.setattr(risco.database, "carregar_risk_state",
-                        lambda *a, **k: None, raising=True)
+    monkeypatch.setattr(risco.database, "salvar_risk_state", lambda *a, **k: None, raising=True)
+    monkeypatch.setattr(risco.database, "carregar_risk_state", lambda *a, **k: None, raising=True)
 
     yield
 
@@ -66,6 +64,7 @@ def _set_estado(**kwargs):
 # ══════════════════════════════════════════════════════════════
 # 1. kelly()
 # ══════════════════════════════════════════════════════════════
+
 
 class TestKelly:
 
@@ -111,6 +110,7 @@ class TestKelly:
 # ══════════════════════════════════════════════════════════════
 # 2. calcular_tamanho()
 # ══════════════════════════════════════════════════════════════
+
 
 class TestCalcularTamanho:
 
@@ -160,11 +160,11 @@ class TestCalcularTamanho:
 # 3. _resetar_se_novo_dia()
 # ══════════════════════════════════════════════════════════════
 
+
 class TestResetarSeNovoDia:
 
     def test_novo_dia_zera_pnl_e_atualiza_data(self):
-        _set_estado(data_dia="2000-01-01", pnl_dia=123.4,
-                    bloqueado=True, motivo_bloqueio="algo")
+        _set_estado(data_dia="2000-01-01", pnl_dia=123.4, bloqueado=True, motivo_bloqueio="algo")
         risco._resetar_se_novo_dia()
         assert risco._estado_risco["data_dia"] == str(date.today())
         assert risco._estado_risco["pnl_dia"] == 0.0
@@ -172,16 +172,16 @@ class TestResetarSeNovoDia:
         assert risco._estado_risco["motivo_bloqueio"] == ""
 
     def test_mesmo_dia_nao_zera_pnl(self):
-        _set_estado(data_dia=str(date.today()), pnl_dia=77.0,
-                    bloqueado=True, motivo_bloqueio="trava")
+        _set_estado(
+            data_dia=str(date.today()), pnl_dia=77.0, bloqueado=True, motivo_bloqueio="trava"
+        )
         risco._resetar_se_novo_dia()
         # Mesmo dia: nada é resetado
         assert risco._estado_risco["pnl_dia"] == 77.0
         assert risco._estado_risco["bloqueado"] is True
 
     def test_nao_reseta_capital_inicio_dia(self):
-        _set_estado(data_dia="1999-12-31", pnl_dia=10.0,
-                    capital_inicio_dia=500.0)
+        _set_estado(data_dia="1999-12-31", pnl_dia=10.0, capital_inicio_dia=500.0)
         risco._resetar_se_novo_dia()
         # capital é preservado entre dias
         assert risco._estado_risco["capital_inicio_dia"] == 500.0
@@ -190,6 +190,7 @@ class TestResetarSeNovoDia:
 # ══════════════════════════════════════════════════════════════
 # 4. registrar_resultado()
 # ══════════════════════════════════════════════════════════════
+
 
 class TestRegistrarResultado:
 
@@ -201,8 +202,9 @@ class TestRegistrarResultado:
 
     def test_chama_persistir_estado(self, monkeypatch):
         chamado = {"n": 0}
-        monkeypatch.setattr(risco, "persistir_estado",
-                            lambda: chamado.__setitem__("n", chamado["n"] + 1))
+        monkeypatch.setattr(
+            risco, "persistir_estado", lambda: chamado.__setitem__("n", chamado["n"] + 1)
+        )
         _set_estado(data_dia=str(date.today()), pnl_dia=0.0)
         risco.registrar_resultado(20.0)
         assert chamado["n"] >= 1
@@ -217,6 +219,7 @@ class TestRegistrarResultado:
 # ══════════════════════════════════════════════════════════════
 # 5. validar_trade()
 # ══════════════════════════════════════════════════════════════
+
 
 class TestValidarTrade:
 
@@ -317,6 +320,7 @@ class TestValidarTrade:
         # Garante hermeticidade: se requests for usado, falha o teste.
         def _boom(*a, **k):
             raise AssertionError("Acesso de rede não deveria ocorrer")
+
         monkeypatch.setattr(risco.requests, "get", _boom)
         r = risco.validar_trade("COMPRA", 68000, 1000)
         assert r["pode"] is True
@@ -325,6 +329,7 @@ class TestValidarTrade:
 # ══════════════════════════════════════════════════════════════
 # 6. get_saldo_usdt()
 # ══════════════════════════════════════════════════════════════
+
 
 class _FakeResp:
     def __init__(self, payload):
@@ -337,30 +342,30 @@ class _FakeResp:
 class TestGetSaldoUsdt:
 
     def test_retorna_saldo_usdt(self, monkeypatch):
-        payload = {"balances": [
-            {"asset": "BTC", "free": "0.5"},
-            {"asset": "USDT", "free": "1234.56"},
-        ]}
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp(payload))
+        payload = {
+            "balances": [
+                {"asset": "BTC", "free": "0.5"},
+                {"asset": "USDT", "free": "1234.56"},
+            ]
+        }
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
         assert risco.get_saldo_usdt() == pytest.approx(1234.56)
 
     def test_sem_usdt_nas_balances_retorna_zero(self, monkeypatch):
         payload = {"balances": [{"asset": "BTC", "free": "0.5"}]}
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp(payload))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
         # Loop não encontra USDT -> cai no return 0.0 final
         assert risco.get_saldo_usdt() == 0.0
 
     def test_erro_de_rede_retorna_zero(self, monkeypatch):
         def _boom(*a, **k):
             raise ConnectionError("sem rede")
+
         monkeypatch.setattr(risco.requests, "get", _boom)
         assert risco.get_saldo_usdt() == 0.0
 
     def test_resposta_sem_balances_retorna_zero(self, monkeypatch):
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp({}))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp({}))
         assert risco.get_saldo_usdt() == 0.0
 
 
@@ -368,32 +373,33 @@ class TestGetSaldoUsdt:
 # 7. get_saldo_btc()
 # ══════════════════════════════════════════════════════════════
 
+
 class TestGetSaldoBtc:
 
     def test_retorna_saldo_btc(self, monkeypatch):
-        payload = {"balances": [
-            {"asset": "USDT", "free": "1000.0"},
-            {"asset": "BTC", "free": "0.12345678"},
-        ]}
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp(payload))
+        payload = {
+            "balances": [
+                {"asset": "USDT", "free": "1000.0"},
+                {"asset": "BTC", "free": "0.12345678"},
+            ]
+        }
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
         assert risco.get_saldo_btc() == pytest.approx(0.12345678)
 
     def test_sem_btc_nas_balances_retorna_zero(self, monkeypatch):
         payload = {"balances": [{"asset": "USDT", "free": "500.0"}]}
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp(payload))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
         assert risco.get_saldo_btc() == 0.0
 
     def test_erro_de_rede_retorna_zero(self, monkeypatch):
         def _boom(*a, **k):
             raise ConnectionError("sem rede")
+
         monkeypatch.setattr(risco.requests, "get", _boom)
         assert risco.get_saldo_btc() == 0.0
 
     def test_resposta_sem_balances_retorna_zero(self, monkeypatch):
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp({}))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp({}))
         assert risco.get_saldo_btc() == 0.0
 
 
@@ -401,51 +407,50 @@ class TestGetSaldoBtc:
 # 8. verificar_volatilidade()
 # ══════════════════════════════════════════════════════════════
 
+
 class TestVerificarVolatilidade:
 
     def test_calcula_variacao_percentual(self, monkeypatch):
         # abertura = k[-2][1] = 100, fechamento = k[-1][4] = 108
         # |108 - 100| / 100 = 0.08
         klines = [
-            ["t", "100", "h", "l", "105", "v"],   # k[-2]: abertura=100
-            ["t", "104", "h", "l", "108", "v"],   # k[-1]: fechamento=108
+            ["t", "100", "h", "l", "105", "v"],  # k[-2]: abertura=100
+            ["t", "104", "h", "l", "108", "v"],  # k[-1]: fechamento=108
         ]
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp(klines))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(klines))
         assert risco.verificar_volatilidade() == pytest.approx(0.08)
 
     def test_usa_valor_absoluto_em_queda(self, monkeypatch):
         # fechamento < abertura -> abs garante valor positivo
         klines = [
             ["t", "100", "h", "l", "105", "v"],
-            ["t", "104", "h", "l", "90", "v"],    # fechamento=90 -> |90-100|/100 = 0.10
+            ["t", "104", "h", "l", "90", "v"],  # fechamento=90 -> |90-100|/100 = 0.10
         ]
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp(klines))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(klines))
         assert risco.verificar_volatilidade() == pytest.approx(0.10)
 
     def test_klines_insuficientes_retorna_zero(self, monkeypatch):
         # len(k) < 2 -> 0.0
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp([["t", "100", "h", "l", "105", "v"]]))
+        monkeypatch.setattr(
+            risco.requests, "get", lambda *a, **k: _FakeResp([["t", "100", "h", "l", "105", "v"]])
+        )
         assert risco.verificar_volatilidade() == 0.0
 
     def test_klines_vazio_retorna_zero(self, monkeypatch):
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp([]))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp([]))
         assert risco.verificar_volatilidade() == 0.0
 
     def test_erro_de_rede_retorna_zero(self, monkeypatch):
         def _boom(*a, **k):
             raise ConnectionError("sem rede")
+
         monkeypatch.setattr(risco.requests, "get", _boom)
         assert risco.verificar_volatilidade() == 0.0
 
     def test_payload_malformado_retorna_zero(self, monkeypatch):
         # k[-2][1] não conversível -> float() lança -> except -> 0.0
         klines = [["t", "abc"], ["t", "def", "x", "y", "ghi"]]
-        monkeypatch.setattr(risco.requests, "get",
-                            lambda *a, **k: _FakeResp(klines))
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(klines))
         assert risco.verificar_volatilidade() == 0.0
 
 
@@ -453,44 +458,43 @@ class TestVerificarVolatilidade:
 # 9. kelly_do_banco()
 # ══════════════════════════════════════════════════════════════
 
+
 class TestKellyDoBanco:
 
     def test_sem_historico_suficiente_retorna_max(self, monkeypatch):
         # menos de 10 rows -> MAX_RISCO_POR_TRADE
-        monkeypatch.setattr(risco.database, "sinais_executados",
-                            lambda *a, **k: [{"tipo": "COMPRA"}] * 5)
+        monkeypatch.setattr(
+            risco.database, "sinais_executados", lambda *a, **k: [{"tipo": "COMPRA"}] * 5
+        )
         assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
 
     def test_zero_rows_retorna_max(self, monkeypatch):
-        monkeypatch.setattr(risco.database, "sinais_executados",
-                            lambda *a, **k: [])
+        monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: [])
         assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
 
     def test_calcula_kelly_a_partir_do_winrate(self, monkeypatch):
         # 12 rows, 6 COMPRA -> wr = 0.5 -> kelly(0.5, 2.0)
         rows = [{"tipo": "COMPRA"}] * 6 + [{"tipo": "VENDA"}] * 6
-        monkeypatch.setattr(risco.database, "sinais_executados",
-                            lambda *a, **k: rows)
+        monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
         assert risco.kelly_do_banco() == pytest.approx(risco.kelly(0.5, 2.0))
 
     def test_todos_compra_winrate_um(self, monkeypatch):
         rows = [{"tipo": "COMPRA"}] * 20
-        monkeypatch.setattr(risco.database, "sinais_executados",
-                            lambda *a, **k: rows)
+        monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
         # wr = 1.0 -> kelly(1.0, 2.0) = (1 - 0)*0.25 = 0.25
         assert risco.kelly_do_banco() == pytest.approx(risco.kelly(1.0, 2.0))
 
     def test_excecao_no_banco_retorna_max(self, monkeypatch):
         def _boom(*a, **k):
             raise RuntimeError("db down")
+
         monkeypatch.setattr(risco.database, "sinais_executados", _boom)
         assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
 
     def test_rows_sem_chave_tipo_contam_como_nao_compra(self, monkeypatch):
         # s.get("tipo") ausente -> None != "COMPRA" -> não conta
         rows = [{}] * 10
-        monkeypatch.setattr(risco.database, "sinais_executados",
-                            lambda *a, **k: rows)
+        monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
         # wr = 0 -> kelly(0.0, ...) -> guard win_rate<=0 -> MAX_RISCO_POR_TRADE
         assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
 
@@ -499,12 +503,14 @@ class TestKellyDoBanco:
 # 10. persistir_estado() / _carregar_estado_persistido()
 # ══════════════════════════════════════════════════════════════
 
+
 class TestPersistencia:
 
     def test_persistir_chama_database(self, monkeypatch):
         capturado = {}
-        monkeypatch.setattr(risco.database, "salvar_risk_state",
-                            lambda estado: capturado.update(estado))
+        monkeypatch.setattr(
+            risco.database, "salvar_risk_state", lambda estado: capturado.update(estado)
+        )
         _set_estado(pnl_dia=42.0)
         risco.persistir_estado()
         assert capturado["pnl_dia"] == 42.0
@@ -512,6 +518,7 @@ class TestPersistencia:
     def test_persistir_engole_excecao(self, monkeypatch):
         def _boom(*a, **k):
             raise RuntimeError("db indisponivel")
+
         monkeypatch.setattr(risco.database, "salvar_risk_state", _boom)
         # Não deve propagar
         risco.persistir_estado()
@@ -519,8 +526,7 @@ class TestPersistencia:
     def test_carregar_atualiza_estado_quando_salvo(self, monkeypatch):
         # Força recarregar do "banco"
         risco._estado_carregado = False
-        monkeypatch.setattr(risco.database, "carregar_risk_state",
-                            lambda: {"pnl_dia": 314.0})
+        monkeypatch.setattr(risco.database, "carregar_risk_state", lambda: {"pnl_dia": 314.0})
         risco._carregar_estado_persistido()
         assert risco._estado_risco["pnl_dia"] == 314.0
         assert risco._estado_carregado is True
@@ -528,15 +534,20 @@ class TestPersistencia:
     def test_carregar_idempotente_quando_ja_carregado(self, monkeypatch):
         chamado = {"n": 0}
         risco._estado_carregado = True
-        monkeypatch.setattr(risco.database, "carregar_risk_state",
-                            lambda: chamado.__setitem__("n", chamado["n"] + 1) or {})
+        monkeypatch.setattr(
+            risco.database,
+            "carregar_risk_state",
+            lambda: chamado.__setitem__("n", chamado["n"] + 1) or {},
+        )
         risco._carregar_estado_persistido()
         assert chamado["n"] == 0  # short-circuit, não toca o banco
 
     def test_carregar_engole_excecao(self, monkeypatch):
         risco._estado_carregado = False
+
         def _boom(*a, **k):
             raise RuntimeError("db down")
+
         monkeypatch.setattr(risco.database, "carregar_risk_state", _boom)
         risco._carregar_estado_persistido()  # não propaga
         assert risco._estado_carregado is True
@@ -554,6 +565,7 @@ class TestPersistencia:
 # 11. status()
 # ══════════════════════════════════════════════════════════════
 
+
 class TestStatus:
 
     @pytest.fixture(autouse=True)
@@ -564,9 +576,14 @@ class TestStatus:
         monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.02)
 
     def test_status_estrutura_basica(self):
-        _set_estado(data_dia=str(date.today()), pnl_dia=0.0,
-                    capital_inicio_dia=None, bloqueado=False,
-                    motivo_bloqueio="", posicoes_abertas=0)
+        _set_estado(
+            data_dia=str(date.today()),
+            pnl_dia=0.0,
+            capital_inicio_dia=None,
+            bloqueado=False,
+            motivo_bloqueio="",
+            posicoes_abertas=0,
+        )
         s = risco.status()
         assert s["saldo_usdt"] == 1000.0
         assert s["saldo_btc"] == 0.05
@@ -577,22 +594,25 @@ class TestStatus:
 
     def test_status_drawdown_zero_sem_capital_inicio(self):
         # capital_inicio_dia None/falsy -> dd_dia permanece 0.0
-        _set_estado(data_dia=str(date.today()), pnl_dia=-100.0,
-                    capital_inicio_dia=None)
+        _set_estado(data_dia=str(date.today()), pnl_dia=-100.0, capital_inicio_dia=None)
         s = risco.status()
         assert s["drawdown_dia_%"] == 0.0
 
     def test_status_calcula_drawdown_com_capital(self):
-        _set_estado(data_dia=str(date.today()), pnl_dia=-50.0,
-                    capital_inicio_dia=1000.0)
+        _set_estado(data_dia=str(date.today()), pnl_dia=-50.0, capital_inicio_dia=1000.0)
         s = risco.status()
         # -50/1000 * 100 = -5.0
         assert s["drawdown_dia_%"] == pytest.approx(-5.0)
 
     def test_status_reflete_bloqueio(self):
-        _set_estado(data_dia=str(date.today()), bloqueado=True,
-                    motivo_bloqueio="trava X", posicoes_abertas=1,
-                    capital_inicio_dia=None, pnl_dia=0.0)
+        _set_estado(
+            data_dia=str(date.today()),
+            bloqueado=True,
+            motivo_bloqueio="trava X",
+            posicoes_abertas=1,
+            capital_inicio_dia=None,
+            pnl_dia=0.0,
+        )
         s = risco.status()
         assert s["bloqueado"] is True
         assert s["motivo_bloqueio"] == "trava X"
@@ -602,6 +622,7 @@ class TestStatus:
 # ══════════════════════════════════════════════════════════════
 # 12. validar_trade() — branches/asserções adicionais
 # ══════════════════════════════════════════════════════════════
+
 
 class TestValidarTradeExtra:
 

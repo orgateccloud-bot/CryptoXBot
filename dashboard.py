@@ -32,81 +32,84 @@ app.config["SECRET_KEY"] = SECRET_KEY
 CORS(app, resources={r"/api/*": {"origins": CORS_ORIGINS}})
 socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode="threading")
 
-BASE_URL  = "https://api.binance.com"
+BASE_URL = "https://api.binance.com"
 BASE_FAPI = "https://fapi.binance.com"
 
 PARES_ATIVOS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
+
 # ── Estado global por par ──────────────────────────────────────
 def _estado_inicial(symbol):
     return {
-        "symbol":        symbol,
-        "preco":         0.0,
-        "variacao_24h":  0.0,
-        "maximo_24h":    0.0,
-        "minimo_24h":    0.0,
-        "volume_24h":    0.0,
-        "ema20":         0.0,
-        "ema50":         0.0,
-        "rsi":           0.0,
-        "atr":           0.0,
-        "tendencia":     "—",
-        "tend_4h":       "—",
-        "funding":       0.0,
-        "cvd":           0.0,
-        "compras":       0.0,
-        "vendas":        0.0,
-        "sinal":         "AGUARDAR",
-        "score":         0,
+        "symbol": symbol,
+        "preco": 0.0,
+        "variacao_24h": 0.0,
+        "maximo_24h": 0.0,
+        "minimo_24h": 0.0,
+        "volume_24h": 0.0,
+        "ema20": 0.0,
+        "ema50": 0.0,
+        "rsi": 0.0,
+        "atr": 0.0,
+        "tendencia": "—",
+        "tend_4h": "—",
+        "funding": 0.0,
+        "cvd": 0.0,
+        "compras": 0.0,
+        "vendas": 0.0,
+        "sinal": "AGUARDAR",
+        "score": 0,
         "score_decisao": "AGUARDAR",
-        "score_detail":  {},
-        "stop_loss":     None,
-        "take_profit":   None,
-        "ml_prob":       None,
-        "ml_ensemble":   None,
-        "ml_xgb":        None,
-        "ml_lstm":       None,
-        "ml_confianca":  "—",
-        "regime":        "—",
-        "regime_score":  0,
-        "fear_greed":    0,
+        "score_detail": {},
+        "stop_loss": None,
+        "take_profit": None,
+        "ml_prob": None,
+        "ml_ensemble": None,
+        "ml_xgb": None,
+        "ml_lstm": None,
+        "ml_confianca": "—",
+        "regime": "—",
+        "regime_score": 0,
+        "fear_greed": 0,
         "fear_greed_pt": "—",
-        "pressao_ob":    "—",
-        "liq_compra":    0.0,
-        "liq_venda":     0.0,
+        "pressao_ob": "—",
+        "liq_compra": 0.0,
+        "liq_venda": 0.0,
         "ultima_atualizacao": "—",
         "params": {},
     }
 
+
 estados = {s: _estado_inicial(s) for s in PARES_ATIVOS}
 trades_recentes = []
 preco_historico = {s: [] for s in PARES_ATIVOS}
-eventos_sistema = []   # lista de eventos em tempo real (max 200)
+eventos_sistema = []  # lista de eventos em tempo real (max 200)
 _lock = threading.Lock()
 
 
 # ── Sistema de Eventos ─────────────────────────────────────────
 
 _TIPOS_EVENTO = {
-    "SINAL":  {"cor": "#00ff88", "icone": "◈"},
-    "SCORE":  {"cor": "#00d4ff", "icone": "◉"},
+    "SINAL": {"cor": "#00ff88", "icone": "◈"},
+    "SCORE": {"cor": "#00d4ff", "icone": "◉"},
     "REGIME": {"cor": "#9945ff", "icone": "▣"},
     "ALERTA": {"cor": "#ff3366", "icone": "⚠"},
     "BALEIA": {"cor": "#ffcc00", "icone": "🐋"},
-    "INFO":   {"cor": "#6b7394", "icone": "▸"},
+    "INFO": {"cor": "#6b7394", "icone": "▸"},
 }
+
 
 def addSystemEvent(tipo, titulo, mensagem):
     """Cria e emite um evento de sistema via Socket.IO."""
     meta = _TIPOS_EVENTO.get(tipo, _TIPOS_EVENTO["INFO"])
     ev = {
-        "id":       int(time.time() * 1000),
-        "tipo":     tipo,
-        "titulo":   titulo,
+        "id": int(time.time() * 1000),
+        "tipo": tipo,
+        "titulo": titulo,
         "mensagem": mensagem,
-        "ts":       datetime.now().strftime("%H:%M:%S"),
-        "cor":      meta["cor"],
-        "icone":    meta["icone"],
+        "ts": datetime.now().strftime("%H:%M:%S"),
+        "cor": meta["cor"],
+        "icone": meta["icone"],
     }
     with _lock:
         eventos_sistema.insert(0, ev)
@@ -117,17 +120,21 @@ def addSystemEvent(tipo, titulo, mensagem):
 
 # ── Helpers indicadores ────────────────────────────────────────
 
+
 def _klines(symbol, intervalo, limite=60):
-    r = requests.get(f"{BASE_URL}/api/v3/klines",
-                     params={"symbol": symbol, "interval": intervalo, "limit": limite},
-                     timeout=8)
+    r = requests.get(
+        f"{BASE_URL}/api/v3/klines",
+        params={"symbol": symbol, "interval": intervalo, "limit": limite},
+        timeout=8,
+    )
     k = r.json()
     return {
         "fechamento": [float(x[4]) for x in k],
-        "maxima":     [float(x[2]) for x in k],
-        "minima":     [float(x[3]) for x in k],
-        "volume":     [float(x[5]) for x in k],
+        "maxima": [float(x[2]) for x in k],
+        "minima": [float(x[3]) for x in k],
+        "volume": [float(x[5]) for x in k],
     }
+
 
 def _ema(vals, periodo):
     k = 2 / (periodo + 1)
@@ -135,6 +142,7 @@ def _ema(vals, periodo):
     for v in vals[1:]:
         e = v * k + e * (1 - k)
     return round(e, 2)
+
 
 def _rsi(vals, periodo=14):
     g, p = [], []
@@ -146,25 +154,29 @@ def _rsi(vals, periodo=14):
     mp = sum(p[-periodo:]) / periodo
     return round(100 - (100 / (1 + mg / mp)), 2) if mp else 100.0
 
+
 def _atr(maximas, minimas, fechamentos, periodo=14):
     trs = []
     for i in range(1, len(fechamentos)):
-        h, l, pc = maximas[i], minimas[i], fechamentos[i-1]
+        h, l, pc = maximas[i], minimas[i], fechamentos[i - 1]
         trs.append(max(h - l, abs(h - pc), abs(l - pc)))
     return round(sum(trs[-periodo:]) / periodo, 2) if trs else 0.0
 
 
 # ── Coleta de dados por par (a cada 30s) ──────────────────────
 
+
 def atualizar_par(symbol):
     try:
         # Ticker 24h
-        t = requests.get(f"{BASE_URL}/api/v3/ticker/24hr",
-                         params={"symbol": symbol}, timeout=8).json()
+        t = requests.get(
+            f"{BASE_URL}/api/v3/ticker/24hr", params={"symbol": symbol}, timeout=8
+        ).json()
 
         # Order book
-        ob = requests.get(f"{BASE_URL}/api/v3/depth",
-                          params={"symbol": symbol, "limit": 20}, timeout=8).json()
+        ob = requests.get(
+            f"{BASE_URL}/api/v3/depth", params={"symbol": symbol, "limit": 20}, timeout=8
+        ).json()
         liq_c = sum(float(p) * float(q) for p, q in ob.get("bids", []))
         liq_v = sum(float(p) * float(q) for p, q in ob.get("asks", []))
 
@@ -177,39 +189,43 @@ def atualizar_par(symbol):
 
         ema20 = _ema(f1h[-20:], 20)
         ema50 = _ema(f1h, 50)
-        rsi   = _rsi(f1h)
-        atr   = _atr(k1h["maxima"], k1h["minima"], f1h)
+        rsi = _rsi(f1h)
+        atr = _atr(k1h["maxima"], k1h["minima"], f1h)
 
         ema20_4h = _ema(f4h[-20:], 20)
         ema50_4h = _ema(f4h, 50)
 
         preco = float(t["lastPrice"])
 
-        tend = ("ALTA"   if preco > ema20 > ema50 else
-                "BAIXA"  if preco < ema20 < ema50 else "LATERAL")
-        tend_4h = ("ALTA"  if f4h[-1] > ema20_4h > ema50_4h else
-                   "BAIXA" if f4h[-1] < ema20_4h < ema50_4h else "LATERAL")
+        tend = "ALTA" if preco > ema20 > ema50 else "BAIXA" if preco < ema20 < ema50 else "LATERAL"
+        tend_4h = (
+            "ALTA"
+            if f4h[-1] > ema20_4h > ema50_4h
+            else "BAIXA" if f4h[-1] < ema20_4h < ema50_4h else "LATERAL"
+        )
 
         # Funding (apenas futuros BTC)
         funding = 0.0
         if symbol == "BTCUSDT":
             try:
-                fr = requests.get(f"{BASE_FAPI}/fapi/v1/premiumIndex",
-                                  params={"symbol": symbol}, timeout=5).json()
+                fr = requests.get(
+                    f"{BASE_FAPI}/fapi/v1/premiumIndex", params={"symbol": symbol}, timeout=5
+                ).json()
                 funding = round(float(fr.get("lastFundingRate", 0)) * 100, 4)
             except Exception:
                 pass
 
         # Capturar estado anterior para detectar mudanças
         with _lock:
-            sinal_anterior  = estados[symbol]["sinal"]
-            score_anterior  = estados[symbol]["score"]
+            sinal_anterior = estados[symbol]["sinal"]
+            score_anterior = estados[symbol]["score"]
             regime_anterior = estados[symbol]["regime"]
 
         # Estratégia + Score
         sinal_res = {}
         try:
             from estrategias.otimizada import analisar
+
             with _lock:
                 cvd_snap = estados[symbol]["cvd"]
             sinal_res = analisar(symbol=symbol, cvd_atual=cvd_snap)
@@ -217,64 +233,62 @@ def atualizar_par(symbol):
             pass
 
         from config.params_pares import get_params
+
         params = get_params(symbol)
 
         with _lock:
             e = estados[symbol]
-            e["preco"]         = preco
-            e["variacao_24h"]  = float(t["priceChangePercent"])
-            e["maximo_24h"]    = float(t["highPrice"])
-            e["minimo_24h"]    = float(t["lowPrice"])
-            e["volume_24h"]    = float(t["volume"])
-            e["ema20"]         = ema20
-            e["ema50"]         = ema50
-            e["rsi"]           = rsi
-            e["atr"]           = atr
-            e["tendencia"]     = tend
-            e["tend_4h"]       = tend_4h
-            e["funding"]       = funding
-            e["pressao_ob"]    = "COMPRA" if liq_c > liq_v else "VENDA"
-            e["liq_compra"]    = liq_c
-            e["liq_venda"]     = liq_v
+            e["preco"] = preco
+            e["variacao_24h"] = float(t["priceChangePercent"])
+            e["maximo_24h"] = float(t["highPrice"])
+            e["minimo_24h"] = float(t["lowPrice"])
+            e["volume_24h"] = float(t["volume"])
+            e["ema20"] = ema20
+            e["ema50"] = ema50
+            e["rsi"] = rsi
+            e["atr"] = atr
+            e["tendencia"] = tend
+            e["tend_4h"] = tend_4h
+            e["funding"] = funding
+            e["pressao_ob"] = "COMPRA" if liq_c > liq_v else "VENDA"
+            e["liq_compra"] = liq_c
+            e["liq_venda"] = liq_v
             e["ultima_atualizacao"] = datetime.now().strftime("%H:%M:%S")
-            e["params"]        = {
-                "stop_pct":   params["stop_pct"],
+            e["params"] = {
+                "stop_pct": params["stop_pct"],
                 "target_pct": params["target_pct"],
-                "rsi_min":    params["rsi_min"],
-                "rsi_max":    params["rsi_max"],
+                "rsi_min": params["rsi_min"],
+                "rsi_max": params["rsi_max"],
             }
 
             if sinal_res:
-                e["sinal"]        = sinal_res.get("sinal", "AGUARDAR")
-                e["score"]        = sinal_res.get("score", 0)
-                e["score_decisao"]= sinal_res.get("score_decisao", "AGUARDAR")
-                e["stop_loss"]    = sinal_res.get("stop_loss")
-                e["take_profit"]  = sinal_res.get("take_profit")
-                e["tend_4h"]      = sinal_res.get("tend_4h", tend_4h)
-                e["regime"]       = sinal_res.get("regime", "—")
+                e["sinal"] = sinal_res.get("sinal", "AGUARDAR")
+                e["score"] = sinal_res.get("score", 0)
+                e["score_decisao"] = sinal_res.get("score_decisao", "AGUARDAR")
+                e["stop_loss"] = sinal_res.get("stop_loss")
+                e["take_profit"] = sinal_res.get("take_profit")
+                e["tend_4h"] = sinal_res.get("tend_4h", tend_4h)
+                e["regime"] = sinal_res.get("regime", "—")
                 e["regime_score"] = sinal_res.get("regime_score", 0)
-                e["fear_greed"]   = sinal_res.get("fear_greed", 0)
-                e["fear_greed_pt"]= sinal_res.get("fear_greed_pt", "—")
-                e["ml_prob"]      = sinal_res.get("ml_prob")
-                e["ml_ensemble"]  = sinal_res.get("ml_ensemble")
-                e["ml_xgb"]       = sinal_res.get("ml_xgb")
-                e["ml_lstm"]      = sinal_res.get("ml_lstm")
+                e["fear_greed"] = sinal_res.get("fear_greed", 0)
+                e["fear_greed_pt"] = sinal_res.get("fear_greed_pt", "—")
+                e["ml_prob"] = sinal_res.get("ml_prob")
+                e["ml_ensemble"] = sinal_res.get("ml_ensemble")
+                e["ml_xgb"] = sinal_res.get("ml_xgb")
+                e["ml_lstm"] = sinal_res.get("ml_lstm")
                 e["ml_confianca"] = sinal_res.get("ml_confianca", "—")
                 sr = sinal_res.get("score_result", {})
                 e["score_detail"] = sr.get("scores", {})
 
-            preco_historico[symbol].append({
-                "t": datetime.now().strftime("%H:%M"),
-                "v": preco
-            })
+            preco_historico[symbol].append({"t": datetime.now().strftime("%H:%M"), "v": preco})
             if len(preco_historico[symbol]) > 120:
                 preco_historico[symbol].pop(0)
 
         # Emitir para browsers
         with _lock:
             payload = dict(estados[symbol])
-            novo_sinal  = estados[symbol]["sinal"]
-            novo_score  = estados[symbol]["score"]
+            novo_sinal = estados[symbol]["sinal"]
+            novo_score = estados[symbol]["score"]
             novo_regime = estados[symbol]["regime"]
         payload["preco_historico"] = list(preco_historico[symbol])
         socketio.emit("update", payload)
@@ -285,32 +299,42 @@ def atualizar_par(symbol):
 
         # Sinal novo (diferente do anterior e não-trivial)
         if novo_sinal != sinal_anterior and novo_sinal != "AGUARDAR":
-            sl  = payload.get("stop_loss")
-            tp  = payload.get("take_profit")
-            sc  = payload.get("score", 0)
-            msg = f"Score {sc} | Stop ${sl:,.2f} | Target ${tp:,.2f}" if sl and tp else f"Score {sc}"
+            sl = payload.get("stop_loss")
+            tp = payload.get("take_profit")
+            sc = payload.get("score", 0)
+            msg = (
+                f"Score {sc} | Stop ${sl:,.2f} | Target ${tp:,.2f}" if sl and tp else f"Score {sc}"
+            )
             addSystemEvent("SINAL", f"{sym} {novo_sinal}", msg)
 
         elif novo_sinal == "AGUARDAR" and sinal_anterior != "AGUARDAR":
-            addSystemEvent("INFO", f"{sym} sinal encerrado",
-                           f"Voltou para AGUARDAR | Score {novo_score}")
+            addSystemEvent(
+                "INFO", f"{sym} sinal encerrado", f"Voltou para AGUARDAR | Score {novo_score}"
+            )
 
         # Score cruzou limiar CHEIO (subiu)
         if novo_score >= 70 > score_anterior:
-            addSystemEvent("SCORE", f"{sym} SCORE CHEIO",
-                           f"Score {novo_score}/100 — Condições excelentes")
+            addSystemEvent(
+                "SCORE", f"{sym} SCORE CHEIO", f"Score {novo_score}/100 — Condições excelentes"
+            )
 
         # Score caiu abaixo do mínimo
         if novo_score < 60 <= score_anterior:
-            addSystemEvent("ALERTA", f"{sym} score abaixo mínimo",
-                           f"Score {novo_score}/100 — Abaixo do limiar de operação")
+            addSystemEvent(
+                "ALERTA",
+                f"{sym} score abaixo mínimo",
+                f"Score {novo_score}/100 — Abaixo do limiar de operação",
+            )
 
         # Mudança de regime
         if novo_regime != regime_anterior and novo_regime not in ("—", "INDEFINIDO"):
             regime_fmt = novo_regime.replace("TENDENCIA_", "").replace("_", " ")
             cor_ev = "REGIME" if "ALTA" in novo_regime else "ALERTA"
-            addSystemEvent(cor_ev, f"{sym} regime: {regime_fmt}",
-                           f"Anterior: {regime_anterior.replace('TENDENCIA_','').replace('_',' ')}")
+            addSystemEvent(
+                cor_ev,
+                f"{sym} regime: {regime_fmt}",
+                f"Anterior: {regime_anterior.replace('TENDENCIA_','').replace('_',' ')}",
+            )
 
     except Exception as e:
         print(f"[SNAPSHOT {symbol} ERRO] {e}")
@@ -325,19 +349,20 @@ def loop_snapshots():
 
 # ── WebSocket Binance BTC (CVD em tempo real) ──────────────────
 
+
 def ws_on_message(ws_app, message):
     data = json.loads(message)
-    price    = float(data["p"])
+    price = float(data["p"])
     quantity = float(data["q"])
     is_buyer_maker = data["m"]
     direcao = "VENDA" if is_buyer_maker else "COMPRA"
 
     with _lock:
         if is_buyer_maker:
-            estados["BTCUSDT"]["cvd"]     -= quantity
-            estados["BTCUSDT"]["vendas"]  += quantity
+            estados["BTCUSDT"]["cvd"] -= quantity
+            estados["BTCUSDT"]["vendas"] += quantity
         else:
-            estados["BTCUSDT"]["cvd"]     += quantity
+            estados["BTCUSDT"]["cvd"] += quantity
             estados["BTCUSDT"]["compras"] += quantity
 
     if quantity >= 0.1:
@@ -348,13 +373,13 @@ def ws_on_message(ws_app, message):
 
     if quantity >= 0.5:
         trade = {
-            "hora":       datetime.now().strftime("%H:%M:%S"),
-            "symbol":     "BTCUSDT",
-            "direcao":    direcao,
-            "preco":      price,
-            "volume":     round(quantity, 3),
+            "hora": datetime.now().strftime("%H:%M:%S"),
+            "symbol": "BTCUSDT",
+            "direcao": direcao,
+            "preco": price,
+            "volume": round(quantity, 3),
             "valor_usdt": round(price * quantity, 0),
-            "baleia":     quantity >= WHALE_BTC_VOLUME,
+            "baleia": quantity >= WHALE_BTC_VOLUME,
         }
         with _lock:
             trades_recentes.insert(0, trade)
@@ -365,9 +390,16 @@ def ws_on_message(ws_app, message):
         socketio.emit("trade", {**trade, "cvd": round(cvd_atual, 3)})
 
         if trade["baleia"]:
-            valor_fmt = f"${trade['valor_usdt']/1e3:.0f}K" if trade['valor_usdt'] < 1e6 else f"${trade['valor_usdt']/1e6:.2f}M"
-            addSystemEvent("BALEIA", f"BTC BALEIA {direcao}",
-                           f"{round(quantity, 2)} BTC — {valor_fmt} @ ${price:,.0f}")
+            valor_fmt = (
+                f"${trade['valor_usdt']/1e3:.0f}K"
+                if trade["valor_usdt"] < 1e6
+                else f"${trade['valor_usdt']/1e6:.2f}M"
+            )
+            addSystemEvent(
+                "BALEIA",
+                f"BTC BALEIA {direcao}",
+                f"{round(quantity, 2)} BTC — {valor_fmt} @ ${price:,.0f}",
+            )
 
 
 def iniciar_ws():
@@ -380,6 +412,7 @@ def iniciar_ws():
 
 # ── Rotas Flask ────────────────────────────────────────────────
 
+
 @app.route("/")
 def index():
     # Tenta servir o frontend Lovable compilado; fallback para template Flask
@@ -391,41 +424,47 @@ def index():
 
 @app.route("/health")
 def health():
-    return jsonify({
-        "status": "ok",
-        "role": "dashboard",
-        "database": database.backend_info(),
-    })
+    return jsonify(
+        {
+            "status": "ok",
+            "role": "dashboard",
+            "database": database.backend_info(),
+        }
+    )
 
 
 @app.route("/ready")
 def ready():
     ok = database.healthcheck()
-    return jsonify({
-        "status": "ok" if ok else "degraded",
-        "role": "dashboard",
-        "database": database.backend_info(),
-    }), 200 if ok else 503
+    return jsonify(
+        {
+            "status": "ok" if ok else "degraded",
+            "role": "dashboard",
+            "database": database.backend_info(),
+        }
+    ), (200 if ok else 503)
 
 
 @app.route("/api/pares")
 def api_pares():
     """Estado resumido de todos os pares ativos."""
     with _lock:
-        return jsonify([
-            {
-                "symbol":       s,
-                "preco":        estados[s]["preco"],
-                "variacao_24h": estados[s]["variacao_24h"],
-                "sinal":        estados[s]["sinal"],
-                "score":        estados[s]["score"],
-                "tendencia":    estados[s]["tendencia"],
-                "tend_4h":      estados[s]["tend_4h"],
-                "rsi":          estados[s]["rsi"],
-                "regime":       estados[s]["regime"],
-            }
-            for s in PARES_ATIVOS
-        ])
+        return jsonify(
+            [
+                {
+                    "symbol": s,
+                    "preco": estados[s]["preco"],
+                    "variacao_24h": estados[s]["variacao_24h"],
+                    "sinal": estados[s]["sinal"],
+                    "score": estados[s]["score"],
+                    "tendencia": estados[s]["tendencia"],
+                    "tend_4h": estados[s]["tend_4h"],
+                    "rsi": estados[s]["rsi"],
+                    "regime": estados[s]["regime"],
+                }
+                for s in PARES_ATIVOS
+            ]
+        )
 
 
 @app.route("/api/estado")
@@ -445,22 +484,24 @@ def api_score(symbol="BTCUSDT"):
     symbol = symbol.upper()
     with _lock:
         e = estados.get(symbol, {})
-    return jsonify({
-        "symbol":       symbol,
-        "score":        e.get("score", 0),
-        "decisao":      e.get("score_decisao", "AGUARDAR"),
-        "detalhes":     e.get("score_detail", {}),
-        "sinal":        e.get("sinal", "AGUARDAR"),
-        "regime":       e.get("regime", "—"),
-        "regime_score": e.get("regime_score", 0),
-        "fear_greed":   e.get("fear_greed", 0),
-        "tend_4h":      e.get("tend_4h", "—"),
-        "ml_ensemble":  e.get("ml_ensemble"),
-        "ml_xgb":       e.get("ml_xgb"),
-        "ml_lstm":      e.get("ml_lstm"),
-        "ml_confianca": e.get("ml_confianca", "—"),
-        "params":       e.get("params", {}),
-    })
+    return jsonify(
+        {
+            "symbol": symbol,
+            "score": e.get("score", 0),
+            "decisao": e.get("score_decisao", "AGUARDAR"),
+            "detalhes": e.get("score_detail", {}),
+            "sinal": e.get("sinal", "AGUARDAR"),
+            "regime": e.get("regime", "—"),
+            "regime_score": e.get("regime_score", 0),
+            "fear_greed": e.get("fear_greed", 0),
+            "tend_4h": e.get("tend_4h", "—"),
+            "ml_ensemble": e.get("ml_ensemble"),
+            "ml_xgb": e.get("ml_xgb"),
+            "ml_lstm": e.get("ml_lstm"),
+            "ml_confianca": e.get("ml_confianca", "—"),
+            "params": e.get("params", {}),
+        }
+    )
 
 
 @app.route("/api/eventos")
@@ -486,13 +527,16 @@ def api_ml(symbol="BTCUSDT"):
     symbol = symbol.upper()
     try:
         from ml_filtro import prever
+
         prob, msg = prever(symbol)
-        return jsonify({
-            "symbol":   symbol,
-            "prob":     prob,
-            "msg":      msg,
-            "aprovado": prob >= 0.60 if prob else False
-        })
+        return jsonify(
+            {
+                "symbol": symbol,
+                "prob": prob,
+                "msg": msg,
+                "aprovado": prob >= 0.60 if prob else False,
+            }
+        )
     except Exception as e:
         return jsonify({"symbol": symbol, "prob": None, "msg": str(e), "aprovado": False})
 
@@ -500,6 +544,7 @@ def api_ml(symbol="BTCUSDT"):
 @app.route("/api/risco")
 def api_risco():
     import risco
+
     return jsonify(risco.status())
 
 
@@ -519,21 +564,25 @@ def api_conexao():
             return {"ok": False, "latencia_ms": None, "erro": str(exc)[:80]}
 
     rest_spot = _ping(f"{BASE_URL}/api/v3/ping")
-    rest_fut  = _ping(f"{BASE_FAPI}/fapi/v1/ping")
+    rest_fut = _ping(f"{BASE_FAPI}/fapi/v1/ping")
 
     # Valida se as chaves parecem configuradas (não são placeholder)
-    _placeholders = {"", "your_binance_api_key_here", "nk6ge30Z9XAdARwqE0V8575xKdmST2DzRv0hTXrGqmAstjlQD1ocjEMpdo9P9A2h"}
+    _placeholders = {
+        "",
+        "your_binance_api_key_here",
+        "nk6ge30Z9XAdARwqE0V8575xKdmST2DzRv0hTXrGqmAstjlQD1ocjEMpdo9P9A2h",
+    }
     key_ok = bool(API_KEY and API_KEY not in _placeholders and len(API_KEY) > 20)
 
-    auth_ok    = False
+    auth_ok = False
     saldo_usdt = None
-    auth_err   = None
+    auth_err = None
 
     if key_ok and rest_spot["ok"]:
         try:
-            ts     = int(time.time() * 1000)
+            ts = int(time.time() * 1000)
             params = f"timestamp={ts}"
-            sig    = _hmac.new(API_SECRET.encode(), params.encode(), hashlib.sha256).hexdigest()
+            sig = _hmac.new(API_SECRET.encode(), params.encode(), hashlib.sha256).hexdigest()
             r = requests.get(
                 f"{BASE_URL}/api/v3/account",
                 params={"timestamp": ts, "signature": sig},
@@ -554,33 +603,39 @@ def api_conexao():
     # Frescor dos dados por par (última atualização)
     with _lock:
         pares_info = [
-            {"symbol": s, "ultima_atualizacao": estados[s].get("ultima_atualizacao", "—"),
-             "preco": estados[s].get("preco", 0)}
+            {
+                "symbol": s,
+                "ultima_atualizacao": estados[s].get("ultima_atualizacao", "—"),
+                "preco": estados[s].get("preco", 0),
+            }
             for s in PARES_ATIVOS
         ]
 
-    return jsonify({
-        "rest_spot":  rest_spot,
-        "rest_fut":   rest_fut,
-        "auth": {
-            "chave_configurada": key_ok,
-            "autenticado":       auth_ok,
-            "saldo_usdt":        saldo_usdt,
-            "erro":              auth_err,
-        },
-        "modo": {
-            "dry_run":     DRY_RUN,
-            "allow_real":  ALLOW_REAL_TRADING,
-            "label":       "SIMULAÇÃO" if (DRY_RUN or not ALLOW_REAL_TRADING) else "REAL",
-        },
-        "pares":     pares_info,
-        "timestamp": datetime.now().isoformat(),
-    })
+    return jsonify(
+        {
+            "rest_spot": rest_spot,
+            "rest_fut": rest_fut,
+            "auth": {
+                "chave_configurada": key_ok,
+                "autenticado": auth_ok,
+                "saldo_usdt": saldo_usdt,
+                "erro": auth_err,
+            },
+            "modo": {
+                "dry_run": DRY_RUN,
+                "allow_real": ALLOW_REAL_TRADING,
+                "label": "SIMULAÇÃO" if (DRY_RUN or not ALLOW_REAL_TRADING) else "REAL",
+            },
+            "pares": pares_info,
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
 
 
 @app.route("/api/backtest/<symbol>")
 def api_backtest(symbol="BTCUSDT"):
     from backtesting.motor_ensemble import rodar, imprimir_relatorio
+
     r = rodar(symbol.upper(), "1h", "4h", 1000.0, usar_ml=False)
     if not r or "erro" in r:
         return jsonify({"erro": r.get("erro", "Sem dados") if r else "Sem dados"})

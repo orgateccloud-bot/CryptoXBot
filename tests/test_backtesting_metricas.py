@@ -12,16 +12,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import backtesting.motor as motor
 
-
 # ── Testes: calcular_metricas ─────────────────────────────────────────────────
+
 
 class TestCalcularMetricas:
     def _op(self, resultado: float) -> dict:
         return {
-            "entrada_idx": 0, "saida_idx": 10,
-            "entrada_dt": "01/01/2025 00:00", "saida_dt": "01/01/2025 10:00",
-            "preco_entrada": 60000.0, "preco_saida": 60000.0 + resultado * 1000,
-            "resultado": resultado, "resultado_pct": resultado / 600,
+            "entrada_idx": 0,
+            "saida_idx": 10,
+            "entrada_dt": "01/01/2025 00:00",
+            "saida_dt": "01/01/2025 10:00",
+            "preco_entrada": 60000.0,
+            "preco_saida": 60000.0 + resultado * 1000,
+            "resultado": resultado,
+            "resultado_pct": resultado / 600,
             "tipo_saida": "TARGET" if resultado > 0 else "STOP",
             "capital_apos": 1000 + resultado,
         }
@@ -82,6 +86,7 @@ class TestCalcularMetricas:
 
 # ── Testes: simular_historico_ticks ──────────────────────────────────────────
 
+
 class TestSimularHistoricoTicks:
     def _kline(self, abertura, fechamento, volume=100.0):
         return (0, abertura, fechamento + 50, abertura - 30, fechamento, volume)
@@ -115,6 +120,7 @@ class TestSimularHistoricoTicks:
 
 # ── Testes: calcular_ema / calcular_rsi ──────────────────────────────────────
 
+
 class TestIndicadoresMotor:
     def test_ema_comprimento(self):
         dados = list(range(100, 160))
@@ -134,6 +140,7 @@ class TestIndicadoresMotor:
 
     def test_rsi_range_valido(self):
         import math
+
         # Sequência oscilante para garantir tanto ganhos quanto perdas
         dados = [60000.0 + (i % 5) * 100 - (i % 3) * 50 for i in range(100)]
         result = motor.calcular_rsi(dados)

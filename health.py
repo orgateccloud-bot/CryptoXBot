@@ -20,7 +20,6 @@ from typing import Any
 
 from config.runtime_settings import DATABASE_BACKEND, PORT
 
-
 _server: ThreadingHTTPServer | None = None
 
 # Contadores globais — atualizados pelas threads de trading
@@ -60,7 +59,9 @@ def _metrics_text() -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def _payload(status: str, role: str, ready: bool = True, extra: dict[str, Any] | None = None) -> bytes:
+def _payload(
+    status: str, role: str, ready: bool = True, extra: dict[str, Any] | None = None
+) -> bytes:
     data = {
         "status": status,
         "role": role,
@@ -102,7 +103,9 @@ class HealthHandler(BaseHTTPRequestHandler):
                 error = str(exc)
 
         status_code = 200 if db_ok else 503
-        body = _payload("ok" if db_ok else "degraded", self.role, db_ok, {"error": error} if error else None)
+        body = _payload(
+            "ok" if db_ok else "degraded", self.role, db_ok, {"error": error} if error else None
+        )
 
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
@@ -125,4 +128,3 @@ def start_health_server(role: str = "worker", port: int | None = None) -> None:
     _server = ThreadingHTTPServer(("0.0.0.0", bind_port), HealthHandler)
     thread = threading.Thread(target=_server.serve_forever, daemon=True, name=f"health-{role}")
     thread.start()
-

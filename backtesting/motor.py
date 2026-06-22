@@ -33,6 +33,7 @@ SYMBOL = "BTCUSDT"
 EMA_RAPIDA = 20
 EMA_LENTA = 50
 
+
 # Wrappers para compatibilidade com o motor
 def calcular_ema(fechamentos, periodo):
     arr = np.array(fechamentos, dtype=float)
@@ -45,13 +46,14 @@ def calcular_rsi(fechamentos, periodo=14):
 
 
 # Parâmetros de risco
-STOP_PCT      = 0.015   # 1.5%
-TARGET_PCT    = 0.050   # 5.0%
-TAXA_BINANCE  = 0.0004  # 0.04% por lado
-SLIPPAGE      = 0.0005  # 0.05% por lado
+STOP_PCT = 0.015  # 1.5%
+TARGET_PCT = 0.050  # 5.0%
+TAXA_BINANCE = 0.0004  # 0.04% por lado
+SLIPPAGE = 0.0005  # 0.05% por lado
 
 
 # ── Simulação de CVD ───────────────────────────────────────
+
 
 def simular_historico_ticks(klines, periodo_ticks=50):
     """
@@ -67,30 +69,41 @@ def simular_historico_ticks(klines, periodo_ticks=50):
         seller_volume = volume - buyer_volume
 
         # Adicionar tick de abertura (neutro, mas vamos classificar)
-        ticks.append({"preco": abertura, "is_buyer_maker": not is_bullish, "quantidade": volume * 0.1})
+        ticks.append(
+            {"preco": abertura, "is_buyer_maker": not is_bullish, "quantidade": volume * 0.1}
+        )
         # Tick principal
-        ticks.append({"preco": fechamento, "is_buyer_maker": not is_bullish, "quantidade": buyer_volume})
+        ticks.append(
+            {"preco": fechamento, "is_buyer_maker": not is_bullish, "quantidade": buyer_volume}
+        )
         if seller_volume > 0:
-            ticks.append({"preco": fechamento, "is_buyer_maker": is_bullish, "quantidade": seller_volume})
+            ticks.append(
+                {"preco": fechamento, "is_buyer_maker": is_bullish, "quantidade": seller_volume}
+            )
 
     return ticks[-periodo_ticks:]  # últimos 50 ticks simulados
 
 
 # ── Carregar dados ────────────────────────────────────────────
 
+
 def carregar_klines(intervalo):
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT timestamp, abertura, maxima, minima, fechamento, volume
         FROM klines
         WHERE symbol=? AND intervalo=?
         ORDER BY timestamp ASC
-    """, (SYMBOL, intervalo)).fetchall()
+    """,
+        (SYMBOL, intervalo),
+    ).fetchall()
     conn.close()
     return rows
 
 
 # ── Motor principal ───────────────────────────────────────────
+
 
 def rodar_backtest(intervalo="1h", capital_inicial=1000.0, risco_por_trade=0.02):
     """
@@ -102,23 +115,23 @@ def rodar_backtest(intervalo="1h", capital_inicial=1000.0, risco_por_trade=0.02)
         return None
 
     fechamentos = [k[4] for k in klines]
-    maximas     = [k[2] for k in klines]
-    minimas     = [k[3] for k in klines]
-    timestamps  = [k[0] for k in klines]
+    maximas = [k[2] for k in klines]
+    minimas = [k[3] for k in klines]
+    timestamps = [k[0] for k in klines]
 
     ema20 = calcular_ema(fechamentos, EMA_RAPIDA)
     ema50 = calcular_ema(fechamentos, EMA_LENTA)
-    rsi   = calcular_rsi(fechamentos)
+    rsi = calcular_rsi(fechamentos)
 
-    capital    = capital_inicial
-    operacoes  = []
-    posicao    = None   # {entrada, stop, target, tamanho_btc, idx}
+    capital = capital_inicial
+    operacoes = []
+    posicao = None  # {entrada, stop, target, tamanho_btc, idx}
 
     for i in range(EMA_LENTA + 1, len(klines)):
-        preco    = fechamentos[i]
-        e20      = ema20[i]
-        e50      = ema50[i]
-        rsi_val  = rsi[i]
+        preco = fechamentos[i]
+        e20 = ema20[i]
+        e50 = ema50[i]
+        rsi_val = rsi[i]
         maxima_i = maximas[i]
         minima_i = minimas[i]
 
@@ -127,46 +140,50 @@ def rodar_backtest(intervalo="1h", capital_inicial=1000.0, risco_por_trade=0.02)
 
         # ── Verificar saída de posição aberta ──────────────────
         if posicao:
-            saiu   = False
+            saiu = False
             resultado = 0.0
 
             # Stop atingido (minima tocou o stop)
             if minima_i <= posicao["stop"]:
                 preco_saida = posicao["stop"] * (1 - SLIPPAGE)
-                pnl_pct     = (preco_saida - posicao["entrada"]) / posicao["entrada"]
-                resultado   = posicao["tamanho_usdt"] * pnl_pct
-                resultado  -= posicao["tamanho_usdt"] * TAXA_BINANCE * 2
-                tipo_saida  = "STOP"
-                saiu        = True
+                pnl_pct = (preco_saida - posicao["entrada"]) / posicao["entrada"]
+                resultado = posicao["tamanho_usdt"] * pnl_pct
+                resultado -= posicao["tamanho_usdt"] * TAXA_BINANCE * 2
+                tipo_saida = "STOP"
+                saiu = True
 
             # Target atingido (maxima tocou o alvo)
             elif maxima_i >= posicao["target"]:
                 preco_saida = posicao["target"] * (1 - SLIPPAGE)
-                pnl_pct     = (preco_saida - posicao["entrada"]) / posicao["entrada"]
-                resultado   = posicao["tamanho_usdt"] * pnl_pct
-                resultado  -= posicao["tamanho_usdt"] * TAXA_BINANCE * 2
-                tipo_saida  = "TARGET"
-                saiu        = True
+                pnl_pct = (preco_saida - posicao["entrada"]) / posicao["entrada"]
+                resultado = posicao["tamanho_usdt"] * pnl_pct
+                resultado -= posicao["tamanho_usdt"] * TAXA_BINANCE * 2
+                tipo_saida = "TARGET"
+                saiu = True
 
             if saiu:
                 capital += resultado
                 op = {
-                    "entrada_idx":  posicao["idx"],
-                    "saida_idx":    i,
-                    "entrada_dt":   datetime.fromtimestamp(timestamps[posicao["idx"]]/1000).strftime("%d/%m/%Y %H:%M"),
-                    "saida_dt":     datetime.fromtimestamp(timestamps[i]/1000).strftime("%d/%m/%Y %H:%M"),
-                    "preco_entrada":posicao["entrada"],
-                    "preco_saida":  preco_saida,
-                    "resultado":    round(resultado, 4),
-                    "resultado_pct":round(pnl_pct * 100, 2),
-                    "tipo_saida":   tipo_saida,
+                    "entrada_idx": posicao["idx"],
+                    "saida_idx": i,
+                    "entrada_dt": datetime.fromtimestamp(
+                        timestamps[posicao["idx"]] / 1000
+                    ).strftime("%d/%m/%Y %H:%M"),
+                    "saida_dt": datetime.fromtimestamp(timestamps[i] / 1000).strftime(
+                        "%d/%m/%Y %H:%M"
+                    ),
+                    "preco_entrada": posicao["entrada"],
+                    "preco_saida": preco_saida,
+                    "resultado": round(resultado, 4),
+                    "resultado_pct": round(pnl_pct * 100, 2),
+                    "tipo_saida": tipo_saida,
                     "capital_apos": round(capital, 2),
                 }
                 operacoes.append(op)
                 posicao = None
 
         # ── Calcular Score Unificado ──────────────────────────
-        historico_ticks = simular_historico_ticks(klines[:i+1])  # ticks até i
+        historico_ticks = simular_historico_ticks(klines[: i + 1])  # ticks até i
 
         # Simular dados para score (valores mock para componentes não calculados)
         regime_info = {"regime_final": "TENDENCIA_ALTA"}  # mock
@@ -196,40 +213,41 @@ def rodar_backtest(intervalo="1h", capital_inicial=1000.0, risco_por_trade=0.02)
 
         sinal_compra = score_result["decisao"] in ("OPERAR_CHEIO", "OPERAR_REDUZIDO")
         if sinal_compra:
-                entrada_com_slip = preco * (1 + SLIPPAGE)
-                tamanho_base_usdt = capital * risco_por_trade / STOP_PCT
-                tamanho_usdt = tamanho_base_usdt * score_result["tamanho_fator"]
-                tamanho_usdt = min(tamanho_usdt, capital)  # nunca mais que o capital
-                posicao = {
-                    "entrada":      entrada_com_slip,
-                    "stop":         entrada_com_slip * (1 - STOP_PCT),
-                    "target":       entrada_com_slip * (1 + TARGET_PCT),
-                    "tamanho_usdt": tamanho_usdt,
-                    "idx":          i,
-                }
+            entrada_com_slip = preco * (1 + SLIPPAGE)
+            tamanho_base_usdt = capital * risco_por_trade / STOP_PCT
+            tamanho_usdt = tamanho_base_usdt * score_result["tamanho_fator"]
+            tamanho_usdt = min(tamanho_usdt, capital)  # nunca mais que o capital
+            posicao = {
+                "entrada": entrada_com_slip,
+                "stop": entrada_com_slip * (1 - STOP_PCT),
+                "target": entrada_com_slip * (1 + TARGET_PCT),
+                "tamanho_usdt": tamanho_usdt,
+                "idx": i,
+            }
 
     return calcular_metricas(operacoes, capital_inicial, capital, intervalo)
 
 
 # ── Métricas ──────────────────────────────────────────────────
 
+
 def calcular_metricas(operacoes, capital_inicial, capital_final, intervalo):
     if not operacoes:
         return {"erro": "Nenhuma operacao encontrada."}
 
-    total  = len(operacoes)
+    total = len(operacoes)
     ganhos = [o for o in operacoes if o["resultado"] > 0]
     perdas = [o for o in operacoes if o["resultado"] <= 0]
 
-    win_rate      = len(ganhos) / total * 100
-    lucro_total   = sum(o["resultado"] for o in ganhos)
-    perda_total   = abs(sum(o["resultado"] for o in perdas))
+    win_rate = len(ganhos) / total * 100
+    lucro_total = sum(o["resultado"] for o in ganhos)
+    perda_total = abs(sum(o["resultado"] for o in perdas))
     profit_factor = lucro_total / perda_total if perda_total else 999.0
     retorno_total = (capital_final - capital_inicial) / capital_inicial * 100
 
     # Max Drawdown
-    pico    = capital_inicial
-    max_dd  = 0.0
+    pico = capital_inicial
+    max_dd = 0.0
     capital = capital_inicial
     for o in operacoes:
         capital += o["resultado"]
@@ -243,37 +261,39 @@ def calcular_metricas(operacoes, capital_inicial, capital_final, intervalo):
     retornos = [o["resultado_pct"] for o in operacoes]
     if len(retornos) > 1:
         import statistics
+
         media_ret = statistics.mean(retornos)
-        std_ret   = statistics.stdev(retornos)
-        sharpe    = (media_ret / std_ret) * (252 ** 0.5) if std_ret else 0
+        std_ret = statistics.stdev(retornos)
+        sharpe = (media_ret / std_ret) * (252**0.5) if std_ret else 0
     else:
         sharpe = 0
 
     # Expectância (valor esperado por trade em %)
     media_ganho = sum(o["resultado_pct"] for o in ganhos) / len(ganhos) if ganhos else 0
     media_perda = abs(sum(o["resultado_pct"] for o in perdas) / len(perdas)) if perdas else 0
-    expectancia = (win_rate/100 * media_ganho) - ((1 - win_rate/100) * media_perda)
+    expectancia = (win_rate / 100 * media_ganho) - ((1 - win_rate / 100) * media_perda)
 
     return {
-        "intervalo":        intervalo,
-        "total_trades":     total,
-        "win_rate_%":       round(win_rate, 1),
-        "trades_ganhos":    len(ganhos),
-        "trades_perdas":    len(perdas),
-        "profit_factor":    round(profit_factor, 2),
-        "retorno_total_%":  round(retorno_total, 2),
-        "capital_inicial":  capital_inicial,
-        "capital_final":    round(capital_final, 2),
-        "max_drawdown_%":   round(max_dd, 2),
-        "sharpe_ratio":     round(sharpe, 2),
-        "expectancia_%":    round(expectancia, 2),
-        "media_ganho_%":    round(media_ganho, 2),
-        "media_perda_%":    round(media_perda, 2),
-        "operacoes":        operacoes,
+        "intervalo": intervalo,
+        "total_trades": total,
+        "win_rate_%": round(win_rate, 1),
+        "trades_ganhos": len(ganhos),
+        "trades_perdas": len(perdas),
+        "profit_factor": round(profit_factor, 2),
+        "retorno_total_%": round(retorno_total, 2),
+        "capital_inicial": capital_inicial,
+        "capital_final": round(capital_final, 2),
+        "max_drawdown_%": round(max_dd, 2),
+        "sharpe_ratio": round(sharpe, 2),
+        "expectancia_%": round(expectancia, 2),
+        "media_ganho_%": round(media_ganho, 2),
+        "media_perda_%": round(media_perda, 2),
+        "operacoes": operacoes,
     }
 
 
 # ── Relatório ─────────────────────────────────────────────────
+
 
 def imprimir_relatorio(r):
     if "erro" in r:
@@ -282,17 +302,21 @@ def imprimir_relatorio(r):
 
     def nota(valor, ref_bom, ref_otimo, maior_melhor=True):
         if maior_melhor:
-            if valor >= ref_otimo: return "[OTIMO]"
-            if valor >= ref_bom:   return "[BOM]  "
+            if valor >= ref_otimo:
+                return "[OTIMO]"
+            if valor >= ref_bom:
+                return "[BOM]  "
             return "[RUIM] "
         else:
-            if valor <= ref_otimo: return "[OTIMO]"
-            if valor <= ref_bom:   return "[BOM]  "
+            if valor <= ref_otimo:
+                return "[OTIMO]"
+            if valor <= ref_bom:
+                return "[BOM]  "
             return "[RUIM] "
 
-    print("\n" + "="*58)
+    print("\n" + "=" * 58)
     print(f"  RESULTADO DO BACKTESTING  [{r['intervalo']}]")
-    print("="*58)
+    print("=" * 58)
     print(f"  Total de operacoes:  {r['total_trades']}")
     print(f"  Ganhos / Perdas:     {r['trades_ganhos']} / {r['trades_perdas']}")
     print()
@@ -300,7 +324,9 @@ def imprimir_relatorio(r):
     print(f"  Profit Factor: {r['profit_factor']:6.2f}    {nota(r['profit_factor'], 1.3, 1.8)}")
     print(f"  Sharpe Ratio:  {r['sharpe_ratio']:6.2f}    {nota(r['sharpe_ratio'], 1.0, 1.5)}")
     print(f"  Expectancia:   {r['expectancia_%']:6.2f}%   {nota(r['expectancia_%'], 0.1, 0.5)}")
-    print(f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   {nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}")
+    print(
+        f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   {nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}"
+    )
     print(f"  Retorno Total: {r['retorno_total_%']:6.2f}%")
     print()
     print(f"  Capital Inicial: ${r['capital_inicial']:,.2f}")
@@ -311,13 +337,18 @@ def imprimir_relatorio(r):
     print(f"  Media Perda/Trade: -{r['media_perda_%']:.2f}%")
 
     # Veredicto
-    print("\n" + "-"*58)
+    print("\n" + "-" * 58)
     score = 0
-    if r['win_rate_%']       >= 52:  score += 1
-    if r['profit_factor']    >= 1.3: score += 1
-    if r['sharpe_ratio']     >= 1.0: score += 1
-    if r['max_drawdown_%']   <= 15:  score += 1
-    if r['expectancia_%']    > 0:    score += 1
+    if r["win_rate_%"] >= 52:
+        score += 1
+    if r["profit_factor"] >= 1.3:
+        score += 1
+    if r["sharpe_ratio"] >= 1.0:
+        score += 1
+    if r["max_drawdown_%"] <= 15:
+        score += 1
+    if r["expectancia_%"] > 0:
+        score += 1
 
     if score == 5:
         veredito = "ESTRATEGIA EXCELENTE — Pode operar com capital real"
@@ -328,26 +359,28 @@ def imprimir_relatorio(r):
 
     print(f"  CRITERIOS APROVADOS: {score}/5")
     print(f"  VEREDITO: {veredito}")
-    print("="*58)
+    print("=" * 58)
 
     # Últimas 10 operações
     print("\n  ULTIMAS 10 OPERACOES:")
     print(f"  {'Data Entrada':16s} {'Entrada':>10s} {'Saida':>10s} {'Resultado':>10s} {'Tipo'}")
-    print("  " + "-"*56)
+    print("  " + "-" * 56)
     for o in r["operacoes"][-10:]:
         sinal = "+" if o["resultado"] > 0 else ""
-        print(f"  {o['entrada_dt']:16s} "
-              f"${o['preco_entrada']:>9,.0f} "
-              f"${o['preco_saida']:>9,.0f} "
-              f"{sinal}{o['resultado_pct']:>6.2f}%   "
-              f"{o['tipo_saida']}")
+        print(
+            f"  {o['entrada_dt']:16s} "
+            f"${o['preco_entrada']:>9,.0f} "
+            f"${o['preco_saida']:>9,.0f} "
+            f"{sinal}{o['resultado_pct']:>6.2f}%   "
+            f"{o['tipo_saida']}"
+        )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--intervalo", default="1h",   help="1h, 4h, 15m, 1d")
-    parser.add_argument("--capital",   default=1000.0, type=float, help="Capital inicial em USDT")
-    parser.add_argument("--risco",     default=0.02,   type=float, help="Risco por trade (0.02 = 2%)")
+    parser.add_argument("--intervalo", default="1h", help="1h, 4h, 15m, 1d")
+    parser.add_argument("--capital", default=1000.0, type=float, help="Capital inicial em USDT")
+    parser.add_argument("--risco", default=0.02, type=float, help="Risco por trade (0.02 = 2%)")
     args = parser.parse_args()
 
     resultado = rodar_backtest(args.intervalo, args.capital, args.risco)

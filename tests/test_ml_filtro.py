@@ -26,10 +26,10 @@ if RAIZ not in sys.path:
 
 import ml_filtro  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Geradores de dados sintéticos (determinísticos, sem rede/DB)
 # ---------------------------------------------------------------------------
+
 
 def _series(n=120, base=100.0, passo=0.5):
     """Gera séries OHLCV coerentes (max >= close >= min, volumes positivos)."""
@@ -51,6 +51,7 @@ def _series(n=120, base=100.0, passo=0.5):
 # ===========================================================================
 # extrair_features
 # ===========================================================================
+
 
 def test_extrair_features_retorna_11_floats_em_indice_valido():
     f, m, mn, v = _series(120)
@@ -95,6 +96,7 @@ def test_extrair_features_volume_relativo_normalizado_ate_1():
 # _model_path
 # ===========================================================================
 
+
 def test_model_path_usa_lowercase_do_symbol():
     assert ml_filtro._model_path("BTCUSDT") == "data/modelo_xgb_btcusdt.pkl"
     assert ml_filtro._model_path("EthUsdt") == "data/modelo_xgb_ethusdt.pkl"
@@ -107,6 +109,7 @@ def test_model_path_default_e_btcusdt():
 # ===========================================================================
 # prever — modelo AUSENTE (não deve lançar; retorna mensagem de "não treinado")
 # ===========================================================================
+
 
 def test_prever_modelo_ausente_retorna_none_e_mensagem():
     # Nenhum caminho existe (nem o específico, nem o legado modelo_xgb.pkl).
@@ -136,8 +139,10 @@ def test_prever_joblib_load_indisponivel_nao_lanca():
 
 def test_prever_nao_faz_chamada_de_rede_quando_modelo_ausente():
     # Sentinela: requests.get NUNCA deve ser chamado se o modelo não existe.
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=False), \
-         mock.patch.object(ml_filtro.requests, "get") as get_mock:
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=False),
+        mock.patch.object(ml_filtro.requests, "get") as get_mock,
+    ):
         ml_filtro.prever("SOLUSDT")
     get_mock.assert_not_called()
 
@@ -145,6 +150,7 @@ def test_prever_nao_faz_chamada_de_rede_quando_modelo_ausente():
 # ===========================================================================
 # prever — modelo PRESENTE (mock de open/pickle.load/requests) — caminho feliz
 # ===========================================================================
+
 
 def test_prever_com_modelo_mockado_retorna_probabilidade():
     f, m, mn, v = _series(120)
@@ -161,10 +167,12 @@ def test_prever_com_modelo_mockado_retorna_probabilidade():
     resp = mock.Mock()
     resp.json.return_value = klines
 
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=True), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp) as get_mock:
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=True),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp) as get_mock,
+    ):
         prob, msg = ml_filtro.prever("BTCUSDT")
 
     assert msg == "OK"
@@ -182,10 +190,12 @@ def test_prever_features_insuficientes_retorna_none():
     resp = mock.Mock()
     resp.json.return_value = klines
 
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=True), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp):
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=True),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp),
+    ):
         prob, msg = ml_filtro.prever("BTCUSDT")
 
     assert prob is None
@@ -196,6 +206,7 @@ def test_prever_features_insuficientes_retorna_none():
 # ===========================================================================
 # preparar_dataset — sqlite3 mockado (sem banco real)
 # ===========================================================================
+
 
 def _fake_conn(rows):
     """Cria um objeto conn falso compatível com conn.execute(...).fetchall()."""
@@ -246,7 +257,7 @@ def test_preparar_dataset_fecha_conexao():
 def test_preparar_dataset_label_1_quando_alvo_atingido():
     # Série fortemente ascendente garante que o preço futuro supera ALVO_PCT.
     n = 120
-    f = [100.0 + i * 5.0 for i in range(n)]   # +5 por vela → alta forte
+    f = [100.0 + i * 5.0 for i in range(n)]  # +5 por vela → alta forte
     m = [x + 1.0 for x in f]
     mn = [x - 1.0 for x in f]
     v = [1000.0 + (i % 5) * 10 for i in range(n)]

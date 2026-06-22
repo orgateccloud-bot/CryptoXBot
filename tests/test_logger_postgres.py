@@ -24,8 +24,7 @@ pytestmark = pytest.mark.skipif(
 
 # Script executado no subprocesso: exercita todas as operações do LoggerBot
 # contra o Postgres e confere a contagem de linhas. Sai 0 em sucesso.
-_SCRIPT = textwrap.dedent(
-    """
+_SCRIPT = textwrap.dedent("""
     import sys
     import logger as L
     lb = L.LoggerBot()
@@ -53,8 +52,7 @@ _SCRIPT = textwrap.dedent(
         c.execute(f"delete from {t} where symbol=%s", (sym,))
     c.close()
     print("PG_LOGGER_OK")
-    """
-)
+    """)
 
 
 def test_logger_postgres_ciclo_completo():
@@ -63,7 +61,10 @@ def test_logger_postgres_ciclo_completo():
     env["DATABASE_URL"] = PG_URL
     proc = subprocess.run(
         [sys.executable, "-c", _SCRIPT],
-        env=env, capture_output=True, text=True, timeout=60,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr[-800:]!r}"
     assert "PG_LOGGER_OK" in proc.stdout

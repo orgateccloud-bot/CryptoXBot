@@ -15,12 +15,12 @@ class TestCVDCalculator(unittest.TestCase):
     def setUp(self):
         """Setup de dados de teste."""
         self.ticks_buy = [
-            {'price': 50000, 'quantity': 1.0, 'is_buyer_maker': False, 'timestamp': 1000},
-            {'price': 50001, 'quantity': 2.0, 'is_buyer_maker': False, 'timestamp': 1001},
+            {"price": 50000, "quantity": 1.0, "is_buyer_maker": False, "timestamp": 1000},
+            {"price": 50001, "quantity": 2.0, "is_buyer_maker": False, "timestamp": 1001},
         ]
         self.ticks_sell = [
-            {'price': 50000, 'quantity': 1.0, 'is_buyer_maker': True, 'timestamp': 1000},
-            {'price': 49999, 'quantity': 1.5, 'is_buyer_maker': True, 'timestamp': 1001},
+            {"price": 50000, "quantity": 1.0, "is_buyer_maker": True, "timestamp": 1000},
+            {"price": 49999, "quantity": 1.5, "is_buyer_maker": True, "timestamp": 1001},
         ]
         self.ticks_mixed = self.ticks_buy + self.ticks_sell
 
@@ -52,9 +52,9 @@ class TestCVDCalculator(unittest.TestCase):
         """Test cálculo de divergence score."""
         # Preço subindo, CVD caindo (bearish divergence)
         ticks_divergence = [
-            {'price': 50000, 'quantity': 2.0, 'is_buyer_maker': False, 'timestamp': 1000},  # buy
-            {'price': 50010, 'quantity': 3.0, 'is_buyer_maker': True, 'timestamp': 1001},   # sell
-            {'price': 50020, 'quantity': 1.0, 'is_buyer_maker': True, 'timestamp': 1002},   # sell
+            {"price": 50000, "quantity": 2.0, "is_buyer_maker": False, "timestamp": 1000},  # buy
+            {"price": 50010, "quantity": 3.0, "is_buyer_maker": True, "timestamp": 1001},  # sell
+            {"price": 50020, "quantity": 1.0, "is_buyer_maker": True, "timestamp": 1002},  # sell
         ]
         result = calculate_cvd(ticks_divergence, window_size=3)
         self.assertLess(result.divergence_score, 0)  # bearish
@@ -116,5 +116,5 @@ class TestIndicadores(unittest.TestCase):
         self.assertAlmostEqual(sma_values[0], expected_first, places=2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -106,4 +106,3 @@ if APP_ENV == "production" and CORS_ORIGINS == "*":
 DRY_RUN = _env_bool("DRY_RUN", True)
 ALLOW_REAL_TRADING = _env_bool("ALLOW_REAL_TRADING", False)
 ENABLE_HEALTH_SERVER = _env_bool("ENABLE_HEALTH_SERVER", bool(os.getenv("PORT")))
-

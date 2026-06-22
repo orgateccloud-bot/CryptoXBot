@@ -39,7 +39,9 @@ def snapshot_cvd_periodico():
         time.sleep(INTERVALO_SNAPSHOT_CVD)
         try:
             database.salvar_cvd(cvd, total_compras, total_vendas)
-            print(f"\n[DB] CVD salvo: {cvd:+.3f} BTC | Compras: {total_compras:.2f} | Vendas: {total_vendas:.2f}")
+            print(
+                f"\n[DB] CVD salvo: {cvd:+.3f} BTC | Compras: {total_compras:.2f} | Vendas: {total_vendas:.2f}"
+            )
         except Exception as e:
             print(f"[DB] Erro ao salvar CVD: {e}")
 

@@ -38,10 +38,10 @@ if RAIZ not in sys.path:
 
 import estrategias.otimizada as otimizada  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Geradores de séries sintéticas (determinísticas, sem aleatoriedade)
 # ---------------------------------------------------------------------------
+
 
 def _serie_klines(n=100, base=100.0, passo=1.0, vol=1000.0, vol_ultima=None):
     """
@@ -122,8 +122,7 @@ def _regime(regime_final="TENDENCIA_ALTA", pode_operar=True, score=85):
     }
 
 
-def _fear(valor=50, pode_operar=True, classificacao_pt="Neutro",
-          reducao_alvo=False):
+def _fear(valor=50, pode_operar=True, classificacao_pt="Neutro", reducao_alvo=False):
     return {
         "valor": valor,
         "pode_operar": pode_operar,
@@ -154,6 +153,7 @@ def _ensemble(prob=0.80, pode_operar=True):
 # Fixture de mock holística: aplica TODOS os patches herméticos.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def patch_otimizada(monkeypatch):
     """
@@ -163,14 +163,10 @@ def patch_otimizada(monkeypatch):
     chamadas_salvar = []
 
     def aplicar(d1h, d4h, regime_info, fear_info, suporte_info):
-        monkeypatch.setattr(otimizada, "_klines",
-                            _fake_klines_factory(d1h, d4h))
-        monkeypatch.setattr(otimizada.reg, "detectar",
-                            lambda *a, **k: regime_info)
-        monkeypatch.setattr(otimizada.fg, "obter",
-                            lambda *a, **k: fear_info)
-        monkeypatch.setattr(otimizada.sup, "detectar_suportes",
-                            lambda *a, **k: suporte_info)
+        monkeypatch.setattr(otimizada, "_klines", _fake_klines_factory(d1h, d4h))
+        monkeypatch.setattr(otimizada.reg, "detectar", lambda *a, **k: regime_info)
+        monkeypatch.setattr(otimizada.fg, "obter", lambda *a, **k: fear_info)
+        monkeypatch.setattr(otimizada.sup, "detectar_suportes", lambda *a, **k: suporte_info)
 
         def _salvar(*a, **k):
             chamadas_salvar.append((a, k))
@@ -184,8 +180,14 @@ def patch_otimizada(monkeypatch):
 
 # Chaves do contrato de retorno exigidas pelo orquestrador/dashboard.
 CHAVES_CONTRATO = (
-    "sinal", "score", "preco", "stop_loss", "take_profit",
-    "ema20_1h", "rsi", "score_decisao",
+    "sinal",
+    "score",
+    "preco",
+    "stop_loss",
+    "take_profit",
+    "ema20_1h",
+    "rsi",
+    "score_decisao",
 )
 
 
@@ -193,14 +195,14 @@ CHAVES_CONTRATO = (
 # REGRESSÃO: analisar() não pode quebrar em volume_relativo / bollinger
 # ---------------------------------------------------------------------------
 
+
 def test_analisar_nao_lanca_e_retorna_contrato(patch_otimizada):
     """Showstopper blindado: com 100 velas, analisar() roda ponta-a-ponta."""
     d1h = _serie_klines(n=100, base=100.0, passo=1.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
     patch_otimizada(d1h, d4h, _regime(), _fear(), _suporte())
 
-    r = otimizada.analisar("BTCUSDT", cvd_atual=0.0, ml_prob=0.70,
-                           ensemble_result=_ensemble())
+    r = otimizada.analisar("BTCUSDT", cvd_atual=0.0, ml_prob=0.70, ensemble_result=_ensemble())
 
     assert isinstance(r, dict)
     for chave in CHAVES_CONTRATO:
@@ -223,8 +225,7 @@ def test_analisar_serie_curta_limiar_minimo_nao_quebra(patch_otimizada):
     d4h = _serie_klines(n=50, base=100.0, passo=1.0)
     patch_otimizada(d1h, d4h, _regime(), _fear(), _suporte())
 
-    r = otimizada.analisar("BTCUSDT", cvd_atual=0.0, ml_prob=0.70,
-                           ensemble_result=_ensemble())
+    r = otimizada.analisar("BTCUSDT", cvd_atual=0.0, ml_prob=0.70, ensemble_result=_ensemble())
     assert isinstance(r, dict)
     assert r["sinal"] in ("COMPRA", "VENDA", "AGUARDAR")
 
@@ -233,24 +234,26 @@ def test_analisar_serie_curta_limiar_minimo_nao_quebra(patch_otimizada):
 # Cenário BULLISH -> caminho de COMPRA, com score numérico coerente
 # ---------------------------------------------------------------------------
 
+
 def test_cenario_bullish_gera_compra(patch_otimizada):
     """
     Regime TENDENCIA_ALTA + F&G zona ideal + EMAs alinhadas (série crescente)
     + ML alto. Não pode quebrar e deve produzir sinal de COMPRA com score
     numérico.
     """
-    d1h = _serie_klines(n=100, base=100.0, passo=1.0, vol=1000.0,
-                        vol_ultima=2000.0)
+    d1h = _serie_klines(n=100, base=100.0, passo=1.0, vol=1000.0, vol_ultima=2000.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
     chamadas = patch_otimizada(
-        d1h, d4h,
+        d1h,
+        d4h,
         _regime("TENDENCIA_ALTA", pode_operar=True, score=90),
         _fear(valor=50, pode_operar=True, classificacao_pt="Neutro"),
         _suporte(suporte_forte=0.0),
     )
 
-    r = otimizada.analisar("BTCUSDT", cvd_atual=10.0, ml_prob=0.80,
-                           ensemble_result=_ensemble(prob=0.85))
+    r = otimizada.analisar(
+        "BTCUSDT", cvd_atual=10.0, ml_prob=0.80, ensemble_result=_ensemble(prob=0.85)
+    )
 
     assert r["sinal"] == "COMPRA"
     assert isinstance(r["score"], (int, float))
@@ -267,21 +270,22 @@ def test_cenario_bullish_gera_compra(patch_otimizada):
 
 def test_compra_usa_suporte_forte_quando_acima_do_stop_pct(patch_otimizada):
     """Stop deve subir para 0.5% abaixo do suporte forte se este for mais alto."""
-    d1h = _serie_klines(n=100, base=100.0, passo=1.0, vol=1000.0,
-                        vol_ultima=2000.0)
+    d1h = _serie_klines(n=100, base=100.0, passo=1.0, vol=1000.0, vol_ultima=2000.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
     preco = d1h["fechamento"][-1]
     # suporte ligeiramente abaixo do preço, mais alto que o stop de 1.5%
     suporte_forte = preco * 0.999
     patch_otimizada(
-        d1h, d4h,
+        d1h,
+        d4h,
         _regime("TENDENCIA_ALTA", score=90),
         _fear(valor=50),
         _suporte(suporte_forte=suporte_forte),
     )
 
-    r = otimizada.analisar("BTCUSDT", cvd_atual=10.0, ml_prob=0.80,
-                           ensemble_result=_ensemble(prob=0.85))
+    r = otimizada.analisar(
+        "BTCUSDT", cvd_atual=10.0, ml_prob=0.80, ensemble_result=_ensemble(prob=0.85)
+    )
 
     assert r["sinal"] == "COMPRA"
     stop_esperado = round(suporte_forte * 0.995, 2)
@@ -291,6 +295,7 @@ def test_compra_usa_suporte_forte_quando_acima_do_stop_pct(patch_otimizada):
 # ---------------------------------------------------------------------------
 # Cenário BEARISH -> caminho de VENDA
 # ---------------------------------------------------------------------------
+
 
 def test_cenario_bearish_gera_venda(patch_otimizada):
     """
@@ -302,7 +307,8 @@ def test_cenario_bearish_gera_venda(patch_otimizada):
     # 4H estritamente decrescente => tend_4h == "BAIXA" (exigido pelo short)
     d4h = _serie_klines(n=60, base=200.0, passo=-1.0)
     chamadas = patch_otimizada(
-        d1h, d4h,
+        d1h,
+        d4h,
         _regime("TENDENCIA_BAIXA", pode_operar=True, score=95),
         _fear(valor=50, pode_operar=True),
         _suporte(suporte_forte=0.0),
@@ -310,8 +316,9 @@ def test_cenario_bearish_gera_venda(patch_otimizada):
 
     # filtros_short["ml"] usa ml_prob (não o ensemble): precisa >= 0.60
     # filtros_short["cvd"] exige cvd_atual < 0
-    r = otimizada.analisar("BTCUSDT", cvd_atual=-10.0, ml_prob=0.80,
-                           ensemble_result=_ensemble(prob=0.85))
+    r = otimizada.analisar(
+        "BTCUSDT", cvd_atual=-10.0, ml_prob=0.80, ensemble_result=_ensemble(prob=0.85)
+    )
 
     assert r["sinal"] == "VENDA"
     assert isinstance(r["score"], (int, float))
@@ -325,6 +332,7 @@ def test_cenario_bearish_gera_venda(patch_otimizada):
 # Cenário AGUARDAR -> bloqueio por regime lateral (score forçado baixo)
 # ---------------------------------------------------------------------------
 
+
 def test_cenario_lateral_gera_aguardar_sem_salvar(patch_otimizada):
     """
     Regime LATERAL é bloqueio absoluto em score.calcular -> decisao AGUARDAR.
@@ -333,14 +341,16 @@ def test_cenario_lateral_gera_aguardar_sem_salvar(patch_otimizada):
     d1h = _serie_klines(n=100, base=100.0, passo=1.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
     chamadas = patch_otimizada(
-        d1h, d4h,
+        d1h,
+        d4h,
         _regime("LATERAL", pode_operar=False, score=30),
         _fear(valor=50, pode_operar=True),
         _suporte(suporte_forte=0.0),
     )
 
-    r = otimizada.analisar("BTCUSDT", cvd_atual=0.0, ml_prob=0.50,
-                           ensemble_result=_ensemble(prob=0.50))
+    r = otimizada.analisar(
+        "BTCUSDT", cvd_atual=0.0, ml_prob=0.50, ensemble_result=_ensemble(prob=0.50)
+    )
 
     assert r["sinal"] == "AGUARDAR"
     assert r["stop_loss"] is None
@@ -352,6 +362,7 @@ def test_cenario_lateral_gera_aguardar_sem_salvar(patch_otimizada):
 # Robustez: ensemble_result ausente NÃO deve disparar rede (ens.prever mockado)
 # ---------------------------------------------------------------------------
 
+
 def test_ensemble_none_usa_fallback_sem_rede(patch_otimizada, monkeypatch):
     """
     Quando ensemble_result=None, analisar() chama ens.prever(). Mockamos para
@@ -359,16 +370,15 @@ def test_ensemble_none_usa_fallback_sem_rede(patch_otimizada, monkeypatch):
     """
     d1h = _serie_klines(n=100, base=100.0, passo=1.0, vol_ultima=2000.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
-    patch_otimizada(d1h, d4h, _regime("TENDENCIA_ALTA", score=90),
-                    _fear(valor=50), _suporte())
+    patch_otimizada(d1h, d4h, _regime("TENDENCIA_ALTA", score=90), _fear(valor=50), _suporte())
 
     monkeypatch.setattr(
-        otimizada.ens, "prever",
+        otimizada.ens,
+        "prever",
         lambda *a, **k: _ensemble(prob=0.85),
     )
 
-    r = otimizada.analisar("BTCUSDT", cvd_atual=10.0, ml_prob=0.80,
-                           ensemble_result=None)
+    r = otimizada.analisar("BTCUSDT", cvd_atual=10.0, ml_prob=0.80, ensemble_result=None)
     assert r["sinal"] in ("COMPRA", "VENDA", "AGUARDAR")
     assert isinstance(r["score"], (int, float))
 
@@ -377,15 +387,16 @@ def test_ensemble_none_usa_fallback_sem_rede(patch_otimizada, monkeypatch):
 # imprimir(...) não deve lançar com os mesmos mocks (cobre formatação)
 # ---------------------------------------------------------------------------
 
+
 def test_imprimir_compra_nao_lanca(patch_otimizada, capsys):
     """imprimir() em cenário de COMPRA roda a formatação inteira sem exceção."""
     d1h = _serie_klines(n=100, base=100.0, passo=1.0, vol_ultima=2000.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
-    patch_otimizada(d1h, d4h, _regime("TENDENCIA_ALTA", score=90),
-                    _fear(valor=50), _suporte())
+    patch_otimizada(d1h, d4h, _regime("TENDENCIA_ALTA", score=90), _fear(valor=50), _suporte())
 
-    r = otimizada.imprimir("BTCUSDT", cvd_atual=10.0, ml_prob=0.80,
-                           ensemble_result=_ensemble(prob=0.85))
+    r = otimizada.imprimir(
+        "BTCUSDT", cvd_atual=10.0, ml_prob=0.80, ensemble_result=_ensemble(prob=0.85)
+    )
     out = capsys.readouterr().out
     assert "ESTRATEGIA OTIMIZADA" in out
     assert "SINAL:" in out
@@ -396,11 +407,13 @@ def test_imprimir_aguardar_nao_lanca(patch_otimizada, capsys):
     """imprimir() em cenário AGUARDAR (sem stop/target) também não lança."""
     d1h = _serie_klines(n=100, base=100.0, passo=1.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
-    patch_otimizada(d1h, d4h, _regime("LATERAL", pode_operar=False, score=30),
-                    _fear(valor=50), _suporte())
+    patch_otimizada(
+        d1h, d4h, _regime("LATERAL", pode_operar=False, score=30), _fear(valor=50), _suporte()
+    )
 
-    r = otimizada.imprimir("BTCUSDT", cvd_atual=0.0, ml_prob=0.50,
-                           ensemble_result=_ensemble(prob=0.50))
+    r = otimizada.imprimir(
+        "BTCUSDT", cvd_atual=0.0, ml_prob=0.50, ensemble_result=_ensemble(prob=0.50)
+    )
     out = capsys.readouterr().out
     assert "SINAL: AGUARDAR" in out
     assert r["sinal"] == "AGUARDAR"

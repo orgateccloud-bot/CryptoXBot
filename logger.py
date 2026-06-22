@@ -49,7 +49,9 @@ class LoggerBot:
         try:
             self._inicializar_tabelas()
         except Exception as e:
-            _stdlog.warning("LoggerBot: falha ao inicializar tabelas (%s) — logging analitico degradado", e)
+            _stdlog.warning(
+                "LoggerBot: falha ao inicializar tabelas (%s) — logging analitico degradado", e
+            )
 
     # ── Compat com logging.Logger ──────────────────────────────
     # main.py usa o mesmo objeto `logger` para analytics (registrar_*) e para
@@ -78,6 +80,7 @@ class LoggerBot:
     def _connect(self):
         if self._pg:
             import psycopg
+
             return psycopg.connect(DATABASE_URL, connect_timeout=10)
         return sqlite3.connect(self.db_path)
 
@@ -86,6 +89,7 @@ class LoggerBot:
         if self._pg:
             import psycopg
             from psycopg.rows import dict_row
+
             return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=10)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -178,54 +182,65 @@ class LoggerBot:
         conn = self._connect()
         try:
             score_result = resultado.get("score_result", {})
-            conn.execute(self._sql("""
+            conn.execute(
+                self._sql("""
                 INSERT INTO log_avaliacoes (
                     timestamp, symbol, preco, score, decisao, sinal, tamanho_fator,
                     regime, fear_greed, tend_4h, rsi, ema20, ema50, vwap, atr, vol_rel,
                     ml_xgb, ml_lstm, ml_ensemble, ml_confianca, cvd,
                     filtros_ok, filtros_total, bloqueios
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """), (
-                resultado.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-                symbol,
-                resultado.get("preco"),
-                resultado.get("score"),
-                resultado.get("score_decisao"),
-                resultado.get("sinal"),
-                resultado.get("tamanho_fator"),
-                resultado.get("regime"),
-                resultado.get("fear_greed"),
-                resultado.get("tend_4h"),
-                resultado.get("rsi"),
-                resultado.get("ema20_1h"),
-                resultado.get("ema50_1h"),
-                resultado.get("vwap"),
-                resultado.get("atr"),
-                resultado.get("volume_rel"),
-                resultado.get("ml_xgb"),
-                resultado.get("ml_lstm"),
-                resultado.get("ml_ensemble"),
-                resultado.get("ml_confianca"),
-                resultado.get("cvd"),
-                resultado.get("filtros_ok"),
-                resultado.get("filtros_total"),
-                " | ".join(score_result.get("bloqueios", [])),
-            ))
+            """),
+                (
+                    resultado.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    symbol,
+                    resultado.get("preco"),
+                    resultado.get("score"),
+                    resultado.get("score_decisao"),
+                    resultado.get("sinal"),
+                    resultado.get("tamanho_fator"),
+                    resultado.get("regime"),
+                    resultado.get("fear_greed"),
+                    resultado.get("tend_4h"),
+                    resultado.get("rsi"),
+                    resultado.get("ema20_1h"),
+                    resultado.get("ema50_1h"),
+                    resultado.get("vwap"),
+                    resultado.get("atr"),
+                    resultado.get("volume_rel"),
+                    resultado.get("ml_xgb"),
+                    resultado.get("ml_lstm"),
+                    resultado.get("ml_ensemble"),
+                    resultado.get("ml_confianca"),
+                    resultado.get("cvd"),
+                    resultado.get("filtros_ok"),
+                    resultado.get("filtros_total"),
+                    " | ".join(score_result.get("bloqueios", [])),
+                ),
+            )
             conn.commit()
         except Exception as e:
             print(f"[LOG] Erro ao registrar avaliacao: {e}")
         finally:
             conn.close()
 
-    def registrar_trade_entrada(self, symbol, direcao, preco, tamanho_btc, tamanho_usdt,
-                                 stop, target, score, ml_prob):
+    def registrar_trade_entrada(
+        self, symbol, direcao, preco, tamanho_btc, tamanho_usdt, stop, target, score, ml_prob
+    ):
         """Registra entrada de trade. Retorna o id da linha criada."""
         conn = self._connect()
         try:
             params = (
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                symbol, direcao, preco, tamanho_btc, tamanho_usdt,
-                stop, target, score, ml_prob,
+                symbol,
+                direcao,
+                preco,
+                tamanho_btc,
+                tamanho_usdt,
+                stop,
+                target,
+                score,
+                ml_prob,
             )
             cols = """
                 INSERT INTO log_trades (
@@ -247,21 +262,30 @@ class LoggerBot:
         finally:
             conn.close()
 
-    def registrar_trade_saida(self, trade_id, preco_saida, tipo_saida, pnl_usdt,
-                               pnl_pct, capital_apos, motivo=""):
+    def registrar_trade_saida(
+        self, trade_id, preco_saida, tipo_saida, pnl_usdt, pnl_pct, capital_apos, motivo=""
+    ):
         """Registra saida de trade."""
         conn = self._connect()
         try:
-            conn.execute(self._sql("""
+            conn.execute(
+                self._sql("""
                 UPDATE log_trades SET
                     timestamp_saida=?, preco_saida=?, tipo_saida=?,
                     pnl_usdt=?, pnl_pct=?, capital_apos=?, motivo_saida=?
                 WHERE id=?
-            """), (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                preco_saida, tipo_saida, pnl_usdt, pnl_pct,
-                capital_apos, motivo, trade_id,
-            ))
+            """),
+                (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    preco_saida,
+                    tipo_saida,
+                    pnl_usdt,
+                    pnl_pct,
+                    capital_apos,
+                    motivo,
+                    trade_id,
+                ),
+            )
             conn.commit()
         except Exception as e:
             print(f"[LOG] Erro ao registrar trade saida: {e}")
@@ -273,16 +297,22 @@ class LoggerBot:
         conn = self._connect()
         hoje = datetime.now().strftime("%Y-%m-%d")
         try:
-            trades = conn.execute(self._sql("""
+            trades = conn.execute(
+                self._sql("""
                 SELECT pnl_usdt, pnl_pct FROM log_trades
                 WHERE symbol=? AND timestamp_saida LIKE ?
                 AND pnl_usdt IS NOT NULL
-            """), (symbol, f"{hoje}%")).fetchall()
+            """),
+                (symbol, f"{hoje}%"),
+            ).fetchall()
 
-            avals = conn.execute(self._sql("""
+            avals = conn.execute(
+                self._sql("""
                 SELECT score, sinal FROM log_avaliacoes
                 WHERE symbol=? AND timestamp LIKE ?
-            """), (symbol, f"{hoje}%")).fetchall()
+            """),
+                (symbol, f"{hoje}%"),
+            ).fetchall()
 
             total = len(trades)
             ganhos = sum(1 for t in trades if t[0] > 0)
@@ -294,10 +324,21 @@ class LoggerBot:
             scores = [a[0] for a in avals if a[0] is not None]
             score_medio = sum(scores) / len(scores) if scores else 0
 
-            valores = (hoje, symbol, total, ganhos, perdas, pnl_total, pnl_pct,
-                       len(avals), sinais, score_medio)
+            valores = (
+                hoje,
+                symbol,
+                total,
+                ganhos,
+                perdas,
+                pnl_total,
+                pnl_pct,
+                len(avals),
+                sinais,
+                score_medio,
+            )
             if self._pg:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO log_performance (
                         data, symbol, trades_total, trades_ganhos, trades_perdas,
                         pnl_dia_usdt, pnl_dia_pct, avaliacoes, sinais_gerados, score_medio
@@ -308,14 +349,19 @@ class LoggerBot:
                         pnl_dia_usdt=EXCLUDED.pnl_dia_usdt, pnl_dia_pct=EXCLUDED.pnl_dia_pct,
                         avaliacoes=EXCLUDED.avaliacoes, sinais_gerados=EXCLUDED.sinais_gerados,
                         score_medio=EXCLUDED.score_medio
-                """, valores)
+                """,
+                    valores,
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR REPLACE INTO log_performance (
                         data, symbol, trades_total, trades_ganhos, trades_perdas,
                         pnl_dia_usdt, pnl_dia_pct, avaliacoes, sinais_gerados, score_medio
                     ) VALUES (?,?,?,?,?,?,?,?,?,?)
-                """, valores)
+                """,
+                    valores,
+                )
             conn.commit()
         except Exception as e:
             print(f"[LOG] Erro ao atualizar performance: {e}")
@@ -334,24 +380,28 @@ class LoggerBot:
         conn = self._connect_rows()
         try:
             if tabela == "log_avaliacoes":
-                rows = conn.execute(self._sql(
-                    "SELECT * FROM log_avaliacoes ORDER BY timestamp DESC LIMIT ?"
-                ), (dias * 96,)).fetchall()  # ~96 avaliacoes/dia a cada 15min
+                rows = conn.execute(
+                    self._sql("SELECT * FROM log_avaliacoes ORDER BY timestamp DESC LIMIT ?"),
+                    (dias * 96,),
+                ).fetchall()  # ~96 avaliacoes/dia a cada 15min
             elif tabela == "log_trades":
-                rows = conn.execute(self._sql(
-                    "SELECT * FROM log_trades ORDER BY timestamp_entrada DESC LIMIT ?"
-                ), (dias * 10,)).fetchall()
+                rows = conn.execute(
+                    self._sql("SELECT * FROM log_trades ORDER BY timestamp_entrada DESC LIMIT ?"),
+                    (dias * 10,),
+                ).fetchall()
             else:  # log_performance
-                rows = conn.execute(self._sql(
-                    "SELECT * FROM log_performance ORDER BY data DESC LIMIT ?"
-                ), (dias,)).fetchall()
+                rows = conn.execute(
+                    self._sql("SELECT * FROM log_performance ORDER BY data DESC LIMIT ?"), (dias,)
+                ).fetchall()
 
             if not rows:
                 print(f"[LOG] Nenhum registro em {tabela}")
                 return None
 
             header = list(rows[0].keys())
-            filepath = os.path.join(self.log_dir, f"{tabela}_{datetime.now().strftime('%Y%m%d')}.csv")
+            filepath = os.path.join(
+                self.log_dir, f"{tabela}_{datetime.now().strftime('%Y%m%d')}.csv"
+            )
             with open(filepath, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(header)
@@ -371,19 +421,25 @@ class LoggerBot:
         conn = self._connect()
         hoje = datetime.now().strftime("%Y-%m-%d")
         try:
-            avals = conn.execute(self._sql("""
+            avals = conn.execute(
+                self._sql("""
                 SELECT COUNT(*), AVG(score),
                        SUM(CASE WHEN sinal IN ('COMPRA','VENDA') THEN 1 ELSE 0 END)
                 FROM log_avaliacoes WHERE symbol=? AND timestamp LIKE ?
-            """), (symbol, f"{hoje}%")).fetchone()
+            """),
+                (symbol, f"{hoje}%"),
+            ).fetchone()
 
-            trades = conn.execute(self._sql("""
+            trades = conn.execute(
+                self._sql("""
                 SELECT COUNT(*),
                        SUM(CASE WHEN pnl_usdt > 0 THEN 1 ELSE 0 END),
                        SUM(pnl_usdt), SUM(pnl_pct)
                 FROM log_trades WHERE symbol=? AND timestamp_saida LIKE ?
                 AND pnl_usdt IS NOT NULL
-            """), (symbol, f"{hoje}%")).fetchone()
+            """),
+                (symbol, f"{hoje}%"),
+            ).fetchone()
         finally:
             conn.close()
 
@@ -403,11 +459,14 @@ class LoggerBot:
         """Retorna ultimos N trades."""
         conn = self._connect_rows()
         try:
-            rows = conn.execute(self._sql("""
+            rows = conn.execute(
+                self._sql("""
                 SELECT * FROM log_trades
                 WHERE symbol=? AND pnl_usdt IS NOT NULL
                 ORDER BY timestamp_saida DESC LIMIT ?
-            """), (symbol, n)).fetchall()
+            """),
+                (symbol, n),
+            ).fetchall()
         finally:
             conn.close()
         return [dict(r) for r in rows]

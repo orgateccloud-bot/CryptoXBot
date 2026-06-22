@@ -31,11 +31,15 @@ def _enviar(mensagem):
         return False
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        r = requests.post(url, json={
-            "chat_id":    TELEGRAM_CHAT_ID,
-            "text":       mensagem,
-            "parse_mode": "HTML",
-        }, timeout=10)
+        r = requests.post(
+            url,
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": mensagem,
+                "parse_mode": "HTML",
+            },
+            timeout=10,
+        )
         return r.status_code == 200
     except Exception as e:
         print(f"[TELEGRAM] Erro: {e}")
@@ -43,6 +47,7 @@ def _enviar(mensagem):
 
 
 # ── Tipos de alertas ──────────────────────────────────────────
+
 
 def alerta_sinal(tipo, preco, stop, target, filtros_ok, filtros_total, ml_prob=None, par="BTCUSDT"):
     emoji = "🟢" if tipo == "COMPRA" else "🔴"

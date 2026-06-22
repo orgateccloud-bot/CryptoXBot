@@ -19,10 +19,10 @@ import pytest
 
 import suporte
 
-
 # ──────────────────────────────────────────────────────────────
 # Fixtures: serie sintetica de klines (sem rede)
 # ──────────────────────────────────────────────────────────────
+
 
 def _serie_sintetica(n=100):
     """
@@ -72,9 +72,21 @@ def patch_klines_none(monkeypatch):
 # ──────────────────────────────────────────────────────────────
 
 CHAVES_COMPLETAS = {
-    "preco", "suportes", "resistencias", "suporte_forte", "peso_forte",
-    "metodos_forte", "distancia_%", "na_zona", "bb_inferior", "vwap",
-    "ema20", "ema50", "zonas_volume", "clusters_sup", "clusters_res",
+    "preco",
+    "suportes",
+    "resistencias",
+    "suporte_forte",
+    "peso_forte",
+    "metodos_forte",
+    "distancia_%",
+    "na_zona",
+    "bb_inferior",
+    "vwap",
+    "ema20",
+    "ema50",
+    "zonas_volume",
+    "clusters_sup",
+    "clusters_res",
 }
 
 
@@ -154,6 +166,7 @@ def test_detectar_suportes_usa_intervalo_passado(monkeypatch):
 # ScaleIn — parcelas 40/40/20
 # ──────────────────────────────────────────────────────────────
 
+
 def test_scalein_parcela1_compra_40pct():
     si = suporte.ScaleIn(tamanho_total_btc=0.001, suporte=65000)
     tam = si.entrada_parcela1(preco=65050)
@@ -190,9 +203,9 @@ def test_scalein_proporcoes_somam_total():
 
 def test_scalein_preco_medio_ponderado_calculado_a_mao():
     si = suporte.ScaleIn(tamanho_total_btc=0.001, suporte=65000)
-    si.entrada_parcela1(preco=65050)   # 0.0004 BTC
-    si.entrada_parcela2(preco=64900)   # 0.0004 BTC
-    si.entrada_parcela3(preco=65200)   # 0.0002 BTC
+    si.entrada_parcela1(preco=65050)  # 0.0004 BTC
+    si.entrada_parcela2(preco=64900)  # 0.0004 BTC
+    si.entrada_parcela3(preco=65200)  # 0.0002 BTC
 
     # Calculo manual:
     #   custo = 65050*0.0004 + 64900*0.0004 + 65200*0.0002
@@ -269,11 +282,11 @@ def _serie_flat(n=30, preco=100.0, vol=10.0):
     """Serie totalmente plana: forca bin_size<=0 no volume_profile,
     std=0 nas bandas, e nenhum suporte/resistencia abaixo/acima do preco."""
     return {
-        "abertura":   [preco] * n,
-        "maxima":     [preco] * n,
-        "minima":     [preco] * n,
+        "abertura": [preco] * n,
+        "maxima": [preco] * n,
+        "minima": [preco] * n,
         "fechamento": [preco] * n,
-        "volume":     [vol] * n,
+        "volume": [vol] * n,
     }
 
 
@@ -290,17 +303,18 @@ def patch_klines_curta(monkeypatch):
     Regressao: detectar_suportes NAO pode lancar (sem NameError/IndexError)."""
     n = 15
     serie = {
-        "maxima":     [100.0 + i * 5 for i in range(n)],
-        "minima":     [90.0 + i * 5 for i in range(n)],
+        "maxima": [100.0 + i * 5 for i in range(n)],
+        "minima": [90.0 + i * 5 for i in range(n)],
         "fechamento": [95.0 + i * 5 for i in range(n)],
-        "volume":     [10.0 + i for i in range(n)],
-        "abertura":   [94.0 + i * 5 for i in range(n)],
+        "volume": [10.0 + i for i in range(n)],
+        "abertura": [94.0 + i * 5 for i in range(n)],
     }
     monkeypatch.setattr(suporte, "_klines", lambda intervalo, limite=100: serie)
     return serie
 
 
 # ── detectar_suportes: serie plana (bordas de divisao por zero) ──
+
 
 def test_detectar_suportes_flat_nao_lanca_e_chaves_completas(patch_klines_flat):
     # Regressao critica: serie degenerada nao pode quebrar a pipeline.
@@ -334,6 +348,7 @@ def test_detectar_suportes_flat_clusters_vazios(patch_klines_flat):
 
 # ── detectar_suportes: serie curta (regressao bollinger None / ema NaN) ──
 
+
 def test_detectar_suportes_curta_nao_lanca(patch_klines_curta):
     # Regressao: bollinger devolve None no final (periodo>len) e ema50 NaN.
     # O codigo usa `bb_lower[-1] if bb_lower[-1] else 0` e nao pode lancar.
@@ -354,6 +369,7 @@ def test_detectar_suportes_curta_preco_ultimo_fechamento(patch_klines_curta):
 
 
 # ── caminho feliz: relacoes finas nao cobertas ──
+
 
 def test_detectar_suportes_distancia_coerente_com_suporte_forte(patch_klines):
     r = suporte.detectar_suportes("1h")
@@ -423,6 +439,7 @@ def test_detectar_suportes_klines_dict_vazio_e_fallback(monkeypatch):
 
 # ── _volume_profile (helper interno) ──
 
+
 def test_volume_profile_flat_retorna_vazio():
     # preco_max == preco_min -> bin_size <= 0 -> [].
     f = [100.0] * 30
@@ -453,10 +470,10 @@ def test_volume_profile_tipo_suporte_quando_abaixo_do_ultimo():
 
 # ── _pivot_points (helper interno) ──
 
+
 def test_pivot_points_retorna_no_maximo_cinco():
     serie = _serie_sintetica(120)
-    sup, res = suporte._pivot_points(serie["maxima"], serie["minima"],
-                                     serie["fechamento"], 5)
+    sup, res = suporte._pivot_points(serie["maxima"], serie["minima"], serie["fechamento"], 5)
     assert len(sup) <= 5
     assert len(res) <= 5
 
@@ -468,6 +485,7 @@ def test_pivot_points_serie_curta_nao_lanca():
 
 
 # ── _clusterizar / _resumo_cluster (helpers internos) ──
+
 
 def test_clusterizar_vazio_retorna_lista_vazia():
     assert suporte._clusterizar([], 100.0) == []
@@ -499,13 +517,14 @@ def test_resumo_cluster_metricas():
         {"preco": 14.0, "metodo": "y", "peso": 3},
     ]
     r = suporte._resumo_cluster(niveis)
-    assert r["preco_medio"] == 12.0           # (10+12+14)/3
-    assert r["peso_total"] == 6               # 1+2+3
-    assert r["confluencia"] == 2              # metodos unicos {x,y}
+    assert r["preco_medio"] == 12.0  # (10+12+14)/3
+    assert r["peso_total"] == 6  # 1+2+3
+    assert r["confluencia"] == 2  # metodos unicos {x,y}
     assert set(r["metodos"]) == {"x", "y"}
 
 
 # ── ScaleIn: bordas adicionais ──
+
 
 def test_scalein_status_completo_e_restante_zero():
     si = suporte.ScaleIn(tamanho_total_btc=0.001, suporte=65000)

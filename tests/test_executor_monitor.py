@@ -22,7 +22,6 @@ from executor import (
     TRAILING_DISTANCIA,
 )
 
-
 ENTRADA = 100.0
 STOP = 98.0
 T1 = 105.0
@@ -34,6 +33,7 @@ def _aval(preco, *, stop=STOP, t1=T1, t2=T2, parcial=False, pico=ENTRADA):
 
 
 # ── 1. Stop Loss (terminal) ────────────────────────────────────────────────
+
 
 def test_stop_loss_abaixo_do_stop():
     d = _aval(97.0)
@@ -67,6 +67,7 @@ def test_stop_tem_precedencia_sobre_tudo():
 
 # ── 2. Take-Profit Parcial (não terminal) ──────────────────────────────────
 
+
 def test_parcial_dispara_no_target1():
     d = _aval(T1, parcial=False)
     assert d["fechar_parcial"] is True
@@ -76,7 +77,7 @@ def test_parcial_dispara_no_target1():
 
 
 def test_parcial_borda_exata():
-    d = _aval(T1, parcial=False)          # preco == target1
+    d = _aval(T1, parcial=False)  # preco == target1
     assert d["fechar_parcial"] is True
 
 
@@ -94,6 +95,7 @@ def test_parcial_nao_redispara_se_ja_feita():
 
 # ── 3. Take-Profit Final / Target 2 (terminal, requer parcial_feita) ───────
 
+
 def test_target2_dispara_com_parcial_feita():
     d = avaliar_tick_monitor(ENTRADA, STOP, T1, T2, True, T2, ENTRADA)
     assert d["fechar_total"] == "Take Profit Final"
@@ -109,7 +111,7 @@ def test_target2_nao_dispara_sem_parcial_feita():
     # preco >= target2 mas parcial ainda não feita → cai no parcial, não no final
     d = avaliar_tick_monitor(ENTRADA, STOP, T1, T2, False, T2, ENTRADA)
     assert d["fechar_total"] is None
-    assert d["fechar_parcial"] is True   # target1 também foi ultrapassado
+    assert d["fechar_parcial"] is True  # target1 também foi ultrapassado
 
 
 def test_target2_abaixo_com_parcial_feita_vai_para_trailing():
@@ -121,12 +123,13 @@ def test_target2_abaixo_com_parcial_feita_vai_para_trailing():
 
 # ── 4. Trailing Stop ───────────────────────────────────────────────────────
 
+
 def test_trailing_ativa_e_sobe_stop():
     # preco=102 (ganho 2% >= 1%), pico=100 → pico vira 102, novo_stop=102*0.992
     d = _aval(102.0, pico=ENTRADA)
     assert d["preco_pico"] == 102.0
     assert d["novo_stop_trailing"] == pytest.approx(102.0 * (1 - TRAILING_DISTANCIA))
-    assert d["fechar_parcial"] is False   # 102 < target1
+    assert d["fechar_parcial"] is False  # 102 < target1
 
 
 def test_trailing_nao_ativa_abaixo_do_ganho_minimo():
@@ -138,7 +141,7 @@ def test_trailing_nao_ativa_abaixo_do_ganho_minimo():
 
 def test_trailing_borda_exata_de_ativacao():
     # ganho exatamente == ativacao (1%) deve ligar (condição é >=)
-    preco = ENTRADA * (1 + TRAILING_ATIVACAO)   # 101.0
+    preco = ENTRADA * (1 + TRAILING_ATIVACAO)  # 101.0
     d = _aval(preco, pico=ENTRADA)
     assert d["preco_pico"] == preco
     assert d["novo_stop_trailing"] == pytest.approx(preco * (1 - TRAILING_DISTANCIA))
@@ -175,26 +178,28 @@ def test_trailing_sobe_apenas_se_maior_que_stop_atual():
 
 # ── 5. Coexistência Parcial + Trailing no mesmo tick ───────────────────────
 
+
 def test_parcial_e_trailing_no_mesmo_tick():
     # preco=105 (== target1): dispara parcial E, como ganho=5% >= 1%, trailing.
     # O trailing compara contra o stop do SNAPSHOT (98), não contra o breakeven.
     d = _aval(T1, parcial=False, pico=ENTRADA)
     assert d["fechar_parcial"] is True
-    assert d["stop_breakeven"] == pytest.approx(ENTRADA * 1.002)   # 100.2
-    novo = T1 * (1 - TRAILING_DISTANCIA)                            # 104.16
+    assert d["stop_breakeven"] == pytest.approx(ENTRADA * 1.002)  # 100.2
+    novo = T1 * (1 - TRAILING_DISTANCIA)  # 104.16
     assert d["novo_stop_trailing"] == pytest.approx(novo)
-    assert novo > d["stop_breakeven"]   # trailing sobrescreve o breakeven
+    assert novo > d["stop_breakeven"]  # trailing sobrescreve o breakeven
 
 
 def test_parcial_sem_trailing_quando_ganho_baixo():
     # target1 baixo (100.5) para que o parcial dispare com ganho < 1%
     d = avaliar_tick_monitor(ENTRADA, STOP, 100.5, T2, False, 100.5, ENTRADA)
     assert d["fechar_parcial"] is True
-    assert d["novo_stop_trailing"] is None   # ganho 0.5% não liga trailing
+    assert d["novo_stop_trailing"] is None  # ganho 0.5% não liga trailing
     # nesse caso o stop final fica no breakeven (aplicado pelo _monitorar)
 
 
 # ── 6. Nenhuma ação ────────────────────────────────────────────────────────
+
 
 def test_nenhuma_acao_zona_neutra():
     # preco entre stop e target1, ganho < 1%
@@ -210,6 +215,7 @@ def test_nenhuma_acao_zona_neutra():
 
 
 # ── 7. Sequência (simula o loop, demonstra o ratchet do trailing) ──────────
+
 
 def test_sequencia_ratchet_e_reversao():
     """Preço sobe (stop sobe junto), depois reverte e bate no stop trailado."""
@@ -239,12 +245,20 @@ def test_sequencia_ratchet_e_reversao():
 
 # ── 8. Wrapper _monitorar (I/O do loop) — integração com mocks ─────────────
 
+
 def _exec_com_posicao(stop=STOP, t1=T1, t2=T2, parcial=False):
     ex = Executor(simulacao=True, symbol="BTCUSDT")
     ex.posicao = {
-        "tipo": "LONG", "entrada": ENTRADA, "tamanho_btc": 0.01,
-        "stop_inicial": stop, "stop_atual": stop, "target1": t1,
-        "target2": t2, "parcial_feita": parcial, "abertura": "x", "order_id": "SIM-1",
+        "tipo": "LONG",
+        "entrada": ENTRADA,
+        "tamanho_btc": 0.01,
+        "stop_inicial": stop,
+        "stop_atual": stop,
+        "target1": t1,
+        "target2": t2,
+        "parcial_feita": parcial,
+        "abertura": "x",
+        "order_id": "SIM-1",
     }
     ex._ativo = True
     ex.fechar_posicao = MagicMock()
@@ -253,21 +267,21 @@ def _exec_com_posicao(stop=STOP, t1=T1, t2=T2, parcial=False):
 
 def test_monitorar_stop_loss_fecha_e_encerra(monkeypatch):
     ex = _exec_com_posicao()
-    ex.get_preco = lambda: 97.0          # <= stop → Stop Loss (terminal: break)
+    ex.get_preco = lambda: 97.0  # <= stop → Stop Loss (terminal: break)
     ex._monitorar()
     ex.fechar_posicao.assert_called_once_with(97.0, "Stop Loss")
 
 
 def test_monitorar_target2_fecha_e_encerra(monkeypatch):
     ex = _exec_com_posicao(parcial=True)
-    ex.get_preco = lambda: T2            # parcial_feita + preco>=target2 → final
+    ex.get_preco = lambda: T2  # parcial_feita + preco>=target2 → final
     ex._monitorar()
     ex.fechar_posicao.assert_called_once_with(T2, "Take Profit Final")
 
 
 def test_monitorar_preco_invalido_nao_fecha(monkeypatch):
     ex = _exec_com_posicao()
-    ex.get_preco = lambda: 0.0           # preco<=0 → sleep(5)+continue
+    ex.get_preco = lambda: 0.0  # preco<=0 → sleep(5)+continue
     # sleep(5) encerra o loop (flag _ativo=False) para não rodar infinito
     monkeypatch.setattr(E.time, "sleep", lambda s: setattr(ex, "_ativo", False))
     ex._monitorar()
@@ -276,7 +290,7 @@ def test_monitorar_preco_invalido_nao_fecha(monkeypatch):
 
 def test_monitorar_parcial_e_trailing_atualizam_stop(monkeypatch):
     ex = _exec_com_posicao(parcial=False)
-    ex.get_preco = lambda: T1            # == target1 → parcial + trailing no tick
+    ex.get_preco = lambda: T1  # == target1 → parcial + trailing no tick
     # quebra o loop após 1 iteração (o caminho parcial NÃO dá break)
     monkeypatch.setattr(E.time, "sleep", lambda s: setattr(ex, "_ativo", False))
     ex._monitorar()
@@ -291,8 +305,10 @@ def test_monitorar_parcial_e_trailing_atualizam_stop(monkeypatch):
 # contra a aplicação da nova função pura. Se baterem em todos os casos, o
 # refactor é comprovadamente comportamento-preservante.
 
-def _efeito_original(entrada, stop, t1, t2, parcial, preco, pico,
-                     ativ=TRAILING_ATIVACAO, dist=TRAILING_DISTANCIA):
+
+def _efeito_original(
+    entrada, stop, t1, t2, parcial, preco, pico, ativ=TRAILING_ATIVACAO, dist=TRAILING_DISTANCIA
+):
     """Mirror fiel do corpo do loop _monitorar ANTES do refactor."""
     close, brk, did_partial = None, False, False
     stop_after, pico_after = stop, pico
@@ -333,6 +349,7 @@ def _efeito_refatorado(entrada, stop, t1, t2, parcial, preco, pico):
 
 def test_oraculo_equivalencia_em_grade_densa():
     import itertools
+
     entrada = 100.0
     stops = [96.0, 98.0, 100.2, 101.0, 104.0]
     t1s = [103.0, 105.0]
@@ -351,7 +368,11 @@ def test_oraculo_equivalencia_em_grade_densa():
                 f"divergência categórica em stop={stop} t1={t1} t2={t2} "
                 f"parcial={parcial} pico={pico} preco={preco}: {esperado} != {obtido}"
             )
-            assert esperado[3] == pytest.approx(obtido[3]), f"stop divergente: {esperado} vs {obtido}"
-            assert esperado[4] == pytest.approx(obtido[4]), f"pico divergente: {esperado} vs {obtido}"
+            assert esperado[3] == pytest.approx(
+                obtido[3]
+            ), f"stop divergente: {esperado} vs {obtido}"
+            assert esperado[4] == pytest.approx(
+                obtido[4]
+            ), f"pico divergente: {esperado} vs {obtido}"
             casos += 1
     assert casos == len(stops) * len(t1s) * len(t2s) * len(parciais) * len(picos) * len(precos)

@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import health
 
-
 # ── Testes: _payload ──────────────────────────────────────────────────────────
+
 
 class TestPayloadHelper:
     def test_estrutura_basica(self):
@@ -42,6 +42,7 @@ class TestPayloadHelper:
 
 # ── Testes: _metrics_text ─────────────────────────────────────────────────────
 
+
 class TestMetricsText:
     def test_retorna_bytes(self):
         out = health._metrics_text()
@@ -63,6 +64,7 @@ class TestMetricsText:
 
 
 # ── Testes: increment_metric ──────────────────────────────────────────────────
+
 
 class TestIncrementMetric:
     def setup_method(self):
@@ -88,7 +90,10 @@ class TestIncrementMetric:
     def test_thread_safe(self):
         with health._metrics_lock:
             health._metrics["sinais_total"] = 0
-        threads = [threading.Thread(target=lambda: health.increment_metric("sinais_total")) for _ in range(20)]
+        threads = [
+            threading.Thread(target=lambda: health.increment_metric("sinais_total"))
+            for _ in range(20)
+        ]
         for t in threads:
             t.start()
         for t in threads:
@@ -98,6 +103,7 @@ class TestIncrementMetric:
 
 
 # ── Testes: HealthHandler (roteamento direto) ─────────────────────────────────
+
 
 class TestHealthHandlerRouting:
     """Testa o roteamento via path sem abrir sockets reais."""

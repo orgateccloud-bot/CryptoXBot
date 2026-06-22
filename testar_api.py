@@ -11,7 +11,7 @@ import time
 import requests
 from config.runtime_settings import API_KEY, API_SECRET
 
-BASE_URL = "https://api.binance.com"   # Spot API
+BASE_URL = "https://api.binance.com"  # Spot API
 
 
 def assinar(params: dict) -> str:

@@ -31,7 +31,6 @@ if RAIZ not in sys.path:
 
 import regime  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Geradores de séries sintéticas
 # ---------------------------------------------------------------------------
@@ -80,14 +79,17 @@ def _serie_volatilidade(n=N):
 
 def _mock_klines(mapa):
     """Fábrica de substituto para regime._klines a partir de um dict por timeframe."""
+
     def fake(intervalo, limite=60):
         return mapa[intervalo]
+
     return fake
 
 
 # ===========================================================================
 # _classificar_tf — classificação por timeframe
 # ===========================================================================
+
 
 class TestClassificarTF:
 
@@ -122,8 +124,18 @@ class TestClassificarTF:
 
     def test_chaves_obrigatorias_presentes(self):
         r = regime._classificar_tf(_serie_alta(), "1H")
-        for chave in ("regime", "adx", "atr_ratio", "direcao", "ema20",
-                      "ema50", "ema200", "vol_crescente", "preco", "label"):
+        for chave in (
+            "regime",
+            "adx",
+            "atr_ratio",
+            "direcao",
+            "ema20",
+            "ema50",
+            "ema200",
+            "vol_crescente",
+            "preco",
+            "label",
+        ):
             assert chave in r
 
     def test_atr_ratio_e_adx_sao_numericos(self):
@@ -142,6 +154,7 @@ class TestClassificarTF:
 # ===========================================================================
 # _adx — Average Directional Index
 # ===========================================================================
+
 
 class TestADX:
 
@@ -181,14 +194,14 @@ class TestADX:
 # detectar — veredicto consolidado multi-timeframe
 # ===========================================================================
 
+
 class TestDetectar:
 
     def test_estrutura_de_retorno(self, monkeypatch):
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
         r = regime.detectar()
-        for chave in ("regime_final", "pode_operar", "motivo", "score",
-                      "votos", "detalhes_tf"):
+        for chave in ("regime_final", "pode_operar", "motivo", "score", "votos", "detalhes_tf"):
             assert chave in r
 
     def test_detalhes_tf_tem_os_tres_timeframes(self, monkeypatch):
@@ -324,6 +337,7 @@ class TestDetectar:
 # Geradores sintéticos auxiliares (cobertura adversarial — @Delta)
 # ===========================================================================
 
+
 def _serie_plana(n=N):
     """Série totalmente plana: TR=0 em todas as velas.
 
@@ -332,8 +346,7 @@ def _serie_plana(n=N):
     NEUTRO -> regime LATERAL.
     """
     f = [100.0] * n
-    return {"abertura": f, "maxima": f, "minima": f, "fechamento": f,
-            "volume": [1000.0] * n}
+    return {"abertura": f, "maxima": f, "minima": f, "fechamento": f, "volume": [1000.0] * n}
 
 
 def _serie_volume_crescente(n=N):
@@ -366,6 +379,7 @@ def _serie_curta(n=15):
 # ===========================================================================
 # _adx — bordas e ramos defensivos
 # ===========================================================================
+
 
 class TestADXBordas:
 
@@ -412,6 +426,7 @@ class TestADXBordas:
 # _classificar_tf — ramos internos (EMA, volume, ATR, direção)
 # ===========================================================================
 
+
 class TestClassificarTFRamos:
 
     def test_serie_plana_atr_ratio_fallback_um(self):
@@ -442,8 +457,7 @@ class TestClassificarTFRamos:
     def test_serie_curta_nao_lanca(self):
         # < 20 velas: vol_media usa v[-1]; ema200 cai no fallback. Sem exceção.
         r = regime._classificar_tf(_serie_curta(15), "1H")
-        assert r["regime"] in {"TENDENCIA_ALTA", "TENDENCIA_BAIXA",
-                               "LATERAL", "VOLATILIDADE"}
+        assert r["regime"] in {"TENDENCIA_ALTA", "TENDENCIA_BAIXA", "LATERAL", "VOLATILIDADE"}
         assert r["label"] == "1H"
 
     def test_preco_propagado_e_ultimo_fechamento(self):
@@ -461,6 +475,7 @@ class TestClassificarTFRamos:
 # detectar — score, prioridades e o ramo INDEFINIDO
 # ===========================================================================
 
+
 class TestDetectarRamos:
 
     def test_score_adx_capado_em_50(self, monkeypatch):
@@ -471,15 +486,13 @@ class TestDetectarRamos:
         r = regime.detectar()
         assert r["score"] == 117
         # Confirma matematicamente o teto do componente ADX.
-        adx_medio = (r["detalhes_tf"]["1h"]["adx"]
-                     + r["detalhes_tf"]["4h"]["adx"]) / 2
+        adx_medio = (r["detalhes_tf"]["1h"]["adx"] + r["detalhes_tf"]["4h"]["adx"]) / 2
         score_adx = min(adx_medio / regime.ADX_FORTE * 50, 50)
         assert score_adx == 50
 
     def test_volatilidade_no_1d_tem_prioridade(self, monkeypatch):
         # VOLATILIDADE em QUALQUER timeframe (aqui o 1D) bloqueia tudo.
-        mapa = {"1h": _serie_alta(), "4h": _serie_alta(),
-                "1d": _serie_volatilidade()}
+        mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_volatilidade()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
         r = regime.detectar()
         assert r["regime_final"] == "VOLATILIDADE"
@@ -487,8 +500,7 @@ class TestDetectarRamos:
         assert "ATR" in r["motivo"]
 
     def test_volatilidade_no_4h_tem_prioridade(self, monkeypatch):
-        mapa = {"1h": _serie_alta(), "4h": _serie_volatilidade(),
-                "1d": _serie_alta()}
+        mapa = {"1h": _serie_alta(), "4h": _serie_volatilidade(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
         r = regime.detectar()
         assert r["regime_final"] == "VOLATILIDADE"
@@ -518,6 +530,7 @@ class TestDetectarRamos:
             if intervalo == "1h":
                 return None
             return _serie_alta()
+
         monkeypatch.setattr(regime, "_klines", fake)
         r = regime.detectar()
         assert r["detalhes_tf"]["1h"]["regime"] == "INDEFINIDO"
@@ -530,12 +543,17 @@ class TestDetectarRamos:
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
         r = regime.detectar()
         assert set(r["votos"].keys()) == {
-            "TENDENCIA_ALTA", "TENDENCIA_BAIXA", "LATERAL", "VOLATILIDADE"}
+            "TENDENCIA_ALTA",
+            "TENDENCIA_BAIXA",
+            "LATERAL",
+            "VOLATILIDADE",
+        }
 
 
 # ===========================================================================
 # _klines — herméticos: requests é mockado, ZERO rede
 # ===========================================================================
+
 
 class TestKlines:
 
@@ -543,6 +561,7 @@ class TestKlines:
         class _Boom:
             def get(self, *a, **k):
                 raise RuntimeError("rede indisponivel")
+
         monkeypatch.setattr(regime, "requests", _Boom())
         assert regime._klines("1h", 60) is None
 
@@ -551,9 +570,11 @@ class TestKlines:
         class _Resp:
             def json(self):
                 raise ValueError("json invalido")
+
         class _Cli:
             def get(self, *a, **k):
                 return _Resp()
+
         monkeypatch.setattr(regime, "requests", _Cli())
         assert regime._klines("4h", 60) is None
 
@@ -564,16 +585,17 @@ class TestKlines:
         class _Resp:
             def json(self):
                 return filas
+
         capturado = {}
 
         class _Cli:
             def get(self, url, params=None, timeout=None):
                 capturado["params"] = params
                 return _Resp()
+
         monkeypatch.setattr(regime, "requests", _Cli())
         d = regime._klines("1d", 4)
-        assert set(d.keys()) == {
-            "abertura", "maxima", "minima", "fechamento", "volume"}
+        assert set(d.keys()) == {"abertura", "maxima", "minima", "fechamento", "volume"}
         assert d["abertura"] == [1.0] * 4
         assert d["maxima"] == [2.0] * 4
         assert d["minima"] == [0.5] * 4
@@ -587,6 +609,7 @@ class TestKlines:
 # ===========================================================================
 # imprimir — caminho de saída (cobre o mapa de cores e o retorno)
 # ===========================================================================
+
 
 class TestImprimir:
 
@@ -609,8 +632,7 @@ class TestImprimir:
         assert "INDEFINIDO" in out
 
     def test_imprimir_cobre_cor_volatilidade(self, monkeypatch, capsys):
-        mapa = {"1h": _serie_volatilidade(), "4h": _serie_alta(),
-                "1d": _serie_alta()}
+        mapa = {"1h": _serie_volatilidade(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
         r = regime.imprimir()
         out = capsys.readouterr().out

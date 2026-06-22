@@ -31,7 +31,6 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 
-
 DB_PATH = "data/fsrs_padroes.json"
 
 
@@ -45,6 +44,7 @@ class PadraoSinal:
       estabilidade: dias até 90% de esquecimento (analogia: confiança)
       n_reviews:    quantas vezes este padrão foi visto
     """
+
     id: str
     descricao: str
     dificuldade: float = 0.3
@@ -145,8 +145,7 @@ class FSRSFiltro:
         vol_cat = "ALTO" if vol >= 1.5 else "BAIXO" if vol < 0.7 else "NORM"
 
         padrao_id = f"{regime}|RSI_{rsi_cat}|EMA_{ema_cat}|CVD_{cvd_cat}|VOL_{vol_cat}"
-        descricao = (f"Regime:{regime} RSI:{rsi_cat} EMA:{ema_cat} "
-                     f"CVD:{cvd_cat} Vol:{vol_cat}")
+        descricao = f"Regime:{regime} RSI:{rsi_cat} EMA:{ema_cat} " f"CVD:{cvd_cat} Vol:{vol_cat}"
         return padrao_id, descricao
 
     # ── Avaliação ────────────────────────────────────────────
@@ -183,16 +182,18 @@ class FSRSFiltro:
         if padrao_id in self.padroes:
             p = self.padroes[padrao_id]
             fator = p.fator_confianca
-            detalhes.update({
-                "fator_confianca": fator,
-                "n_reviews": p.n_reviews,
-                "taxa_acerto_pct": p.taxa_acerto_pct,
-                "estabilidade": round(p.estabilidade, 2),
-                "dificuldade": round(p.dificuldade, 2),
-                "status": ("CONFIAVEL" if fator >= 0.7
-                           else "CAUTELOSO" if fator >= 0.5
-                           else "EVITAR"),
-            })
+            detalhes.update(
+                {
+                    "fator_confianca": fator,
+                    "n_reviews": p.n_reviews,
+                    "taxa_acerto_pct": p.taxa_acerto_pct,
+                    "estabilidade": round(p.estabilidade, 2),
+                    "dificuldade": round(p.dificuldade, 2),
+                    "status": (
+                        "CONFIAVEL" if fator >= 0.7 else "CAUTELOSO" if fator >= 0.5 else "EVITAR"
+                    ),
+                }
+            )
 
         return detalhes
 
@@ -283,36 +284,34 @@ class FSRSFiltro:
 
     def imprimir_padroes(self, top_n: int = 10):
         """Imprime os padrões mais relevantes."""
-        verde   = "\033[92m"
+        verde = "\033[92m"
         amarelo = "\033[93m"
         vermelho = "\033[91m"
-        cinza   = "\033[90m"
-        reset   = "\033[0m"
+        cinza = "\033[90m"
+        reset = "\033[0m"
 
         if not self.padroes:
             print(f"{cinza}[FSRS] Nenhum padrão registrado ainda.{reset}")
             return
 
-        padroes_ord = sorted(
-            self.padroes.values(),
-            key=lambda p: p.n_reviews,
-            reverse=True
-        )[:top_n]
+        padroes_ord = sorted(self.padroes.values(), key=lambda p: p.n_reviews, reverse=True)[:top_n]
 
-        print("\n" + "="*65)
+        print("\n" + "=" * 65)
         print("  FSRS — PADRÕES DE SINAL (ordenados por frequência)")
-        print("="*65)
+        print("=" * 65)
         print(f"  {'Padrão':<42} {'Rev':>4} {'%Acerto':>8} {'Fator':>6}")
         print(f"  {'-'*60}")
 
         for p in padroes_ord:
             fator = p.fator_confianca
             cor = verde if fator >= 0.7 else amarelo if fator >= 0.5 else vermelho
-            print(f"  {p.descricao[:42]:<42} {p.n_reviews:>4} "
-                  f"{p.taxa_acerto_pct:>7.1f}% {cor}{fator:>5.2f}{reset}")
+            print(
+                f"  {p.descricao[:42]:<42} {p.n_reviews:>4} "
+                f"{p.taxa_acerto_pct:>7.1f}% {cor}{fator:>5.2f}{reset}"
+            )
 
         print(f"\n  Total de padrões únicos: {len(self.padroes)}")
-        print("="*65)
+        print("=" * 65)
 
 
 # ── Instância global (singleton) ────────────────────────────────
@@ -346,12 +345,18 @@ if __name__ == "__main__":
 
         # Simular alguns trades
         features_alta = {
-            "regime": "TENDENCIA_ALTA", "rsi": 58, "dist_ema20": 0.005,
-            "cvd_score": 72, "vol_rel": 1.6
+            "regime": "TENDENCIA_ALTA",
+            "rsi": 58,
+            "dist_ema20": 0.005,
+            "cvd_score": 72,
+            "vol_rel": 1.6,
         }
         features_lateral = {
-            "regime": "LATERAL", "rsi": 50, "dist_ema20": 0.001,
-            "cvd_score": 50, "vol_rel": 0.9
+            "regime": "LATERAL",
+            "rsi": 50,
+            "dist_ema20": 0.001,
+            "cvd_score": 50,
+            "vol_rel": 0.9,
         }
 
         print(f"\n  Fator inicial (sem histórico): {fsrs.avaliar(features_alta)}")
@@ -364,11 +369,15 @@ if __name__ == "__main__":
 
         d = fsrs.avaliar_com_detalhe(features_alta)
         print(f"\n  Padrão tendência alta:")
-        print(f"    Fator: {d['fator_confianca']} | Acerto: {d['taxa_acerto_pct']}% | Status: {d['status']}")
+        print(
+            f"    Fator: {d['fator_confianca']} | Acerto: {d['taxa_acerto_pct']}% | Status: {d['status']}"
+        )
 
         d2 = fsrs.avaliar_com_detalhe(features_lateral)
         print(f"\n  Padrão lateral:")
-        print(f"    Fator: {d2['fator_confianca']} | Acerto: {d2['taxa_acerto_pct']}% | Status: {d2['status']}")
+        print(
+            f"    Fator: {d2['fator_confianca']} | Acerto: {d2['taxa_acerto_pct']}% | Status: {d2['status']}"
+        )
 
         fsrs.imprimir_padroes()
     else:

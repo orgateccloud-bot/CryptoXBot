@@ -27,12 +27,12 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL   = "http://localhost:11434/api/generate"
-OLLAMA_TAGS  = "http://localhost:11434/api/tags"
-MODELO_RAPIDO    = "gemma3:4b"       # 3.2GB — cabe na VRAM (6GB), análises frequentes
-MODELO_ANALITICO = "llama3:latest"   # 4.4GB — cabe na VRAM, análises profundas
-TIMEOUT_S        = 120  # 120s para primeiro carregamento (gemma3:4b indo para VRAM)
-TIMEOUT_S_NORMAL = 25   # após modelo carregado, respostas são rápidas
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_TAGS = "http://localhost:11434/api/tags"
+MODELO_RAPIDO = "gemma3:4b"  # 3.2GB — cabe na VRAM (6GB), análises frequentes
+MODELO_ANALITICO = "llama3:latest"  # 4.4GB — cabe na VRAM, análises profundas
+TIMEOUT_S = 120  # 120s para primeiro carregamento (gemma3:4b indo para VRAM)
+TIMEOUT_S_NORMAL = 25  # após modelo carregado, respostas são rápidas
 
 
 class OllamaCliente:
@@ -53,9 +53,7 @@ class OllamaCliente:
             r = requests.get(OLLAMA_TAGS, timeout=3)
             modelos_instalados = [m["name"] for m in r.json().get("models", [])]
             # Aceita match parcial (ex: "gemma2:2b" casa com "gemma2:2b-instruct-q4")
-            self._disponivel = any(
-                self.modelo.split(":")[0] in m for m in modelos_instalados
-            )
+            self._disponivel = any(self.modelo.split(":")[0] in m for m in modelos_instalados)
             if not self._disponivel:
                 logger.warning(
                     f"Ollama rodando mas modelo '{self.modelo}' não encontrado. "
@@ -65,8 +63,7 @@ class OllamaCliente:
             self._disponivel = False
         return self._disponivel
 
-    def _gerar(self, prompt: str, temperature: float = 0.1,
-               max_tokens: int = 150) -> str | None:
+    def _gerar(self, prompt: str, temperature: float = 0.1, max_tokens: int = 150) -> str | None:
         """Chama o Ollama e retorna o texto gerado."""
         if not self.esta_disponivel():
             return None
@@ -145,7 +142,9 @@ class OllamaCliente:
         )
 
         resposta = self._gerar(prompt, temperature=0.1, max_tokens=100)
-        return resposta or f"[Ollama indisponível] Regime:{regime} Score:{score} ML:{prob_ml*100:.0f}%"
+        return (
+            resposta or f"[Ollama indisponível] Regime:{regime} Score:{score} ML:{prob_ml*100:.0f}%"
+        )
 
     def classificar_noticia(self, texto: str) -> dict:
         """
@@ -158,7 +157,7 @@ class OllamaCliente:
         """
         prompt = (
             f'Classifique esta notícia sobre Bitcoin:\n"{texto[:400]}"\n\n'
-            f'Responda APENAS em JSON válido, sem texto extra:\n'
+            f"Responda APENAS em JSON válido, sem texto extra:\n"
             f'{{"sentimento": "BULLISH|BEARISH|NEUTRO", '
             f'"impacto": "ALTO|MEDIO|BAIXO", '
             f'"motivo": "máximo 10 palavras"}}'
@@ -176,8 +175,8 @@ class OllamaCliente:
                 resultado = json.loads(resposta[inicio:fim])
                 # Valida e normaliza campos
                 resultado["sentimento"] = resultado.get("sentimento", "NEUTRO").upper()
-                resultado["impacto"]    = resultado.get("impacto", "BAIXO").upper()
-                resultado["motivo"]     = resultado.get("motivo", "")
+                resultado["impacto"] = resultado.get("impacto", "BAIXO").upper()
+                resultado["motivo"] = resultado.get("motivo", "")
                 return resultado
         except (json.JSONDecodeError, KeyError):
             pass
@@ -259,8 +258,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ollama Client — Análise de Mercado")
     parser.add_argument("--modelo", default=MODELO_RAPIDO)
     parser.add_argument("--testar", action="store_true")
-    parser.add_argument("--noticia", type=str, default="",
-                        help="Texto de notícia para classificar")
+    parser.add_argument("--noticia", type=str, default="", help="Texto de notícia para classificar")
     args = parser.parse_args()
 
     cliente = OllamaCliente(modelo=args.modelo)

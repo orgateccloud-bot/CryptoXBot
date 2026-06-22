@@ -23,10 +23,10 @@ BASE_URL = "https://api.binance.com"
 PARES = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 
 TIMEFRAMES = {
-    "1h":  {"intervalo": "1h",  "dias": 730},   # 2 anos
-    "4h":  {"intervalo": "4h",  "dias": 730},   # 2 anos
-    "15m": {"intervalo": "15m", "dias":  90},   # 3 meses
-    "1d":  {"intervalo": "1d",  "dias": 730},   # 2 anos
+    "1h": {"intervalo": "1h", "dias": 730},  # 2 anos
+    "4h": {"intervalo": "4h", "dias": 730},  # 2 anos
+    "15m": {"intervalo": "15m", "dias": 90},  # 3 meses
+    "1d": {"intervalo": "1d", "dias": 730},  # 2 anos
 }
 
 
@@ -65,11 +65,11 @@ def baixar_klines(symbol, intervalo, dias):
 
     while atual < fim:
         params = {
-            "symbol":    symbol,
-            "interval":  intervalo,
+            "symbol": symbol,
+            "interval": intervalo,
             "startTime": atual,
-            "endTime":   fim,
-            "limit":     1000,
+            "endTime": fim,
+            "limit": 1000,
         }
         try:
             r = requests.get(f"{BASE_URL}/api/v3/klines", params=params, timeout=10)
@@ -80,9 +80,11 @@ def baixar_klines(symbol, intervalo, dias):
             todos.extend(lote)
             atual = lote[-1][0] + 1
             total_lotes += 1
-            print(f"  [{symbol}/{intervalo}] Lote {total_lotes}: {len(lote)} candles "
-                  f"| Total: {len(todos)} "
-                  f"| Até: {datetime.fromtimestamp(lote[-1][0]/1000).strftime('%d/%m/%Y')}")
+            print(
+                f"  [{symbol}/{intervalo}] Lote {total_lotes}: {len(lote)} candles "
+                f"| Total: {len(todos)} "
+                f"| Até: {datetime.fromtimestamp(lote[-1][0]/1000).strftime('%d/%m/%Y')}"
+            )
             time.sleep(0.2)
         except Exception as e:
             print(f"  ERRO no lote: {e}")
@@ -96,12 +98,23 @@ def salvar_klines(conn, symbol, intervalo, klines):
     inseridos = 0
     for k in klines:
         try:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR IGNORE INTO klines
                 (symbol, intervalo, timestamp, abertura, maxima, minima, fechamento, volume)
                 VALUES (?,?,?,?,?,?,?,?)
-            """, (symbol, intervalo, int(k[0]),
-                  float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])))
+            """,
+                (
+                    symbol,
+                    intervalo,
+                    int(k[0]),
+                    float(k[1]),
+                    float(k[2]),
+                    float(k[3]),
+                    float(k[4]),
+                    float(k[5]),
+                ),
+            )
             inseridos += 1
         except Exception:
             pass
@@ -120,27 +133,24 @@ def coletar_par(conn, symbol, timeframes_override=None):
 
 
 def resumo(conn, symbols):
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("  RESUMO DO BANCO")
-    print("="*60)
+    print("=" * 60)
     for symbol in symbols:
         print(f"\n  {symbol}:")
         for nome in TIMEFRAMES:
             count = conn.execute(
-                "SELECT COUNT(*) FROM klines WHERE symbol=? AND intervalo=?",
-                (symbol, nome)
+                "SELECT COUNT(*) FROM klines WHERE symbol=? AND intervalo=?", (symbol, nome)
             ).fetchone()[0]
             primeiro = conn.execute(
-                "SELECT MIN(timestamp) FROM klines WHERE symbol=? AND intervalo=?",
-                (symbol, nome)
+                "SELECT MIN(timestamp) FROM klines WHERE symbol=? AND intervalo=?", (symbol, nome)
             ).fetchone()[0]
             ultimo = conn.execute(
-                "SELECT MAX(timestamp) FROM klines WHERE symbol=? AND intervalo=?",
-                (symbol, nome)
+                "SELECT MAX(timestamp) FROM klines WHERE symbol=? AND intervalo=?", (symbol, nome)
             ).fetchone()[0]
             if primeiro and ultimo:
-                dt_ini = datetime.fromtimestamp(primeiro/1000).strftime("%d/%m/%Y")
-                dt_fim = datetime.fromtimestamp(ultimo/1000).strftime("%d/%m/%Y")
+                dt_ini = datetime.fromtimestamp(primeiro / 1000).strftime("%d/%m/%Y")
+                dt_fim = datetime.fromtimestamp(ultimo / 1000).strftime("%d/%m/%Y")
                 print(f"    [{nome:4s}] {count:5d} candles  |  {dt_ini} ate {dt_fim}")
             elif count > 0:
                 print(f"    [{nome:4s}] {count:5d} candles")
@@ -166,9 +176,9 @@ def main():
     else:
         symbols = [args.par.upper()]
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print(f"  COLETANDO HISTORICO — {', '.join(symbols)} (Binance)")
-    print("="*60)
+    print("=" * 60)
 
     for symbol in symbols:
         coletar_par(conn, symbol, tfs)

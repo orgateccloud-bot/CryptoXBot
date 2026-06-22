@@ -35,10 +35,10 @@ if RAIZ not in sys.path:
 import ml_filtro  # noqa: E402
 import indicadores as ind  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Geradores deterministicos
 # ---------------------------------------------------------------------------
+
 
 def _series(n=120, base=100.0, passo=0.5):
     f, m, mn, v = [], [], [], []
@@ -86,6 +86,7 @@ def _fake_conn(rows):
 # extrair_features — limiares de indice exatos
 # ===========================================================================
 
+
 def test_extrair_features_indice_56_retorna_lista():
     # 56 e o primeiro indice acima do limiar 55 (com 1 vela de folga).
     f, m, mn, v = _series(120)
@@ -108,6 +109,7 @@ def test_extrair_features_indice_negativo_retorna_none():
 # ===========================================================================
 # extrair_features — branches de fallback (serie constante)
 # ===========================================================================
+
 
 def test_extrair_features_serie_constante_nao_lanca_e_tem_11():
     f, m, mn, v = _series_constante(120)
@@ -185,6 +187,7 @@ def test_extrair_features_volume_relativo_normalizado_nao_negativo():
 # preparar_dataset — limiar exato de 100 linhas
 # ===========================================================================
 
+
 def test_preparar_dataset_99_linhas_retorna_none():
     rows = [(100.0, 101.0, 99.0, 1000.0)] * 99
     with mock.patch.object(ml_filtro.sqlite3, "connect", return_value=_fake_conn(rows)):
@@ -228,7 +231,9 @@ def test_preparar_dataset_repassa_symbol_e_intervalo_no_sql():
 def test_preparar_dataset_usa_db_path_do_modulo():
     f, m, mn, v = _series(200)
     rows = [(f[i], m[i], mn[i], v[i]) for i in range(len(f))]
-    with mock.patch.object(ml_filtro.sqlite3, "connect", return_value=_fake_conn(rows)) as conn_mock:
+    with mock.patch.object(
+        ml_filtro.sqlite3, "connect", return_value=_fake_conn(rows)
+    ) as conn_mock:
         ml_filtro.preparar_dataset("1h", "BTCUSDT")
     conn_mock.assert_called_once_with(ml_filtro.DB_PATH)
 
@@ -246,6 +251,7 @@ def test_preparar_dataset_dtype_numerico():
 # prever — fallback de legado (data/modelo_xgb.pkl)
 # ===========================================================================
 
+
 def test_prever_btcusdt_usa_legado_quando_especifico_ausente():
     f, m, mn, v = _series(120)
     klines = _klines_de(f, m, mn, v)
@@ -258,10 +264,12 @@ def test_prever_btcusdt_usa_legado_quando_especifico_ausente():
     def fake_exists(p):
         return p == "data/modelo_xgb.pkl"  # so o legado existe
 
-    with mock.patch.object(ml_filtro.os.path, "exists", side_effect=fake_exists), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp) as get_mock:
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", side_effect=fake_exists),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp) as get_mock,
+    ):
         prob, msg = ml_filtro.prever("BTCUSDT")
 
     assert msg == "OK"
@@ -275,8 +283,10 @@ def test_prever_nao_btcusdt_ignora_legado():
     def fake_exists(p):
         return p == "data/modelo_xgb.pkl"
 
-    with mock.patch.object(ml_filtro.os.path, "exists", side_effect=fake_exists), \
-         mock.patch.object(ml_filtro.requests, "get") as get_mock:
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", side_effect=fake_exists),
+        mock.patch.object(ml_filtro.requests, "get") as get_mock,
+    ):
         prob, msg = ml_filtro.prever("ETHUSDT")
 
     assert prob is None
@@ -289,6 +299,7 @@ def test_prever_nao_btcusdt_ignora_legado():
 # prever — repasse correto de parametros e arredondamento
 # ===========================================================================
 
+
 def test_prever_envia_symbol_interval_limit_e_timeout():
     f, m, mn, v = _series(120)
     klines = _klines_de(f, m, mn, v)
@@ -298,10 +309,12 @@ def test_prever_envia_symbol_interval_limit_e_timeout():
     resp = mock.Mock()
     resp.json.return_value = klines
 
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=True), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp) as get_mock:
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=True),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp) as get_mock,
+    ):
         ml_filtro.prever("SOLUSDT")
 
     kwargs = get_mock.call_args.kwargs
@@ -323,10 +336,12 @@ def test_prever_arredonda_probabilidade_para_4_casas():
     resp = mock.Mock()
     resp.json.return_value = klines
 
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=True), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp):
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=True),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp),
+    ):
         prob, msg = ml_filtro.prever("BTCUSDT")
 
     assert msg == "OK"
@@ -344,10 +359,12 @@ def test_prever_passa_feature_unica_ao_modelo():
     resp = mock.Mock()
     resp.json.return_value = klines
 
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=True), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp):
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=True),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp),
+    ):
         ml_filtro.prever("BTCUSDT")
 
     modelo.predict_proba.assert_called_once()
@@ -365,10 +382,12 @@ def test_prever_features_insuficientes_nao_chama_modelo():
     resp = mock.Mock()
     resp.json.return_value = klines
 
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=True), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp):
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=True),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp),
+    ):
         prob, msg = ml_filtro.prever("BTCUSDT")
 
     assert prob is None
@@ -379,6 +398,7 @@ def test_prever_features_insuficientes_nao_chama_modelo():
 # ===========================================================================
 # _model_path — robustez de casing/simbolos
 # ===========================================================================
+
 
 def test_model_path_simbolo_ja_minusculo():
     assert ml_filtro._model_path("solusdt") == "data/modelo_xgb_solusdt.pkl"
@@ -392,6 +412,7 @@ def test_model_path_constante_modulo_consistente():
 # ===========================================================================
 # Regressao — indicadores consumidos por extrair_features
 # ===========================================================================
+
 
 def test_regressao_volume_relativo_sem_indexerror_serie_exata():
     # Serie de tamanho == periodo: ultimo ponto tem media valida, sem IndexError.
@@ -453,10 +474,12 @@ def test_regressao_prever_nao_lanca_com_modelo_e_klines_validos():
     resp = mock.Mock()
     resp.json.return_value = klines
 
-    with mock.patch.object(ml_filtro.os.path, "exists", return_value=True), \
-         mock.patch("builtins.open", mock.mock_open()), \
-         mock.patch.object(ml_filtro.pickle, "load", return_value=artefato), \
-         mock.patch.object(ml_filtro.requests, "get", return_value=resp):
+    with (
+        mock.patch.object(ml_filtro.os.path, "exists", return_value=True),
+        mock.patch("builtins.open", mock.mock_open()),
+        mock.patch.object(ml_filtro.pickle, "load", return_value=artefato),
+        mock.patch.object(ml_filtro.requests, "get", return_value=resp),
+    ):
         prob, msg = ml_filtro.prever("BTCUSDT")
 
     assert msg == "OK"

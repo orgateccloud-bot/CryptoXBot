@@ -28,27 +28,28 @@ Bloqueios absolutos (score forcado para 0):
 
 import sys, os
 import numpy as np
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from data.cvd_calculator import calculate_cvd
 
 # Limiar de operacao
-SCORE_OPERAR       = 60   # score minimo para operar
-SCORE_CHEIO        = 70   # score para tamanho cheio
-SCORE_REDUZIDO     = 60   # score para tamanho 50%
+SCORE_OPERAR = 60  # score minimo para operar
+SCORE_CHEIO = 70  # score para tamanho cheio
+SCORE_REDUZIDO = 60  # score para tamanho 50%
 
 # Pesos (somam 100)
 PESOS = {
-    "regime":    18,  # -2 (continua filtro macro principal)
-    "cvd":       15,  # = (fluxo institucional, peso mantido)
-    "mtf":       12,  # -3 (confirmação multi-TF)
-    "ml":        20,  # +8 (ensemble XGBoost+MLP validado, peso elevado)
-    "ema":        8,  # -2 (tendência curto prazo)
+    "regime": 18,  # -2 (continua filtro macro principal)
+    "cvd": 15,  # = (fluxo institucional, peso mantido)
+    "mtf": 12,  # -3 (confirmação multi-TF)
+    "ml": 20,  # +8 (ensemble XGBoost+MLP validado, peso elevado)
+    "ema": 8,  # -2 (tendência curto prazo)
     "fear_greed": 8,  # -2 (sentimento macro)
-    "rsi":        8,  # = (momentum)
-    "vwap":       5,  # = (preço vs média ponderada)
-    "volume":     4,  # +1 (força do movimento)
-    "atr":        2,  # = (volatilidade adequada)
+    "rsi": 8,  # = (momentum)
+    "vwap": 5,  # = (preço vs média ponderada)
+    "volume": 4,  # +1 (força do movimento)
+    "atr": 2,  # = (volatilidade adequada)
 }
 
 
@@ -69,7 +70,7 @@ def _score_regime(regime_info):
         return 50  # neutro sem dados
 
     regime = regime_info.get("regime_final", "INDEFINIDO")
-    forca  = regime_info.get("score", 50)  # 0-100 (força da tendência)
+    forca = regime_info.get("score", 50)  # 0-100 (força da tendência)
 
     if regime in ("TENDENCIA_ALTA", "TENDENCIA_BAIXA"):
         return max(60, min(100, int(forca)))  # trend claro: usa a força (>=60)
@@ -119,11 +120,11 @@ def _score_cvd(preco_atual, historico_ticks, periodo=50):
     if preco_trend == 1 and cvd_trend == 1:
         base_score = 100  # harmonia bullish
     elif preco_trend == 1 and cvd_trend == -1:
-        base_score = 0    # divergência bearish forte
+        base_score = 0  # divergência bearish forte
     elif preco_trend == -1 and cvd_trend == 1:
-        base_score = 50   # divergência bullish moderada
+        base_score = 50  # divergência bullish moderada
     elif preco_trend == -1 and cvd_trend == -1:
-        base_score = 20   # harmonia bearish
+        base_score = 20  # harmonia bearish
 
     # Bonus por força da tendência CVD
     strength_bonus = int(trend_strength * 20)  # até +20pts se tendência forte
@@ -173,17 +174,17 @@ def _score_ema(preco, ema20, ema50):
 def _score_fear_greed(valor):
     """0-100 baseado no Fear & Greed Index."""
     if valor <= 20:
-        return 0   # bloqueio absoluto
+        return 0  # bloqueio absoluto
     elif valor > 80:
-        return 0   # bloqueio absoluto (ganancia extrema)
+        return 0  # bloqueio absoluto (ganancia extrema)
     elif 35 <= valor <= 65:
         return 100  # zona ideal
     elif 25 <= valor < 35:
-        return 60   # medo moderado — pode operar com cautela
+        return 60  # medo moderado — pode operar com cautela
     elif 65 < valor <= 75:
-        return 70   # ganancia moderada
+        return 70  # ganancia moderada
     else:
-        return 40   # zona de transicao
+        return 40  # zona de transicao
 
 
 def _score_rsi(rsi, rsi_min=42, rsi_max=62):
@@ -234,13 +235,13 @@ def _score_atr(atr_atual, atr_media):
         return 50
     ratio = atr_atual / atr_media
     if ratio > 2.5:
-        return 0   # volatilidade extrema
+        return 0  # volatilidade extrema
     elif 0.7 <= ratio <= 1.8:
         return 100  # volatilidade ideal
     elif ratio < 0.7:
-        return 30   # mercado parado
+        return 30  # mercado parado
     else:
-        return 60   # volatilidade elevada mas aceitavel
+        return 60  # volatilidade elevada mas aceitavel
 
 
 def calcular(
@@ -275,31 +276,33 @@ def calcular(
       detalhes:      lista de componentes ordenados por contribuicao
     """
     scores_raw = {
-        "regime":     _score_regime(regime_info),
-        "cvd":        _score_cvd(preco, historico_ticks or []),
-        "mtf":        _score_mtf(tend_4h),
-        "ml":         _score_ml(ml_prob, regime_info.get("regime_final", "INDEFINIDO")),
-        "ema":        _score_ema(preco, ema20, ema50),
+        "regime": _score_regime(regime_info),
+        "cvd": _score_cvd(preco, historico_ticks or []),
+        "mtf": _score_mtf(tend_4h),
+        "ml": _score_ml(ml_prob, regime_info.get("regime_final", "INDEFINIDO")),
+        "ema": _score_ema(preco, ema20, ema50),
         "fear_greed": _score_fear_greed(fear_info.get("valor", 50)),
-        "rsi":        _score_rsi(rsi, rsi_min, rsi_max),
-        "vwap":       _score_vwap(preco, vwap_val),
-        "volume":     _score_volume(vol_rel),
-        "atr":        _score_atr(atr_atual, atr_media),
+        "rsi": _score_rsi(rsi, rsi_min, rsi_max),
+        "vwap": _score_vwap(preco, vwap_val),
+        "volume": _score_volume(vol_rel),
+        "atr": _score_atr(atr_atual, atr_media),
     }
 
     # Score ponderado
     score_total = 0
     contribuicoes = []
     for comp, peso in PESOS.items():
-        raw    = scores_raw[comp]
+        raw = scores_raw[comp]
         contrib = raw * peso / 100
         score_total += contrib
-        contribuicoes.append({
-            "componente":  comp,
-            "score_raw":   raw,
-            "peso":        peso,
-            "contribuicao": round(contrib, 1),
-        })
+        contribuicoes.append(
+            {
+                "componente": comp,
+                "score_raw": raw,
+                "peso": peso,
+                "contribuicao": round(contrib, 1),
+            }
+        )
 
     score_total = round(score_total)
 
@@ -314,19 +317,19 @@ def calcular(
 
     if bloqueios:
         score_total = max(score_total, 1)  # mantém score real mas bloqueia operacao
-        decisao       = "AGUARDAR"
+        decisao = "AGUARDAR"
         tamanho_fator = 0.0
         motivo = "BLOQUEIO: " + " | ".join(bloqueios)
     elif score_total >= score_cheio:
-        decisao       = "OPERAR_CHEIO"
+        decisao = "OPERAR_CHEIO"
         tamanho_fator = 1.0
         motivo = f"Score {score_total}/100 — Condicoes excelentes para operar"
     elif score_total >= score_operar:
-        decisao       = "OPERAR_REDUZIDO"
+        decisao = "OPERAR_REDUZIDO"
         tamanho_fator = 0.5
         motivo = f"Score {score_total}/100 — Operar com 50% do tamanho (cautela)"
     else:
-        decisao       = "AGUARDAR"
+        decisao = "AGUARDAR"
         tamanho_fator = 0.0
         motivo = f"Score {score_total}/100 — Abaixo do minimo ({score_operar})"
 
@@ -334,14 +337,14 @@ def calcular(
     contribuicoes.sort(key=lambda x: x["contribuicao"], reverse=True)
 
     return {
-        "score_total":   score_total,
-        "scores":        scores_raw,
-        "pesos":         PESOS,
-        "decisao":       decisao,
+        "score_total": score_total,
+        "scores": scores_raw,
+        "pesos": PESOS,
+        "decisao": decisao,
         "tamanho_fator": tamanho_fator,
-        "motivo":        motivo,
-        "bloqueios":     bloqueios,
-        "detalhes":      contribuicoes,
+        "motivo": motivo,
+        "bloqueios": bloqueios,
+        "detalhes": contribuicoes,
     }
 
 
@@ -352,31 +355,31 @@ def imprimir_score(score_result):
 
     # Cor do score
     if s >= SCORE_CHEIO:
-        cor = "\033[92m"    # verde
+        cor = "\033[92m"  # verde
     elif s >= SCORE_REDUZIDO:
-        cor = "\033[93m"    # amarelo
+        cor = "\033[93m"  # amarelo
     else:
-        cor = "\033[91m"    # vermelho
-    reset  = "\033[0m"
-    verde  = "\033[92m"
+        cor = "\033[91m"  # vermelho
+    reset = "\033[0m"
+    verde = "\033[92m"
     vermelho = "\033[91m"
-    cinza  = "\033[90m"
+    cinza = "\033[90m"
 
     # Barra de progresso
     barra_len = 40
-    pos  = int(s / 100 * barra_len)
+    pos = int(s / 100 * barra_len)
     # Marcadores de limiar
     barra = list("-" * barra_len)
     for i in range(pos):
         barra[i] = "#"
     # Marcadores visuais
     barra[int(SCORE_REDUZIDO / 100 * barra_len)] = "|"
-    barra[int(SCORE_CHEIO   / 100 * barra_len)] = "|"
+    barra[int(SCORE_CHEIO / 100 * barra_len)] = "|"
     barra_str = "".join(barra)
 
-    print("\n" + "="*58)
+    print("\n" + "=" * 58)
     print("  SCORE UNIFICADO")
-    print("="*58)
+    print("=" * 58)
     print(f"  {cor}{s:3d}/100  [{barra_str}]{reset}")
     print(f"         {cinza}{'':>{int(SCORE_REDUZIDO/100*barra_len)+2}}60  75{reset}")
     print()
@@ -387,16 +390,21 @@ def imprimir_score(score_result):
     for d in score_result["detalhes"]:
         raw = round(d["score_raw"]) if isinstance(d["score_raw"], float) else d["score_raw"]
         cor_c = verde if raw >= 70 else vermelho if raw < 40 else "\033[93m"
-        print(f"  {d['componente']:<14} {cor_c}{raw:>5}{reset}  "
-              f"{d['peso']:>4}%  {d['contribuicao']:>6.1f}pt")
+        print(
+            f"  {d['componente']:<14} {cor_c}{raw:>5}{reset}  "
+            f"{d['peso']:>4}%  {d['contribuicao']:>6.1f}pt"
+        )
 
     print(f"  {'-'*40}")
     print(f"  {'TOTAL':<14} {cor}{s:>5}{reset}  {'100':>5}%  {s:>6.1f}pt")
 
     print()
 
-    cor_d = verde if decisao == "OPERAR_CHEIO" else \
-            "\033[93m" if decisao == "OPERAR_REDUZIDO" else vermelho
+    cor_d = (
+        verde
+        if decisao == "OPERAR_CHEIO"
+        else "\033[93m" if decisao == "OPERAR_REDUZIDO" else vermelho
+    )
 
     print(f"  Decisao: {cor_d}{decisao}{reset}")
     if score_result["bloqueios"]:
@@ -406,7 +414,7 @@ def imprimir_score(score_result):
     if decisao == "OPERAR_REDUZIDO":
         amarelo = "\033[93m"
         print(f"  {amarelo}Tamanho da posicao: 50% do calculado pelo Kelly{reset}")
-    print("="*58)
+    print("=" * 58)
 
 
 if __name__ == "__main__":
@@ -415,7 +423,7 @@ if __name__ == "__main__":
 
     print("Calculando Score Unificado...")
     regime_info = reg.detectar()
-    fear_info   = fg.obter()
+    fear_info = fg.obter()
 
     # Valores simulados para demo
     resultado = calcular(

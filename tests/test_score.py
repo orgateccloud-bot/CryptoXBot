@@ -21,10 +21,10 @@ if RAIZ not in sys.path:
 
 import score  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
+
 
 def _inputs_base(**overrides):
     """Conjunto de kwargs neutros para score.calcular(); sobrescreva o necessário."""
@@ -51,14 +51,23 @@ def _inputs_base(**overrides):
 # PESOS
 # ---------------------------------------------------------------------------
 
+
 def test_pesos_somam_100():
     assert sum(score.PESOS.values()) == 100
 
 
 def test_pesos_chaves_esperadas():
     esperadas = {
-        "regime", "cvd", "mtf", "ml", "ema",
-        "fear_greed", "rsi", "vwap", "volume", "atr",
+        "regime",
+        "cvd",
+        "mtf",
+        "ml",
+        "ema",
+        "fear_greed",
+        "rsi",
+        "vwap",
+        "volume",
+        "atr",
     }
     assert set(score.PESOS.keys()) == esperadas
 
@@ -66,6 +75,7 @@ def test_pesos_chaves_esperadas():
 # ---------------------------------------------------------------------------
 # _score_regime
 # ---------------------------------------------------------------------------
+
 
 def test_score_regime_tendencia_alta_forca_alta():
     r = score._score_regime({"regime_final": "TENDENCIA_ALTA", "score": 90})
@@ -114,6 +124,7 @@ def test_score_regime_clamp_100():
 # _score_rsi
 # ---------------------------------------------------------------------------
 
+
 def test_score_rsi_none():
     assert score._score_rsi(None) == 50
 
@@ -150,6 +161,7 @@ def test_score_rsi_sempre_no_intervalo():
 # _score_ml
 # ---------------------------------------------------------------------------
 
+
 def test_score_ml_none():
     assert score._score_ml(None) == 50
 
@@ -179,6 +191,7 @@ def test_score_ml_intervalo():
 # ---------------------------------------------------------------------------
 # _score_fear_greed
 # ---------------------------------------------------------------------------
+
 
 def test_score_fear_greed_medo_extremo():
     assert score._score_fear_greed(20) == 0
@@ -215,6 +228,7 @@ def test_score_fear_greed_intervalo():
 # _score_vwap
 # ---------------------------------------------------------------------------
 
+
 def test_score_vwap_invalido():
     assert score._score_vwap(100, 0) == 50
     assert score._score_vwap(100, -5) == 50
@@ -241,6 +255,7 @@ def test_score_vwap_intervalo():
 # _score_volume
 # ---------------------------------------------------------------------------
 
+
 def test_score_volume_faixas():
     assert score._score_volume(2.5) == 100
     assert score._score_volume(1.5) == 80
@@ -257,6 +272,7 @@ def test_score_volume_intervalo():
 # ---------------------------------------------------------------------------
 # _score_atr
 # ---------------------------------------------------------------------------
+
 
 def test_score_atr_media_invalida():
     assert score._score_atr(100, 0) == 50
@@ -287,6 +303,7 @@ def test_score_atr_intervalo():
 # _score_mtf
 # ---------------------------------------------------------------------------
 
+
 def test_score_mtf_alta():
     assert score._score_mtf("ALTA") == 100
 
@@ -307,6 +324,7 @@ def test_score_mtf_intervalo():
 # ---------------------------------------------------------------------------
 # _score_ema
 # ---------------------------------------------------------------------------
+
 
 def test_score_ema_alinhamento_perfeito():
     r = score._score_ema(110, 105, 100)  # preco > ema20 > ema50
@@ -342,6 +360,7 @@ def test_score_ema_intervalo():
 # _score_cvd  (sem rede/DB: None ou histórico curto -> 50 neutro)
 # ---------------------------------------------------------------------------
 
+
 def test_score_cvd_none():
     assert score._score_cvd(100.0, None) == 50
 
@@ -359,19 +378,25 @@ def test_score_cvd_lista_vazia():
 # calcular(...) — decisões e bloqueios
 # ---------------------------------------------------------------------------
 
+
 def test_calcular_operar_cheio():
     """Inputs maximizados -> score >= score_cheio, decisao OPERAR_CHEIO."""
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
-        fear_info={"valor": 50},          # 100
-        tend_4h="ALTA",                    # 100
-        ml_prob=0.95,                      # 95
-        preco=120.0, ema20=110.0, ema50=100.0,  # ema alinhado, dist grande
-        rsi=52,                            # 100
-        vwap_val=100.0,                    # preço acima -> alto
-        vol_rel=2.5,                       # 100
-        atr_atual=100.0, atr_media=100.0,  # 100
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
+            fear_info={"valor": 50},  # 100
+            tend_4h="ALTA",  # 100
+            ml_prob=0.95,  # 95
+            preco=120.0,
+            ema20=110.0,
+            ema50=100.0,  # ema alinhado, dist grande
+            rsi=52,  # 100
+            vwap_val=100.0,  # preço acima -> alto
+            vol_rel=2.5,  # 100
+            atr_atual=100.0,
+            atr_media=100.0,  # 100
+        )
+    )
     assert res["decisao"] == "OPERAR_CHEIO"
     assert res["tamanho_fator"] == 1.0
     assert res["score_total"] >= 70
@@ -381,17 +406,22 @@ def test_calcular_operar_cheio():
 
 def test_calcular_operar_reduzido():
     """Score entre score_operar (60) e score_cheio (70) -> OPERAR_REDUZIDO."""
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "TENDENCIA_ALTA", "score": 70},
-        fear_info={"valor": 50},          # 100
-        tend_4h="LATERAL",                 # 50
-        ml_prob=0.55,                      # 55
-        preco=100.0, ema20=100.0, ema50=100.0,  # ema -> preco>ema20? não (igual) => 0
-        rsi=52,                            # 100
-        vwap_val=100.0,                    # igual -> dist 0 => 70
-        vol_rel=1.0,                       # 60
-        atr_atual=100.0, atr_media=100.0,  # 100
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "TENDENCIA_ALTA", "score": 70},
+            fear_info={"valor": 50},  # 100
+            tend_4h="LATERAL",  # 50
+            ml_prob=0.55,  # 55
+            preco=100.0,
+            ema20=100.0,
+            ema50=100.0,  # ema -> preco>ema20? não (igual) => 0
+            rsi=52,  # 100
+            vwap_val=100.0,  # igual -> dist 0 => 70
+            vol_rel=1.0,  # 60
+            atr_atual=100.0,
+            atr_media=100.0,  # 100
+        )
+    )
     assert res["decisao"] == "OPERAR_REDUZIDO"
     assert res["tamanho_fator"] == 0.5
     assert 60 <= res["score_total"] < 70
@@ -400,17 +430,24 @@ def test_calcular_operar_reduzido():
 
 def test_calcular_aguardar_score_baixo():
     """Inputs fracos (sem bloqueio absoluto) -> score < score_operar -> AGUARDAR."""
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "INDEFINIDO", "score": 40},  # 40
-        fear_info={"valor": 78},          # 40 (transição, não bloqueia: 75<v<=80? não, >75 e <=80 => else 40)
-        tend_4h="BAIXA",                   # 0
-        ml_prob=0.1,                       # 10
-        preco=90.0, ema20=105.0, ema50=100.0,  # ema 0
-        rsi=80,                            # 0
-        vwap_val=100.0,                    # preço 90 abaixo -> baixo
-        vol_rel=0.3,                       # 20
-        atr_atual=300.0, atr_media=100.0,  # 0
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "INDEFINIDO", "score": 40},  # 40
+            fear_info={
+                "valor": 78
+            },  # 40 (transição, não bloqueia: 75<v<=80? não, >75 e <=80 => else 40)
+            tend_4h="BAIXA",  # 0
+            ml_prob=0.1,  # 10
+            preco=90.0,
+            ema20=105.0,
+            ema50=100.0,  # ema 0
+            rsi=80,  # 0
+            vwap_val=100.0,  # preço 90 abaixo -> baixo
+            vol_rel=0.3,  # 20
+            atr_atual=300.0,
+            atr_media=100.0,  # 0
+        )
+    )
     assert res["decisao"] == "AGUARDAR"
     assert res["tamanho_fator"] == 0.0
     assert res["score_total"] < 60
@@ -426,8 +463,14 @@ def test_calcular_score_total_no_intervalo():
 def test_calcular_estrutura_retorno():
     res = score.calcular(**_inputs_base())
     for chave in (
-        "score_total", "scores", "pesos", "decisao",
-        "tamanho_fator", "motivo", "bloqueios", "detalhes",
+        "score_total",
+        "scores",
+        "pesos",
+        "decisao",
+        "tamanho_fator",
+        "motivo",
+        "bloqueios",
+        "detalhes",
     ):
         assert chave in res
     assert set(res["scores"].keys()) == set(score.PESOS.keys())
@@ -441,10 +484,13 @@ def test_calcular_estrutura_retorno():
 # Bloqueios absolutos
 # ---------------------------------------------------------------------------
 
+
 def test_bloqueio_regime_volatilidade():
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "VOLATILIDADE", "score": 90},
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "VOLATILIDADE", "score": 90},
+        )
+    )
     assert res["decisao"] == "AGUARDAR"
     assert res["tamanho_fator"] == 0.0
     assert any("VOLATILIDADE" in b for b in res["bloqueios"])
@@ -452,29 +498,35 @@ def test_bloqueio_regime_volatilidade():
 
 
 def test_bloqueio_regime_lateral():
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "LATERAL", "score": 90},
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "LATERAL", "score": 90},
+        )
+    )
     assert res["decisao"] == "AGUARDAR"
     assert res["tamanho_fator"] == 0.0
     assert any("LATERAL" in b for b in res["bloqueios"])
 
 
 def test_bloqueio_fear_medo_extremo():
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
-        fear_info={"valor": 15},  # <= 20
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
+            fear_info={"valor": 15},  # <= 20
+        )
+    )
     assert res["decisao"] == "AGUARDAR"
     assert res["tamanho_fator"] == 0.0
     assert any("Medo Extremo" in b for b in res["bloqueios"])
 
 
 def test_bloqueio_fear_ganancia_extrema():
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
-        fear_info={"valor": 90},  # > 80
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
+            fear_info={"valor": 90},  # > 80
+        )
+    )
     assert res["decisao"] == "AGUARDAR"
     assert res["tamanho_fator"] == 0.0
     assert any("Ganancia Extrema" in b for b in res["bloqueios"])
@@ -482,17 +534,22 @@ def test_bloqueio_fear_ganancia_extrema():
 
 def test_bloqueio_mantem_score_minimo_1():
     # Mesmo bloqueado, score_total nunca fica abaixo de 1.
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "VOLATILIDADE", "score": 5},
-        fear_info={"valor": 15},
-        tend_4h="BAIXA",
-        ml_prob=0.0,
-        preco=90.0, ema20=105.0, ema50=100.0,
-        rsi=80,
-        vwap_val=100.0,
-        vol_rel=0.1,
-        atr_atual=300.0, atr_media=100.0,
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "VOLATILIDADE", "score": 5},
+            fear_info={"valor": 15},
+            tend_4h="BAIXA",
+            ml_prob=0.0,
+            preco=90.0,
+            ema20=105.0,
+            ema50=100.0,
+            rsi=80,
+            vwap_val=100.0,
+            vol_rel=0.1,
+            atr_atual=300.0,
+            atr_media=100.0,
+        )
+    )
     assert res["score_total"] >= 1
     assert res["decisao"] == "AGUARDAR"
 
@@ -509,15 +566,13 @@ _FakeCVD = namedtuple("_FakeCVD", ["divergence_score", "trend_strength"])
 
 def _ticks(precos, qtd=1.0, buyer=False):
     """Gera ticks no formato que _score_cvd consome (campo 'preco')."""
-    return [
-        {"preco": float(p), "is_buyer_maker": buyer, "quantidade": qtd}
-        for p in precos
-    ]
+    return [{"preco": float(p), "is_buyer_maker": buyer, "quantidade": qtd} for p in precos]
 
 
 # ---------------------------------------------------------------------------
 # _score_regime — bordas e tipos
 # ---------------------------------------------------------------------------
+
 
 def test_score_regime_tendencia_baixa_forca_baixa_minimo_60():
     # TENDENCIA_BAIXA com força baixa também é piso 60 (branch trend claro).
@@ -551,6 +606,7 @@ def test_score_regime_borda_tendencia_alta_score_61():
 # _score_rsi — bordas exatas das faixas
 # ---------------------------------------------------------------------------
 
+
 def test_score_rsi_borda_superior_faixa_62():
     # |62-52|/10 = 1.0 -> 100 - 30 = 70.
     assert score._score_rsi(62) == 70
@@ -583,6 +639,7 @@ def test_score_rsi_faixa_customizada():
 # ---------------------------------------------------------------------------
 # _score_ml — clamps e penalidade lateral
 # ---------------------------------------------------------------------------
+
 
 def test_score_ml_prob_acima_de_1_clamp_100():
     assert score._score_ml(1.5) == 100
@@ -618,6 +675,7 @@ def test_score_ml_lateral_prob_alta_nao_fica_negativa():
 # ---------------------------------------------------------------------------
 # _score_fear_greed — todas as fronteiras
 # ---------------------------------------------------------------------------
+
 
 def test_score_fear_greed_borda_20_bloqueio():
     assert score._score_fear_greed(20) == 0
@@ -670,6 +728,7 @@ def test_score_fear_greed_81_bloqueio():
 # _score_vwap — clamps superior/inferior
 # ---------------------------------------------------------------------------
 
+
 def test_score_vwap_satura_em_100():
     # +10% -> min(100, 70 + 50) = 100.
     assert score._score_vwap(110, 100) == 100
@@ -703,6 +762,7 @@ def test_score_vwap_vwap_negativo_neutro():
 # _score_volume — limiares exatos
 # ---------------------------------------------------------------------------
 
+
 def test_score_volume_borda_2_0():
     assert score._score_volume(2.0) == 100
 
@@ -731,6 +791,7 @@ def test_score_volume_zero_e_negativo():
 # ---------------------------------------------------------------------------
 # _score_atr — limiares exatos de ratio
 # ---------------------------------------------------------------------------
+
 
 def test_score_atr_ratio_0_7_ideal():
     assert score._score_atr(70, 100) == 100
@@ -761,6 +822,7 @@ def test_score_atr_media_negativa_neutro():
 # _score_mtf — branch genérico (else)
 # ---------------------------------------------------------------------------
 
+
 def test_score_mtf_baixa_zero():
     assert score._score_mtf("BAIXA") == 0
 
@@ -776,6 +838,7 @@ def test_score_mtf_vazio_cai_no_else():
 # ---------------------------------------------------------------------------
 # _score_ema — saturação e fronteiras de igualdade
 # ---------------------------------------------------------------------------
+
 
 def test_score_ema_distancia_grande_satura_100():
     # preco>>ema50 -> min(100, 70 + dist*10) satura.
@@ -801,50 +864,45 @@ def test_score_ema_preco_igual_ema50_zero():
 # _score_cvd — branches de divergência (mock de calculate_cvd, sem rede/DB)
 # ---------------------------------------------------------------------------
 
+
 def test_score_cvd_harmonia_bullish(monkeypatch):
     # Preço subindo + CVD subindo -> base 100; trend_strength 0 -> 100.
-    monkeypatch.setattr(score, "calculate_cvd",
-                        lambda ticks, window_size: _FakeCVD(0.5, 0.0))
+    monkeypatch.setattr(score, "calculate_cvd", lambda ticks, window_size: _FakeCVD(0.5, 0.0))
     precos = [100 + i for i in range(50)]  # slope > 0
     assert score._score_cvd(149.0, _ticks(precos), periodo=50) == 100
 
 
 def test_score_cvd_divergencia_bearish(monkeypatch):
     # Preço subindo + CVD caindo -> base 0; bonus int(0.5*20)=10 -> 10.
-    monkeypatch.setattr(score, "calculate_cvd",
-                        lambda ticks, window_size: _FakeCVD(-0.5, 0.5))
+    monkeypatch.setattr(score, "calculate_cvd", lambda ticks, window_size: _FakeCVD(-0.5, 0.5))
     precos = [100 + i for i in range(50)]
     assert score._score_cvd(149.0, _ticks(precos), periodo=50) == 10
 
 
 def test_score_cvd_divergencia_bullish(monkeypatch):
     # Preço caindo + CVD subindo -> base 50; trend_strength 0 -> 50.
-    monkeypatch.setattr(score, "calculate_cvd",
-                        lambda ticks, window_size: _FakeCVD(0.5, 0.0))
+    monkeypatch.setattr(score, "calculate_cvd", lambda ticks, window_size: _FakeCVD(0.5, 0.0))
     precos = [200 - i for i in range(50)]  # slope < 0
     assert score._score_cvd(150.0, _ticks(precos), periodo=50) == 50
 
 
 def test_score_cvd_harmonia_bearish(monkeypatch):
     # Preço caindo + CVD caindo -> base 20; bonus int(1.0*20)=20 -> 40.
-    monkeypatch.setattr(score, "calculate_cvd",
-                        lambda ticks, window_size: _FakeCVD(-0.5, 1.0))
+    monkeypatch.setattr(score, "calculate_cvd", lambda ticks, window_size: _FakeCVD(-0.5, 1.0))
     precos = [200 - i for i in range(50)]
     assert score._score_cvd(150.0, _ticks(precos), periodo=50) == 40
 
 
 def test_score_cvd_preco_lateral_cvd_neutro(monkeypatch):
     # preco_slope ~0 e cvd_slope dentro de [-0.1,0.1] -> base permanece 50.
-    monkeypatch.setattr(score, "calculate_cvd",
-                        lambda ticks, window_size: _FakeCVD(0.0, 0.0))
+    monkeypatch.setattr(score, "calculate_cvd", lambda ticks, window_size: _FakeCVD(0.0, 0.0))
     precos = [100.0] * 50  # slope 0
     assert score._score_cvd(100.0, _ticks(precos), periodo=50) == 50
 
 
 def test_score_cvd_bonus_satura_em_100(monkeypatch):
     # base 100 + bonus seria 120, clampado a 100.
-    monkeypatch.setattr(score, "calculate_cvd",
-                        lambda ticks, window_size: _FakeCVD(0.5, 1.0))
+    monkeypatch.setattr(score, "calculate_cvd", lambda ticks, window_size: _FakeCVD(0.5, 1.0))
     precos = [100 + i for i in range(50)]
     assert score._score_cvd(149.0, _ticks(precos), periodo=50) == 100
 
@@ -853,6 +911,7 @@ def test_score_cvd_nao_chama_calculate_cvd_se_curto(monkeypatch):
     # Histórico < período -> retorna 50 cedo, sem tocar calculate_cvd.
     def _boom(*a, **k):
         raise AssertionError("calculate_cvd nao deveria ser chamado")
+
     monkeypatch.setattr(score, "calculate_cvd", _boom)
     assert score._score_cvd(100.0, _ticks([100, 101, 102]), periodo=50) == 50
 
@@ -861,12 +920,15 @@ def test_score_cvd_nao_chama_calculate_cvd_se_curto(monkeypatch):
 # calcular(...) — integração de branches adicionais
 # ---------------------------------------------------------------------------
 
+
 def test_calcular_bloqueio_duplo_acumula():
     # Regime LATERAL + Medo Extremo: dois bloqueios concatenados no motivo.
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "LATERAL", "score": 90},
-        fear_info={"valor": 10},
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "LATERAL", "score": 90},
+            fear_info={"valor": 10},
+        )
+    )
     assert res["decisao"] == "AGUARDAR"
     assert res["tamanho_fator"] == 0.0
     assert len(res["bloqueios"]) == 2
@@ -878,10 +940,12 @@ def test_calcular_bloqueio_duplo_acumula():
 def test_calcular_ml_usa_regime_final_para_penalidade():
     # Em regime cujo regime_final é LATERAL, ml_prob alta é penalizada no score ml.
     # (LATERAL também bloqueia, mas o score bruto de ml deve refletir a penalidade.)
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "LATERAL", "score": 50},
-        ml_prob=0.9,
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "LATERAL", "score": 50},
+            ml_prob=0.9,
+        )
+    )
     # 0.9*100=90, lateral e >0.6 -> 90-20=70.
     assert res["scores"]["ml"] == 70
 
@@ -894,49 +958,67 @@ def test_calcular_fear_sem_chave_valor_usa_default_50():
 
 
 def test_calcular_motivo_aguardar_menciona_minimo():
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "INDEFINIDO", "score": 40},
-        tend_4h="BAIXA",
-        ml_prob=0.1,
-        preco=90.0, ema20=105.0, ema50=100.0,
-        rsi=80,
-        vwap_val=100.0,
-        vol_rel=0.3,
-        atr_atual=300.0, atr_media=100.0,
-        fear_info={"valor": 50},
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "INDEFINIDO", "score": 40},
+            tend_4h="BAIXA",
+            ml_prob=0.1,
+            preco=90.0,
+            ema20=105.0,
+            ema50=100.0,
+            rsi=80,
+            vwap_val=100.0,
+            vol_rel=0.3,
+            atr_atual=300.0,
+            atr_media=100.0,
+            fear_info={"valor": 50},
+        )
+    )
     assert res["decisao"] == "AGUARDAR"
     assert "Abaixo do minimo" in res["motivo"]
 
 
 def test_calcular_motivo_cheio_menciona_excelentes():
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
-        fear_info={"valor": 50},
-        tend_4h="ALTA",
-        ml_prob=0.95,
-        preco=120.0, ema20=110.0, ema50=100.0,
-        rsi=52,
-        vwap_val=100.0,
-        vol_rel=2.5,
-        atr_atual=100.0, atr_media=100.0,
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
+            fear_info={"valor": 50},
+            tend_4h="ALTA",
+            ml_prob=0.95,
+            preco=120.0,
+            ema20=110.0,
+            ema50=100.0,
+            rsi=52,
+            vwap_val=100.0,
+            vol_rel=2.5,
+            atr_atual=100.0,
+            atr_media=100.0,
+        )
+    )
     assert res["decisao"] == "OPERAR_CHEIO"
     assert "excelentes" in res["motivo"]
 
 
 def test_calcular_thresholds_customizados():
     # Eleva score_cheio/score_operar para forçar AGUARDAR mesmo com bom score.
-    res = score.calcular(**_inputs_base(
-        regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
-        fear_info={"valor": 50},
-        tend_4h="ALTA",
-        ml_prob=0.95,
-        preco=120.0, ema20=110.0, ema50=100.0,
-        rsi=52, vwap_val=100.0, vol_rel=2.5,
-        atr_atual=100.0, atr_media=100.0,
-        score_operar=99, score_cheio=100,
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            regime_info={"regime_final": "TENDENCIA_ALTA", "score": 100},
+            fear_info={"valor": 50},
+            tend_4h="ALTA",
+            ml_prob=0.95,
+            preco=120.0,
+            ema20=110.0,
+            ema50=100.0,
+            rsi=52,
+            vwap_val=100.0,
+            vol_rel=2.5,
+            atr_atual=100.0,
+            atr_media=100.0,
+            score_operar=99,
+            score_cheio=100,
+        )
+    )
     # Score alto mas limiar 99/100 muito agressivo: provável AGUARDAR ou CHEIO.
     assert res["decisao"] in ("AGUARDAR", "OPERAR_CHEIO", "OPERAR_REDUZIDO")
     assert 0 <= res["score_total"] <= 100
@@ -960,13 +1042,14 @@ def test_calcular_score_total_igual_soma_contribuicoes_arredondada():
 
 def test_calcular_cvd_integrado_via_mock(monkeypatch):
     # calcular() repassa historico_ticks para _score_cvd; mock garrante hermético.
-    monkeypatch.setattr(score, "calculate_cvd",
-                        lambda ticks, window_size: _FakeCVD(0.5, 0.0))
+    monkeypatch.setattr(score, "calculate_cvd", lambda ticks, window_size: _FakeCVD(0.5, 0.0))
     precos = [100 + i for i in range(50)]
-    res = score.calcular(**_inputs_base(
-        preco=149.0,
-        historico_ticks=_ticks(precos),
-    ))
+    res = score.calcular(
+        **_inputs_base(
+            preco=149.0,
+            historico_ticks=_ticks(precos),
+        )
+    )
     assert res["scores"]["cvd"] == 100
     assert 0 <= res["score_total"] <= 100
 

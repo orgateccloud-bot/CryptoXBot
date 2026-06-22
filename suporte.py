@@ -19,35 +19,38 @@ Entrada Scale-In (3 parcelas):
 """
 
 import sys, os
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
 import indicadores as ind
 
 BASE_URL = "https://api.binance.com"
-SYMBOL   = "BTCUSDT"
+SYMBOL = "BTCUSDT"
 
 # Tolerancia para considerar "proximo" ao suporte (% do preco)
-TOLERANCIA_PCT = 0.005   # 0.5%
+TOLERANCIA_PCT = 0.005  # 0.5%
 
 # Scale-in parcelas
-PARCELA_1 = 0.40   # 40% no toque do suporte
-PARCELA_2 = 0.40   # 40% no pullback
-PARCELA_3 = 0.20   # 20% na confirmacao
+PARCELA_1 = 0.40  # 40% no toque do suporte
+PARCELA_2 = 0.40  # 40% no pullback
+PARCELA_3 = 0.20  # 20% na confirmacao
 
 
 def _klines(intervalo, limite=100):
     try:
-        r = requests.get(f"{BASE_URL}/api/v3/klines",
-                         params={"symbol": SYMBOL, "interval": intervalo, "limit": limite},
-                         timeout=8)
+        r = requests.get(
+            f"{BASE_URL}/api/v3/klines",
+            params={"symbol": SYMBOL, "interval": intervalo, "limit": limite},
+            timeout=8,
+        )
         k = r.json()
         return {
-            "abertura":   [float(x[1]) for x in k],
-            "maxima":     [float(x[2]) for x in k],
-            "minima":     [float(x[3]) for x in k],
+            "abertura": [float(x[1]) for x in k],
+            "maxima": [float(x[2]) for x in k],
+            "minima": [float(x[3]) for x in k],
             "fechamento": [float(x[4]) for x in k],
-            "volume":     [float(x[5]) for x in k],
+            "volume": [float(x[5]) for x in k],
         }
     except Exception:
         return None
@@ -59,8 +62,16 @@ def _pivot_points(maximas, minimas, fechamentos, periodo=5):
     resistencias = []
 
     for i in range(periodo, len(fechamentos) - 1):
-        janela_min = minimas[i - periodo:i + periodo + 1] if i + periodo < len(minimas) else minimas[i - periodo:]
-        janela_max = maximas[i - periodo:i + periodo + 1] if i + periodo < len(maximas) else maximas[i - periodo:]
+        janela_min = (
+            minimas[i - periodo : i + periodo + 1]
+            if i + periodo < len(minimas)
+            else minimas[i - periodo :]
+        )
+        janela_max = (
+            maximas[i - periodo : i + periodo + 1]
+            if i + periodo < len(maximas)
+            else maximas[i - periodo :]
+        )
 
         if minimas[i] == min(janela_min):
             suportes.append(minimas[i])
@@ -74,7 +85,7 @@ def _volume_profile(fechamentos, volumes, num_bins=20):
     """Volume Profile simplificado — encontra zonas de alto volume."""
     preco_min = min(fechamentos)
     preco_max = max(fechamentos)
-    bin_size  = (preco_max - preco_min) / num_bins
+    bin_size = (preco_max - preco_min) / num_bins
 
     if bin_size <= 0:
         return []
@@ -91,11 +102,13 @@ def _volume_profile(fechamentos, volumes, num_bins=20):
     for i in range(num_bins):
         if bins[i] > vol_media * 1.5:
             preco_zona = preco_min + (i + 0.5) * bin_size
-            zonas.append({
-                "preco": round(preco_zona, 2),
-                "volume": round(bins[i], 2),
-                "tipo": "suporte" if preco_zona < fechamentos[-1] else "resistencia",
-            })
+            zonas.append(
+                {
+                    "preco": round(preco_zona, 2),
+                    "volume": round(bins[i], 2),
+                    "tipo": "suporte" if preco_zona < fechamentos[-1] else "resistencia",
+                }
+            )
 
     return sorted(zonas, key=lambda x: x["volume"], reverse=True)[:5]
 
@@ -114,7 +127,13 @@ def detectar_suportes(intervalo="1h"):
     """
     d = _klines(intervalo, 100)
     if not d:
-        return {"suportes": [], "resistencias": [], "suporte_forte": 0, "distancia_%": 0, "na_zona": False}
+        return {
+            "suportes": [],
+            "resistencias": [],
+            "suporte_forte": 0,
+            "distancia_%": 0,
+            "na_zona": False,
+        }
 
     f = d["fechamento"]
     h = d["maxima"]
@@ -177,38 +196,42 @@ def detectar_suportes(intervalo="1h"):
     # ── Encontrar suporte forte (confluencia) ────────────────
     # Agrupar suportes proximos entre si e somar pesos
     suporte_clusters = _clusterizar(todos_suportes, preco)
-    resist_clusters  = _clusterizar(todas_resistencias, preco)
+    resist_clusters = _clusterizar(todas_resistencias, preco)
 
     # Melhor suporte = cluster com maior peso total
     suporte_forte = 0
-    peso_forte    = 0
+    peso_forte = 0
     metodos_forte = []
     for cl in suporte_clusters:
         if cl["peso_total"] > peso_forte:
             suporte_forte = cl["preco_medio"]
-            peso_forte    = cl["peso_total"]
+            peso_forte = cl["peso_total"]
             metodos_forte = cl["metodos"]
 
     # Distancia do preco ao suporte forte
     dist_pct = (preco - suporte_forte) / preco * 100 if suporte_forte > 0 else 99
-    na_zona  = dist_pct <= TOLERANCIA_PCT * 100
+    na_zona = dist_pct <= TOLERANCIA_PCT * 100
 
     return {
-        "preco":          round(preco, 2),
-        "suportes":       [round(s["preco"], 2) for s in sorted(todos_suportes, key=lambda x: -x["preco"])],
-        "resistencias":   [round(rv["preco"], 2) for rv in sorted(todas_resistencias, key=lambda x: x["preco"])],
-        "suporte_forte":  round(suporte_forte, 2),
-        "peso_forte":     peso_forte,
-        "metodos_forte":  metodos_forte,
-        "distancia_%":    round(dist_pct, 2),
-        "na_zona":        na_zona,
-        "bb_inferior":    round(bb_sup, 2),
-        "vwap":           round(vwap_val, 2),
-        "ema20":          round(ema20, 2),
-        "ema50":          round(ema50, 2),
-        "zonas_volume":   zonas,
-        "clusters_sup":   suporte_clusters[:5],
-        "clusters_res":   resist_clusters[:5],
+        "preco": round(preco, 2),
+        "suportes": [
+            round(s["preco"], 2) for s in sorted(todos_suportes, key=lambda x: -x["preco"])
+        ],
+        "resistencias": [
+            round(rv["preco"], 2) for rv in sorted(todas_resistencias, key=lambda x: x["preco"])
+        ],
+        "suporte_forte": round(suporte_forte, 2),
+        "peso_forte": peso_forte,
+        "metodos_forte": metodos_forte,
+        "distancia_%": round(dist_pct, 2),
+        "na_zona": na_zona,
+        "bb_inferior": round(bb_sup, 2),
+        "vwap": round(vwap_val, 2),
+        "ema20": round(ema20, 2),
+        "ema50": round(ema50, 2),
+        "zonas_volume": zonas,
+        "clusters_sup": suporte_clusters[:5],
+        "clusters_res": resist_clusters[:5],
     }
 
 
@@ -238,17 +261,18 @@ def _clusterizar(niveis, preco, tolerancia=0.003):
 
 def _resumo_cluster(niveis):
     preco_medio = sum(n["preco"] for n in niveis) / len(niveis)
-    peso_total  = sum(n["peso"] for n in niveis)
-    metodos     = list(set(n["metodo"] for n in niveis))
+    peso_total = sum(n["peso"] for n in niveis)
+    metodos = list(set(n["metodo"] for n in niveis))
     return {
         "preco_medio": round(preco_medio, 2),
-        "peso_total":  peso_total,
-        "metodos":     metodos,
+        "peso_total": peso_total,
+        "metodos": metodos,
         "confluencia": len(metodos),
     }
 
 
 # ── Scale-In Manager ─────────────────────────────────────────
+
 
 class ScaleIn:
     """
@@ -266,8 +290,8 @@ class ScaleIn:
 
     def __init__(self, tamanho_total_btc, suporte):
         self.tamanho_total = tamanho_total_btc
-        self.suporte       = suporte
-        self.entradas      = []     # [{preco, tamanho, parcela}]
+        self.suporte = suporte
+        self.entradas = []  # [{preco, tamanho, parcela}]
         self.parcela_atual = 0
 
     def entrada_parcela1(self, preco):
@@ -300,7 +324,7 @@ class ScaleIn:
         if not self.entradas:
             return 0
         custo_total = sum(e["preco"] * e["tamanho"] for e in self.entradas)
-        tam_total   = sum(e["tamanho"] for e in self.entradas)
+        tam_total = sum(e["tamanho"] for e in self.entradas)
         return round(custo_total / tam_total, 2) if tam_total > 0 else 0
 
     @property
@@ -313,28 +337,28 @@ class ScaleIn:
 
     def status(self):
         return {
-            "parcela_atual":  self.parcela_atual,
-            "entradas":       self.entradas,
-            "preco_medio":    self.preco_medio,
-            "tamanho_atual":  self.tamanho_atual,
-            "tamanho_total":  self.tamanho_total,
-            "restante":       round(self.tamanho_total - self.tamanho_atual, 6),
-            "completo":       self.completo,
+            "parcela_atual": self.parcela_atual,
+            "entradas": self.entradas,
+            "preco_medio": self.preco_medio,
+            "tamanho_atual": self.tamanho_atual,
+            "tamanho_total": self.tamanho_total,
+            "restante": round(self.tamanho_total - self.tamanho_atual, 6),
+            "completo": self.completo,
         }
 
 
 def imprimir():
     r = detectar_suportes("1h")
 
-    verde    = "\033[92m"
+    verde = "\033[92m"
     vermelho = "\033[91m"
-    amarelo  = "\033[93m"
-    cinza    = "\033[90m"
-    reset    = "\033[0m"
+    amarelo = "\033[93m"
+    cinza = "\033[90m"
+    reset = "\033[0m"
 
-    print("\n" + "="*58)
+    print("\n" + "=" * 58)
     print("  SUPORTES E RESISTENCIAS")
-    print("="*58)
+    print("=" * 58)
     print(f"  Preco Atual: ${r['preco']:,.2f}")
     print()
 
@@ -346,8 +370,10 @@ def imprimir():
             forca = "#" * cl["peso_total"]
             metodos = "+".join(cl["metodos"])
             cor = verde if cl["confluencia"] >= 2 else amarelo
-            print(f"    {cor}${cl['preco_medio']:>10,.2f}{reset}  "
-                  f"{cinza}(-{dist:.1f}%) [{forca}] {metodos}{reset}")
+            print(
+                f"    {cor}${cl['preco_medio']:>10,.2f}{reset}  "
+                f"{cinza}(-{dist:.1f}%) [{forca}] {metodos}{reset}"
+            )
     else:
         print(f"    {cinza}Nenhum suporte identificado{reset}")
 
@@ -361,8 +387,10 @@ def imprimir():
             forca = "#" * cl["peso_total"]
             metodos = "+".join(cl["metodos"])
             cor = vermelho if cl["confluencia"] >= 2 else amarelo
-            print(f"    {cor}${cl['preco_medio']:>10,.2f}{reset}  "
-                  f"{cinza}(+{dist:.1f}%) [{forca}] {metodos}{reset}")
+            print(
+                f"    {cor}${cl['preco_medio']:>10,.2f}{reset}  "
+                f"{cinza}(+{dist:.1f}%) [{forca}] {metodos}{reset}"
+            )
     else:
         print(f"    {cinza}Nenhuma resistencia identificada{reset}")
 
@@ -372,8 +400,7 @@ def imprimir():
     sf = r["suporte_forte"]
     if sf > 0:
         cor_sf = verde if r["na_zona"] else amarelo
-        print(f"  Suporte Forte: {cor_sf}${sf:,.2f}{reset}  "
-              f"({r['distancia_%']:.2f}% abaixo)")
+        print(f"  Suporte Forte: {cor_sf}${sf:,.2f}{reset}  " f"({r['distancia_%']:.2f}% abaixo)")
         print(f"  Confluencia:   {'+'.join(r['metodos_forte'])} (peso {r['peso_forte']})")
         print(f"  Na zona:       {verde+'SIM'+reset if r['na_zona'] else vermelho+'NAO'+reset}")
     else:
@@ -384,10 +411,12 @@ def imprimir():
         print(f"\n  Zonas de Alto Volume:")
         for z in r["zonas_volume"][:3]:
             cor_z = verde if z["tipo"] == "suporte" else vermelho
-            print(f"    {cor_z}${z['preco']:>10,.2f}{reset}  "
-                  f"{cinza}vol:{z['volume']:,.0f} ({z['tipo']}){reset}")
+            print(
+                f"    {cor_z}${z['preco']:>10,.2f}{reset}  "
+                f"{cinza}vol:{z['volume']:,.0f} ({z['tipo']}){reset}"
+            )
 
-    print("="*58)
+    print("=" * 58)
     return r
 
 
@@ -395,9 +424,9 @@ if __name__ == "__main__":
     imprimir()
 
     # Demo scale-in
-    print("\n" + "="*58)
+    print("\n" + "=" * 58)
     print("  DEMO SCALE-IN (3 parcelas)")
-    print("="*58)
+    print("=" * 58)
     si = ScaleIn(tamanho_total_btc=0.001, suporte=65000)
     si.entrada_parcela1(preco=65050)
     print(f"  Parcela 1: comprou {si.entradas[-1]['tamanho']:.6f} BTC @ ${65050:,}")
@@ -408,4 +437,4 @@ if __name__ == "__main__":
     print(f"\n  Preco Medio:  ${si.preco_medio:,}")
     print(f"  Total BTC:    {si.tamanho_atual:.6f}")
     print(f"  Completo:     {si.completo}")
-    print("="*58)
+    print("=" * 58)

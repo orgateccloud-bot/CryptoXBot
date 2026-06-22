@@ -27,10 +27,10 @@ API_URL = "https://api.alternative.me/fng/?limit=3&format=json"
 CACHE_TTL_S = 900  # 15 minutos
 
 # Limites de operacao
-MEDO_EXTREMO_MAX  = 24   # abaixo disso: nao operar
-GANANCIA_MAX      = 74   # acima disso: nao abrir novas posicoes
-IDEAL_MIN         = 35   # zona ideal para entrar
-IDEAL_MAX         = 70   # zona ideal para entrar
+MEDO_EXTREMO_MAX = 24  # abaixo disso: nao operar
+GANANCIA_MAX = 74  # acima disso: nao abrir novas posicoes
+IDEAL_MIN = 35  # zona ideal para entrar
+IDEAL_MAX = 70  # zona ideal para entrar
 
 _cache: dict = {"valor": None, "classificacao": None, "timestamp": None, "historico": []}
 _cache_lock = threading.Lock()
@@ -65,56 +65,58 @@ def obter():
 
         historico = []
         for item in data:
-            historico.append({
-                "valor":         int(item["value"]),
-                "classificacao": item["value_classification"],
-                "data":          datetime.fromtimestamp(int(item["timestamp"])).strftime("%d/%m"),
-            })
+            historico.append(
+                {
+                    "valor": int(item["value"]),
+                    "classificacao": item["value_classification"],
+                    "data": datetime.fromtimestamp(int(item["timestamp"])).strftime("%d/%m"),
+                }
+            )
 
         atual = historico[0]
         valor = atual["valor"]
 
         # Traducao
         trad = {
-            "Extreme Fear":  "Medo Extremo",
-            "Fear":          "Medo",
-            "Neutral":       "Neutro",
-            "Greed":         "Ganancia",
+            "Extreme Fear": "Medo Extremo",
+            "Fear": "Medo",
+            "Neutral": "Neutro",
+            "Greed": "Ganancia",
             "Extreme Greed": "Ganancia Extrema",
         }
         classif_pt = trad.get(atual["classificacao"], atual["classificacao"])
 
         # Regras de operacao
         if valor <= MEDO_EXTREMO_MAX:
-            pode_operar  = False
+            pode_operar = False
             reducao_alvo = False
             motivo = f"Fear & Greed {valor} — Medo Extremo: mercado em panico, nao operar"
         elif valor > GANANCIA_MAX:
-            pode_operar  = False
+            pode_operar = False
             reducao_alvo = False
             motivo = f"Fear & Greed {valor} — Ganancia Extrema: risco de reversao iminente"
         elif IDEAL_MIN <= valor <= IDEAL_MAX:
-            pode_operar  = True
+            pode_operar = True
             reducao_alvo = False
             motivo = f"Fear & Greed {valor} — {classif_pt}: zona ideal para operar"
         elif valor < IDEAL_MIN:
-            pode_operar  = True
+            pode_operar = True
             reducao_alvo = True
             motivo = f"Fear & Greed {valor} — {classif_pt}: operar com cautela (alvo reduzido)"
         else:
-            pode_operar  = True
+            pode_operar = True
             reducao_alvo = True
             motivo = f"Fear & Greed {valor} — {classif_pt}: mercado aquecido (alvo reduzido)"
 
         novo = {
-            "valor":           valor,
-            "classificacao":   atual["classificacao"],
+            "valor": valor,
+            "classificacao": atual["classificacao"],
             "classificacao_pt": classif_pt,
-            "pode_operar":     pode_operar,
-            "reducao_alvo":    reducao_alvo,
-            "motivo":          motivo,
-            "historico":       historico,
-            "timestamp":       datetime.now(),
+            "pode_operar": pode_operar,
+            "reducao_alvo": reducao_alvo,
+            "motivo": motivo,
+            "historico": historico,
+            "timestamp": datetime.now(),
         }
         with _cache_lock:
             _cache = novo
@@ -123,14 +125,14 @@ def obter():
     except Exception as e:
         # Em caso de falha, retorna neutro (nao bloqueia o bot)
         return {
-            "valor":            50,
-            "classificacao":    "Neutral",
+            "valor": 50,
+            "classificacao": "Neutral",
             "classificacao_pt": "Neutro (offline)",
-            "pode_operar":      True,
-            "reducao_alvo":     False,
-            "motivo":           f"Fear & Greed indisponivel ({e}) — assumindo Neutro",
-            "historico":        [],
-            "timestamp":        datetime.now(),
+            "pode_operar": True,
+            "reducao_alvo": False,
+            "motivo": f"Fear & Greed indisponivel ({e}) — assumindo Neutro",
+            "historico": [],
+            "timestamp": datetime.now(),
         }
 
 
@@ -144,23 +146,23 @@ def imprimir():
     barra = "[" + "#" * pos + "-" * (barra_len - pos) + "]"
 
     if v <= 24:
-        cor = "\033[91m"   # vermelho
+        cor = "\033[91m"  # vermelho
     elif v <= 44:
-        cor = "\033[93m"   # amarelo
+        cor = "\033[93m"  # amarelo
     elif v <= 55:
-        cor = "\033[37m"   # branco
+        cor = "\033[37m"  # branco
     elif v <= 74:
-        cor = "\033[92m"   # verde
+        cor = "\033[92m"  # verde
     else:
-        cor = "\033[95m"   # magenta
+        cor = "\033[95m"  # magenta
 
-    reset  = "\033[0m"
-    verde  = "\033[92m"
+    reset = "\033[0m"
+    verde = "\033[92m"
     vermelho = "\033[91m"
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("  FEAR & GREED INDEX")
-    print("="*50)
+    print("=" * 50)
     print(f"  Valor:    {cor}{v:3d}/100  {barra}{reset}")
     print(f"  Status:   {cor}{fg['classificacao_pt']}{reset}")
     print()
@@ -175,7 +177,7 @@ def imprimir():
     if fg["reducao_alvo"]:
         print(f"  {cor}ATENCAO: Reduzir alvo em 50% (mercado em zona de risco){reset}")
     print(f"  {fg['motivo']}")
-    print("="*50)
+    print("=" * 50)
     return fg
 
 
