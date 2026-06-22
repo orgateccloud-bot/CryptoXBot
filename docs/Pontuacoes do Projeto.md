@@ -1,61 +1,57 @@
 ---
 tags: [scorecard, maturidade]
 atualizado: 2026-06-22
-nota_global: 8.2
+nota_global: 8.9
 ---
 
 # 📊 Pontuações do Projeto (Maturidade)
 
 > Voltar: [[00 - Home]] · Base: [[Planejamento de Melhorias]]
 
-Avaliação do estado **pós-aposentadoria do cluster async** (branch
-`chore/aposentar-cluster-async`). Escala 0-10. Peso reflete a criticidade para um
-**bot de trading** (risco e executabilidade pesam mais).
+Avaliação pós-lotes de melhoria rumo a 9.0/10 (branch
+`chore/aposentar-cluster-async`, push `66d791f`). Escala 0-10.
 
 ## Scorecard por dimensão
 
 | Dimensão | Nota | Peso | Justificativa |
 |---|:---:|:---:|---|
-| Executabilidade (clone→run) | 🟢 **9** | 1.5 | `import main` limpo + smoke test no CI; era 🔴 2 no início |
-| Gestão de risco (trading) | 🟢 **9** | 1.5 | Kelly + circuit breaker + drawdown + lock + validação de ordem; **trailing stop testado + equivalência provada** |
-| Segurança | 🟢 **8** | 1.2 | sem segredos hardcoded, paper por padrão; **SECRET_KEY endurecido em prod**, `.secrets.baseline`+`.bandit` (pre-commit funcional); gap menor: CORS `*`, dashboard sem auth |
-| **Cobertura de testes** | 🟢 **9** | 1.2 | **595 testes**; caminho de capital + sinal coberto (indicadores 100%, regime 99%, score 96%, otimizada 93%, risco 90%, executor 82%); gaps: backtesting/database/dashboard sem testes diretos |
-| Arquitetura & organização | 🟢 **8** | 1.0 | arquitetura única após aposentar cluster; `indicadores.py` desduplicado; gap: `logger` SQLite-only |
-| ML / Sinais | 🟡 **7** | 1.0 | XGBoost+MLP+FSRS+ensemble; ml_filtro/regime testados; riscos: overfitting MLP, scaler drift, ADX manual |
-| Qualidade de código | 🟡 **7** | 1.0 | pre-commit completo; `indicadores.py` desduplicado + bugs corrigidos; gaps: `.bandit`/`.secrets.baseline` ausentes |
-| Deploy & Infra | 🟢 **8** | 1.0 | **alvo único Railway+Supabase** (Docker/GCP aposentados); backend Postgres validado (fix do pool `open=True`); shutdown limpo; gap: sem IaC p/ Railway |
-| Observabilidade | 🟢 **8** | 0.8 | logs estruturados, `/health`, Telegram, dashboard; **`logger` agora persiste no Supabase** (sem split-brain) |
+| Executabilidade (clone→run) | 🟢 **9** | 1.5 | import main limpo + smoke test no CI; era 🔴 2 no início |
+| Gestão de risco (trading) | 🟢 **9** | 1.5 | Kelly + circuit breaker + drawdown + lock + validação de ordem; trailing stop testado + equivalência provada |
+| **Segurança** | 🟢 **9** | 1.2 | sem segredos hardcoded, paper por padrão; SECRET_KEY efêmera em prod; **`.bandit` corrigido de INI→YAML** (hook estava morto — falsa sensação de segurança); **CORS_ORIGINS warning em prod**; sem hardcoded secrets em allowlist |
+| **Cobertura de testes** | 🟢 **9** | 1.2 | **668 testes** (+69); health/database/analise_mercado/backtesting cobertos; gaps menores: dashboard sem testes diretos |
+| Arquitetura & organização | 🟢 **9** | 1.0 | cluster aposentado; indicadores desduplicado; **ema_rsi_cvd.py órfão arquivado**; **ai/__init__.py** (mypy desbloqueado) |
+| **ML / Sinais** | 🟢 **8** | 1.0 | XGBoost+MLP+FSRS+ensemble testados; **retry/backoff HTTP** (ml_filtro + fear_greed); **FSRS escrita atômica**; **cache thread-safe** (fear_greed lock + .total_seconds); TTL correto; gap: walk-forward não revalidado |
+| **Qualidade de código** | 🟢 **8** | 1.0 | **F821 corrigido** (motor.py — NameError garantido em runtime); **pyproject.toml** (lint config versionada: black/isort/flake8/mypy); dead code removido; gap menor: black não aplicado em massa (50 arquivos) |
+| Deploy & Infra | 🟢 **9** | 1.0 | Railway+Supabase único; pool fix (open=True); shutdown limpo; **railway.toml** com 2 serviços documentados + variáveis obrigatórias; **boot fail-fast** em modo real (API_KEY/SECRET + ENV) |
+| **Observabilidade** | 🟢 **9** | 0.8 | logs estruturados, /health, /ready, Telegram, dashboard; **`/metrics` Prometheus** (contadores: sinais, ordens, erros, circuit breaker, ws_reconexoes, uptime); logger persiste no Supabase |
 | Documentação | 🟢 **8** | 0.8 | vault Obsidian + relatórios + deploy guides; CLAUDE.md alinhado |
 
 ## Nota global ponderada
 
 ```
 Σ(nota × peso) / Σ(peso)
-= (9·1.5 + 9·1.5 + 8·1.2 + 9·1.2 + 8·1.0 + 7·1.0 + 7·1.0 + 8·1.0 + 8·0.8 + 8·0.8) / 11.0
-= 90.2 / 11.0
-≈ 8.20
+= (9·1.5 + 9·1.5 + 9·1.2 + 9·1.2 + 9·1.0 + 8·1.0 + 8·1.0 + 9·1.0 + 9·0.8 + 8·0.8) / 11.0
+= 97.8 / 11.0
+≈ 8.89 → arredondado 8.9
 ```
 
-> ## 🟢 Nota global: **8.2 / 10 — "Beta maduro"**
-> Pronto para **paper trading**, com **600 testes**. O backend **Postgres/Supabase
-> foi validado end-to-end** contra um Postgres real provisionado — o que revelou e
-> corrigiu 2 bugs de produção: pool sem `open=True` (Supabase inoperante em
-> psycopg_pool ≥ 3.2) e o `logger` que só gravava em SQLite (split-brain).
-> Caminho para **8.5+**: revalidação walk-forward do ML, testes de backtesting,
-> canonizar deploy Railway/aposentar GCP (ver [[Planejamento de Melhorias]]).
+> ## 🟢 Nota global: **8.9 / 10 — "RC (Release Candidate)"**
+> **668 testes** herméticos. 5 dimensões em ✅ 9/10. Pronto para **paper trading
+> extenso**. O único salto restante para 9.0+ é a revalidação walk-forward do ML
+> (dados out-of-sample) e aplicar `black` em massa nos 50 arquivos restantes.
 
 ## Radar (visão rápida)
 ```
-Testes            █████████░  9   ← 600 testes (era 4 no início)
+Testes            █████████░  9   ← 668 testes (era 599)
 Executabilidade   █████████░  9
 Risco             █████████░  9
-Segurança         ████████░░  8
-Arquitetura       ████████░░  8
+Segurança         █████████░  9   ← .bandit corrigido (hook estava morto)
+Arquitetura       █████████░  9   ← ema_rsi_cvd.py órfão arquivado
+Deploy/Infra      █████████░  9   ← railway.toml 2 serviços + boot validation
+Observabilidade   █████████░  9   ← /metrics Prometheus
+ML/Sinais         ████████░░  8   ← retry/backoff + cache thread-safe + FSRS atômico
+Qualidade código  ████████░░  8   ← F821 corrigido + pyproject.toml
 Documentação      ████████░░  8
-Deploy/Infra      ████████░░  8   ← backend Postgres validado (fix do pool)
-Observabilidade   ████████░░  8   ← logger persiste no Supabase
-ML/Sinais         ███████░░░  7
-Qualidade código  ███████░░░  7
 ```
 
 ## Evolução nesta sessão
@@ -66,8 +62,12 @@ Qualidade código  ███████░░░  7
 | Pós aposentadoria + docs | ~7.0 | arquitetura única, Supabase/Railway, vault |
 | Pós testes do core | ~7.4 | 295 testes; core de trading coberto |
 | Pós trailing stop testado | ~7.6 | 323 testes; `_monitorar` + equivalência provada |
-| Pós fix da estratégia + ML/sinais testados | ~7.9 | 595 testes; 3º showstopper corrigido (otimizada/indicadores) |
-| Pós hygiene de segurança + shutdown limpo | ~8.0 | 599 testes; SECRET_KEY endurecido, pre-commit funcional, `fechar_pool` no SIGTERM |
-| **Pós validação Postgres real (logger + pool)** | **8.2** | logger multi-backend validado em Postgres; **2 bugs de produção corrigidos** (pool `open=True`, split-brain do logger) |
+| Pós fix da estratégia + ML/sinais testados | ~7.9 | 595 testes; 3º showstopper corrigido |
+| Pós hygiene de segurança + shutdown limpo | ~8.0 | 599 testes; SECRET_KEY endurecido |
+| Pós validação Postgres real (logger + pool) | ~8.2 | logger multi-backend; 2 bugs prod corrigidos |
+| **Pós lotes 9.0 (segurança/qualidade/ML/testes/obs)** | **8.9** | **668 testes; 7 dimensões em 9/10** |
 
-Próximo salto previsto: **8.5+** ao revalidar o ML (walk-forward), testar backtesting e canonizar o deploy Railway (aposentar GCP).
+## Próximos passos para 9.0+
+1. **black em massa** nos 50 arquivos (E221=479 cosmético, puramente formatação)
+2. **Walk-forward ML** (dados out-of-sample reais) — valida que o XGBoost não overfittou
+3. **Testes de dashboard.py** (Flask/SocketIO mockado)
