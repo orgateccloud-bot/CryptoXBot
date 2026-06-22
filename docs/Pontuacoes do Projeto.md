@@ -23,7 +23,7 @@ Avaliação do estado **pós-aposentadoria do cluster async** (branch
 | Arquitetura & organização | 🟢 **8** | 1.0 | arquitetura única após aposentar cluster; `indicadores.py` desduplicado; gap: `logger` SQLite-only |
 | ML / Sinais | 🟡 **7** | 1.0 | XGBoost+MLP+FSRS+ensemble; ml_filtro/regime testados; riscos: overfitting MLP, scaler drift, ADX manual |
 | Qualidade de código | 🟡 **7** | 1.0 | pre-commit completo; `indicadores.py` desduplicado + bugs corrigidos; gaps: `.bandit`/`.secrets.baseline` ausentes |
-| Deploy & Infra | 🟢 **8** | 1.0 | Supabase + Railway prontos; **backend Postgres validado** (fix do pool `open=True`); shutdown limpo; gap menor: `deploy.yml`/compose ainda GCP (legado) |
+| Deploy & Infra | 🟢 **8** | 1.0 | **alvo único Railway+Supabase** (Docker/GCP aposentados); backend Postgres validado (fix do pool `open=True`); shutdown limpo; gap: sem IaC p/ Railway |
 | Observabilidade | 🟢 **8** | 0.8 | logs estruturados, `/health`, Telegram, dashboard; **`logger` agora persiste no Supabase** (sem split-brain) |
 | Documentação | 🟢 **8** | 0.8 | vault Obsidian + relatórios + deploy guides; CLAUDE.md alinhado |
 
