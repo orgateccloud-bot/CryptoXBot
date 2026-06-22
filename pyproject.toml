@@ -1,0 +1,26 @@
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+extend-exclude = "_legado"
+
+[tool.isort]
+profile = "black"
+line_length = 100
+extend_skip = ["_legado"]
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+extend-exclude = ["_legado", ".venv", "venv", "build", "dist"]
+per-file-ignores = [
+    # sys.path.insert for repo-local imports in scripts/backtesting
+    "backtesting/*.py:E402",
+    "scripts/*.py:E402",
+    "tests/*.py:E402",
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false
+exclude = ["_legado", "venv", ".venv"]

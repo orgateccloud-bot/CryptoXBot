@@ -18,15 +18,33 @@ Uso:
 import sqlite3
 import argparse
 from datetime import datetime
-import sys, os
+import sys
+import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import score as score_mod
 import numpy as np
+import indicadores as ind
+import score as score_mod
 
 DB_PATH = "data/btc_data.db"
-SYMBOL  = "BTCUSDT"
+SYMBOL = "BTCUSDT"
 
-# Parâmetros da estratégia
+# Parâmetros da estratégia EMA
+EMA_RAPIDA = 20
+EMA_LENTA = 50
+
+# Wrappers para compatibilidade com o motor
+def calcular_ema(fechamentos, periodo):
+    arr = np.array(fechamentos, dtype=float)
+    result = ind.ema(arr, periodo)
+    return [None] * (periodo - 1) + list(result[periodo - 1 :])
+
+
+def calcular_rsi(fechamentos, periodo=14):
+    return ind.rsi(fechamentos, periodo)
+
+
+# Parâmetros de risco
 STOP_PCT      = 0.015   # 1.5%
 TARGET_PCT    = 0.050   # 5.0%
 TAXA_BINANCE  = 0.0004  # 0.04% por lado
