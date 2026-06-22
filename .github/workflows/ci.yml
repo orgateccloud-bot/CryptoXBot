@@ -118,35 +118,14 @@ jobs:
       - name: Run Safety check
         run: safety check --json || true
 
-  docker:
-    name: Build Docker Image
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: false
-          tags: binancexbot:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  # Deploy é via Railway (nixpacks, observando o repo) — sem build de imagem Docker.
+  # Os artefatos Docker/GCP foram arquivados em _legado/infra/.
 
   notify:
     name: Notify Results
     runs-on: ubuntu-latest
     if: always()
-    needs: [lint, test, security, docker]
+    needs: [lint, test, security]
 
     steps:
       - name: Check workflow status

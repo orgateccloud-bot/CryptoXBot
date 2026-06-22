@@ -1,7 +1,36 @@
-# 📦 `_legado/` — Cluster Async Aposentado (@Zeta)
+# 📦 `_legado/` — Código e Infra Aposentados (@Zeta)
 
-> **Data da aposentadoria:** 2026-06-20 · **Branch:** `chore/aposentar-cluster-async`
-> **Princípio @Zeta:** nunca deletar — arquivar preservando reversibilidade total.
+> **Branch:** `chore/aposentar-cluster-async` · **Princípio @Zeta:** nunca
+> deletar — arquivar preservando reversibilidade total.
+
+## Lote 2 — Infra Docker/GCP (2026-06-22)
+
+**Decisão:** o deploy é **único — Railway (nixpacks) + Supabase (Postgres)**.
+Toda a infra de Docker e GCP do caminho antigo foi movida para `_legado/infra/`:
+
+| Arquivado | Era |
+|-----------|-----|
+| `Dockerfile`, `.dockerignore`, `docker-compose*.yml`, `cloudbuild.yaml` | build/deploy via container (GCP) |
+| `terraform/` | IaC do GCP (Compute Engine + Artifact Registry) |
+| `deploy/` (`*.service`, `nginx.conf`, `setup.sh`, `transferir.sh`) | deploy manual VPS (Oracle/systemd) |
+| `deploy.sh`, `deploy-prod.sh` | scripts de deploy GCP/manual |
+| `github-workflows-deploy.yml` | era `.github/workflows/deploy.yml` (deploy GCP) |
+| `PRODUCTION_README_GCP.md` | guia de produção GCP |
+
+**Config canônica que permanece na raiz:** `railway.toml`, `Procfile`,
+`.python-version` (3.11), `supabase/migrations/`. O `ci.yml` perdeu o job de
+build Docker (Railway faz deploy observando o repo). Dev local usa SQLite
+(sem Docker); ver `docs/Operacao/`.
+
+> ⚠️ `_legado/infra/` contém DUAS coisas: os artefatos Docker/GCP acima **e** os
+> módulos Python do cluster async (database.py, logging.py, metrics.py,
+> paper_trading.py, pubsub_client.py) do Lote 1.
+
+---
+
+# 📦 Lote 1 — Cluster Async Aposentado
+
+> **Data:** 2026-06-20
 
 ## Por que isto foi arquivado
 
