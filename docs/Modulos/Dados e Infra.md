@@ -43,11 +43,11 @@ tags: [modulo, dados, infra, observabilidade]
 
 → Passo a passo em [[Deploy Supabase]].
 
-## Deploy / CI
-- `Dockerfile` 🟢 — multi-stage, usuário não-root.
-- `docker-compose.prod.yml` 🟡 — assume GCP; health check fraco; serviço `redis` órfão.
-- `.github/workflows/ci.yml` 🟢 — lint + smoke test de imports + pytest + security + docker. ✅ smoke test adicionado nesta sessão.
-- `.github/workflows/deploy.yml` 🟡 — ainda **GCP-centric** (desatualizado para Railway).
+## Deploy / CI 🟢
+- **Alvo único: Railway (nixpacks) + Supabase (Postgres).** Config ativa:
+  `railway.toml` + `Procfile` + `.python-version` (3.11) + `supabase/migrations/`.
+- `.github/workflows/ci.yml` 🟢 — lint + smoke test de imports + pytest + security (sem build Docker).
+- ✅ **Docker/GCP aposentados** → `_legado/infra/` (Dockerfile, docker-compose*, cloudbuild, terraform GCP, deploy/ Oracle/systemd, deploy.yml). Ver `_legado/LEIA-ME.md`.
 
 ---
 

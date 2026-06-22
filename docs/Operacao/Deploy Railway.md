@@ -36,7 +36,13 @@ repositório e o mesmo banco [[Deploy Supabase|Supabase]].
   `--real`), `DRY_RUN=false` **e** `ALLOW_REAL_TRADING=true`. Faça isso só após
   paper trading extenso (ver [[Planejamento de Melhorias]]).
 
-## ⚠️ Pendências conhecidas
-- `deploy.yml` (GitHub Actions) ainda é **GCP-centric** — no fluxo Railway, o deploy
-  vem do push no GitHub (Railway observa o repo), então o `deploy.yml` GCP é redundante/legado.
-- `docker-compose.prod.yml` também assume GCP — não é usado pelo Railway (nixpacks).
+## Build
+Railway usa **nixpacks** (sem Docker). O Python é fixado por `.python-version`
+(3.11) e as deps vêm de `requirements.txt`. Não há `Dockerfile` no fluxo ativo.
+
+## ✅ Docker/GCP aposentados
+Todo o caminho antigo (Dockerfile, `docker-compose*`, `cloudbuild.yaml`,
+`terraform/` GCP, `deploy/` Oracle/systemd, `deploy.yml` GCP, scripts de deploy)
+foi movido para `_legado/infra/` (ver `_legado/LEIA-ME.md`). O `ci.yml` não faz
+mais build de imagem Docker. Config de deploy ativa = `railway.toml` + `Procfile`
++ `.python-version` + `supabase/migrations/`.
