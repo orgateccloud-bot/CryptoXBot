@@ -1,7 +1,11 @@
 """
 Logger Estruturado — BotBinance
 =================================
-Salva todas as decisoes do bot em formato CSV + SQLite para analise posterior.
+Salva todas as decisoes do bot para analise posterior.
+
+Backend: segue a mesma configuracao do database.py — SQLite localmente,
+Postgres/Supabase quando DATABASE_URL+DATABASE_BACKEND estao definidos. Assim os
+logs analiticos NAO ficam num SQLite paralelo em producao (evita split-brain).
 
 Logs salvos:
   - Cada avaliacao de sinal (score, filtros, ML, decisao)
@@ -9,11 +13,9 @@ Logs salvos:
   - Performance acumulada (diaria/semanal)
 
 Uso:
-  from logger import LoggerBot
-  log = LoggerBot()
-  log.registrar_avaliacao(resultado_estrategia)
-  log.registrar_trade(trade_info)
-  log.relatorio_diario()
+  from logger import logger
+  logger.registrar_avaliacao(resultado_estrategia)
+  logger.warning("...")   # tambem delega para logging padrao (usado por main.py)
 """
 
 import os
@@ -22,25 +24,37 @@ import sqlite3
 import logging
 from datetime import datetime
 
+from config.runtime_settings import DB_PATH, DATABASE_URL, DATABASE_BACKEND
+
 # Logger estruturado padrão (stdlib) usado para mensagens operacionais.
-# main.py importa `logger` daqui e chama .warning/.error/.critical/.info —
-# por isso LoggerBot delega esses métodos para este logger (ver abaixo).
 _stdlog = logging.getLogger("botbinance")
+
+_TABELAS_EXPORT = {"log_avaliacoes", "log_trades", "log_performance"}
+
+
+def _is_postgres() -> bool:
+    return bool(DATABASE_URL) and DATABASE_BACKEND in ("postgres", "postgresql", "supabase")
 
 
 class LoggerBot:
 
-    def __init__(self, db_path="data/btc_data.db", log_dir="logs"):
-        self.db_path = db_path
+    def __init__(self, db_path=None, log_dir="logs"):
+        self.db_path = db_path or DB_PATH
         self.log_dir = log_dir
+        self._pg = _is_postgres()
+        self._ph = "%s" if self._pg else "?"
         os.makedirs(log_dir, exist_ok=True)
-        self._inicializar_tabelas()
+        # Init tolerante: um problema transitório de DB no boot não deve travar/
+        # quebrar o import do bot (as escritas já têm try/except próprio).
+        try:
+            self._inicializar_tabelas()
+        except Exception as e:
+            _stdlog.warning("LoggerBot: falha ao inicializar tabelas (%s) — logging analitico degradado", e)
 
     # ── Compat com logging.Logger ──────────────────────────────
-    # main.py usa o mesmo objeto `logger` tanto para analytics
-    # (registrar_avaliacao/registrar_trade) quanto para logs operacionais
-    # (.warning/.error/.critical). Sem isto, esses últimos davam AttributeError
-    # nos caminhos de erro do WebSocket, derrubando o handler.
+    # main.py usa o mesmo objeto `logger` para analytics (registrar_*) e para
+    # logs operacionais (.warning/.error/.critical). Sem isto, esses últimos
+    # davam AttributeError nos caminhos de erro do WebSocket.
     def info(self, msg, *args, **kwargs):
         _stdlog.info(msg, *args, **kwargs)
 
@@ -56,98 +70,122 @@ class LoggerBot:
     def debug(self, msg, *args, **kwargs):
         _stdlog.debug(msg, *args, **kwargs)
 
-    def _inicializar_tabelas(self):
+    # ── Conexão backend-aware ──────────────────────────────────
+    def _sql(self, sql: str) -> str:
+        """Converte placeholders ? (SQLite) -> %s (psycopg) quando em Postgres."""
+        return sql.replace("?", "%s") if self._pg else sql
+
+    def _connect(self):
+        if self._pg:
+            import psycopg
+            return psycopg.connect(DATABASE_URL, connect_timeout=10)
+        return sqlite3.connect(self.db_path)
+
+    def _connect_rows(self):
+        """Conexão com linhas indexáveis por nome de coluna (para exports)."""
+        if self._pg:
+            import psycopg
+            from psycopg.rows import dict_row
+            return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=10)
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        conn.row_factory = sqlite3.Row
+        return conn
 
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS log_avaliacoes (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp   TEXT NOT NULL,
-                symbol      TEXT DEFAULT 'BTCUSDT',
-                preco       REAL,
-                score       INTEGER,
-                decisao     TEXT,
-                sinal       TEXT,
-                tamanho_fator REAL,
-                regime      TEXT,
-                fear_greed  INTEGER,
-                tend_4h     TEXT,
-                rsi         REAL,
-                ema20       REAL,
-                ema50       REAL,
-                vwap        REAL,
-                atr         REAL,
-                vol_rel     REAL,
-                ml_xgb      REAL,
-                ml_lstm     REAL,
-                ml_ensemble REAL,
-                ml_confianca TEXT,
-                cvd         REAL,
-                filtros_ok  INTEGER,
-                filtros_total INTEGER,
-                bloqueios   TEXT
-            )
-        """)
+    def _inicializar_tabelas(self):
+        id_col = "BIGSERIAL PRIMARY KEY" if self._pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
 
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS log_trades (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp_entrada TEXT NOT NULL,
-                timestamp_saida   TEXT,
-                symbol      TEXT DEFAULT 'BTCUSDT',
-                direcao     TEXT,
-                preco_entrada REAL,
-                preco_saida   REAL,
-                tamanho_btc   REAL,
-                tamanho_usdt  REAL,
-                stop_loss     REAL,
-                take_profit   REAL,
-                score_entrada INTEGER,
-                ml_prob       REAL,
-                tipo_saida    TEXT,
-                pnl_usdt      REAL,
-                pnl_pct       REAL,
-                capital_apos  REAL,
-                motivo_saida  TEXT
-            )
-        """)
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS log_avaliacoes (
+                    id          {id_col},
+                    timestamp   TEXT NOT NULL,
+                    symbol      TEXT DEFAULT 'BTCUSDT',
+                    preco       REAL,
+                    score       INTEGER,
+                    decisao     TEXT,
+                    sinal       TEXT,
+                    tamanho_fator REAL,
+                    regime      TEXT,
+                    fear_greed  INTEGER,
+                    tend_4h     TEXT,
+                    rsi         REAL,
+                    ema20       REAL,
+                    ema50       REAL,
+                    vwap        REAL,
+                    atr         REAL,
+                    vol_rel     REAL,
+                    ml_xgb      REAL,
+                    ml_lstm     REAL,
+                    ml_ensemble REAL,
+                    ml_confianca TEXT,
+                    cvd         REAL,
+                    filtros_ok  INTEGER,
+                    filtros_total INTEGER,
+                    bloqueios   TEXT
+                )
+            """)
 
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS log_performance (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                data        TEXT NOT NULL UNIQUE,
-                symbol      TEXT DEFAULT 'BTCUSDT',
-                trades_total    INTEGER DEFAULT 0,
-                trades_ganhos   INTEGER DEFAULT 0,
-                trades_perdas   INTEGER DEFAULT 0,
-                pnl_dia_usdt    REAL DEFAULT 0,
-                pnl_dia_pct     REAL DEFAULT 0,
-                capital_inicio  REAL,
-                capital_fim     REAL,
-                avaliacoes      INTEGER DEFAULT 0,
-                sinais_gerados  INTEGER DEFAULT 0,
-                score_medio     REAL,
-                max_drawdown_dia REAL DEFAULT 0
-            )
-        """)
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS log_trades (
+                    id          {id_col},
+                    timestamp_entrada TEXT NOT NULL,
+                    timestamp_saida   TEXT,
+                    symbol      TEXT DEFAULT 'BTCUSDT',
+                    direcao     TEXT,
+                    preco_entrada REAL,
+                    preco_saida   REAL,
+                    tamanho_btc   REAL,
+                    tamanho_usdt  REAL,
+                    stop_loss     REAL,
+                    take_profit   REAL,
+                    score_entrada INTEGER,
+                    ml_prob       REAL,
+                    tipo_saida    TEXT,
+                    pnl_usdt      REAL,
+                    pnl_pct       REAL,
+                    capital_apos  REAL,
+                    motivo_saida  TEXT
+                )
+            """)
 
-        conn.commit()
-        conn.close()
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS log_performance (
+                    id          {id_col},
+                    data        TEXT NOT NULL UNIQUE,
+                    symbol      TEXT DEFAULT 'BTCUSDT',
+                    trades_total    INTEGER DEFAULT 0,
+                    trades_ganhos   INTEGER DEFAULT 0,
+                    trades_perdas   INTEGER DEFAULT 0,
+                    pnl_dia_usdt    REAL DEFAULT 0,
+                    pnl_dia_pct     REAL DEFAULT 0,
+                    capital_inicio  REAL,
+                    capital_fim     REAL,
+                    avaliacoes      INTEGER DEFAULT 0,
+                    sinais_gerados  INTEGER DEFAULT 0,
+                    score_medio     REAL,
+                    max_drawdown_dia REAL DEFAULT 0
+                )
+            """)
+
+            conn.commit()
+        finally:
+            conn.close()
 
     def registrar_avaliacao(self, resultado, symbol="BTCUSDT"):
         """Registra uma avaliacao de estrategia no banco."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             score_result = resultado.get("score_result", {})
-            conn.execute("""
+            conn.execute(self._sql("""
                 INSERT INTO log_avaliacoes (
                     timestamp, symbol, preco, score, decisao, sinal, tamanho_fator,
                     regime, fear_greed, tend_4h, rsi, ema20, ema50, vwap, atr, vol_rel,
                     ml_xgb, ml_lstm, ml_ensemble, ml_confianca, cvd,
                     filtros_ok, filtros_total, bloqueios
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (
+            """), (
                 resultado.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                 symbol,
                 resultado.get("preco"),
@@ -181,22 +219,28 @@ class LoggerBot:
 
     def registrar_trade_entrada(self, symbol, direcao, preco, tamanho_btc, tamanho_usdt,
                                  stop, target, score, ml_prob):
-        """Registra entrada de trade."""
-        conn = sqlite3.connect(self.db_path)
+        """Registra entrada de trade. Retorna o id da linha criada."""
+        conn = self._connect()
         try:
-            conn.execute("""
+            params = (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                symbol, direcao, preco, tamanho_btc, tamanho_usdt,
+                stop, target, score, ml_prob,
+            )
+            cols = """
                 INSERT INTO log_trades (
                     timestamp_entrada, symbol, direcao, preco_entrada,
                     tamanho_btc, tamanho_usdt, stop_loss, take_profit,
                     score_entrada, ml_prob
                 ) VALUES (?,?,?,?,?,?,?,?,?,?)
-            """, (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                symbol, direcao, preco, tamanho_btc, tamanho_usdt,
-                stop, target, score, ml_prob,
-            ))
+            """
+            if self._pg:
+                row = conn.execute(self._sql(cols) + " RETURNING id", params).fetchone()
+                conn.commit()
+                return row[0] if row else None
+            cur = conn.execute(cols, params)
             conn.commit()
-            return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            return cur.lastrowid
         except Exception as e:
             print(f"[LOG] Erro ao registrar trade entrada: {e}")
             return None
@@ -206,14 +250,14 @@ class LoggerBot:
     def registrar_trade_saida(self, trade_id, preco_saida, tipo_saida, pnl_usdt,
                                pnl_pct, capital_apos, motivo=""):
         """Registra saida de trade."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
-            conn.execute("""
+            conn.execute(self._sql("""
                 UPDATE log_trades SET
                     timestamp_saida=?, preco_saida=?, tipo_saida=?,
                     pnl_usdt=?, pnl_pct=?, capital_apos=?, motivo_saida=?
                 WHERE id=?
-            """, (
+            """), (
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 preco_saida, tipo_saida, pnl_usdt, pnl_pct,
                 capital_apos, motivo, trade_id,
@@ -226,21 +270,19 @@ class LoggerBot:
 
     def atualizar_performance_diaria(self, symbol="BTCUSDT"):
         """Calcula e salva performance do dia."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         hoje = datetime.now().strftime("%Y-%m-%d")
         try:
-            # Trades do dia
-            trades = conn.execute("""
+            trades = conn.execute(self._sql("""
                 SELECT pnl_usdt, pnl_pct FROM log_trades
                 WHERE symbol=? AND timestamp_saida LIKE ?
                 AND pnl_usdt IS NOT NULL
-            """, (symbol, f"{hoje}%")).fetchall()
+            """), (symbol, f"{hoje}%")).fetchall()
 
-            # Avaliacoes do dia
-            avals = conn.execute("""
+            avals = conn.execute(self._sql("""
                 SELECT score, sinal FROM log_avaliacoes
                 WHERE symbol=? AND timestamp LIKE ?
-            """, (symbol, f"{hoje}%")).fetchall()
+            """), (symbol, f"{hoje}%")).fetchall()
 
             total = len(trades)
             ganhos = sum(1 for t in trades if t[0] > 0)
@@ -252,13 +294,28 @@ class LoggerBot:
             scores = [a[0] for a in avals if a[0] is not None]
             score_medio = sum(scores) / len(scores) if scores else 0
 
-            conn.execute("""
-                INSERT OR REPLACE INTO log_performance (
-                    data, symbol, trades_total, trades_ganhos, trades_perdas,
-                    pnl_dia_usdt, pnl_dia_pct, avaliacoes, sinais_gerados, score_medio
-                ) VALUES (?,?,?,?,?,?,?,?,?,?)
-            """, (hoje, symbol, total, ganhos, perdas, pnl_total, pnl_pct,
-                  len(avals), sinais, score_medio))
+            valores = (hoje, symbol, total, ganhos, perdas, pnl_total, pnl_pct,
+                       len(avals), sinais, score_medio)
+            if self._pg:
+                conn.execute("""
+                    INSERT INTO log_performance (
+                        data, symbol, trades_total, trades_ganhos, trades_perdas,
+                        pnl_dia_usdt, pnl_dia_pct, avaliacoes, sinais_gerados, score_medio
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (data) DO UPDATE SET
+                        symbol=EXCLUDED.symbol, trades_total=EXCLUDED.trades_total,
+                        trades_ganhos=EXCLUDED.trades_ganhos, trades_perdas=EXCLUDED.trades_perdas,
+                        pnl_dia_usdt=EXCLUDED.pnl_dia_usdt, pnl_dia_pct=EXCLUDED.pnl_dia_pct,
+                        avaliacoes=EXCLUDED.avaliacoes, sinais_gerados=EXCLUDED.sinais_gerados,
+                        score_medio=EXCLUDED.score_medio
+                """, valores)
+            else:
+                conn.execute("""
+                    INSERT OR REPLACE INTO log_performance (
+                        data, symbol, trades_total, trades_ganhos, trades_perdas,
+                        pnl_dia_usdt, pnl_dia_pct, avaliacoes, sinais_gerados, score_medio
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?)
+                """, valores)
             conn.commit()
         except Exception as e:
             print(f"[LOG] Erro ao atualizar performance: {e}")
@@ -267,41 +324,39 @@ class LoggerBot:
 
     def exportar_csv(self, tabela="log_avaliacoes", dias=30):
         """Exporta logs para CSV."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        if tabela not in _TABELAS_EXPORT:
+            # Whitelist de tabelas (M-6): evita interpolacao de nome de tabela
+            # em SQL (injection) caso 'tabela' venha de origem nao confiavel.
+            raise ValueError(
+                f"Tabela nao permitida para exportacao: {tabela!r}. "
+                f"Use: log_avaliacoes, log_trades ou log_performance."
+            )
+        conn = self._connect_rows()
         try:
             if tabela == "log_avaliacoes":
-                rows = conn.execute("""
-                    SELECT * FROM log_avaliacoes
-                    ORDER BY timestamp DESC LIMIT ?
-                """, (dias * 96,)).fetchall()  # ~96 avaliacoes/dia a cada 15min
+                rows = conn.execute(self._sql(
+                    "SELECT * FROM log_avaliacoes ORDER BY timestamp DESC LIMIT ?"
+                ), (dias * 96,)).fetchall()  # ~96 avaliacoes/dia a cada 15min
             elif tabela == "log_trades":
-                rows = conn.execute("""
-                    SELECT * FROM log_trades
-                    ORDER BY timestamp_entrada DESC LIMIT ?
-                """, (dias * 10,)).fetchall()
-            elif tabela == "log_performance":
-                rows = conn.execute(
-                    "SELECT * FROM log_performance ORDER BY data DESC LIMIT ?",
-                    (dias,)).fetchall()
-            else:
-                # Whitelist de tabelas (M-6): evita interpolacao de nome de tabela
-                # em SQL (injection) caso 'tabela' venha de origem nao confiavel.
-                raise ValueError(
-                    f"Tabela nao permitida para exportacao: {tabela!r}. "
-                    f"Use: log_avaliacoes, log_trades ou log_performance."
-                )
+                rows = conn.execute(self._sql(
+                    "SELECT * FROM log_trades ORDER BY timestamp_entrada DESC LIMIT ?"
+                ), (dias * 10,)).fetchall()
+            else:  # log_performance
+                rows = conn.execute(self._sql(
+                    "SELECT * FROM log_performance ORDER BY data DESC LIMIT ?"
+                ), (dias,)).fetchall()
 
             if not rows:
                 print(f"[LOG] Nenhum registro em {tabela}")
                 return None
 
+            header = list(rows[0].keys())
             filepath = os.path.join(self.log_dir, f"{tabela}_{datetime.now().strftime('%Y%m%d')}.csv")
             with open(filepath, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(rows[0].keys())
+                writer.writerow(header)
                 for row in rows:
-                    writer.writerow(tuple(row))
+                    writer.writerow([row[k] for k in header])
 
             print(f"[LOG] Exportado: {filepath} ({len(rows)} registros)")
             return filepath
@@ -313,24 +368,24 @@ class LoggerBot:
 
     def relatorio_diario(self, symbol="BTCUSDT"):
         """Imprime relatorio do dia."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         hoje = datetime.now().strftime("%Y-%m-%d")
+        try:
+            avals = conn.execute(self._sql("""
+                SELECT COUNT(*), AVG(score),
+                       SUM(CASE WHEN sinal IN ('COMPRA','VENDA') THEN 1 ELSE 0 END)
+                FROM log_avaliacoes WHERE symbol=? AND timestamp LIKE ?
+            """), (symbol, f"{hoje}%")).fetchone()
 
-        avals = conn.execute("""
-            SELECT COUNT(*), AVG(score),
-                   SUM(CASE WHEN sinal IN ('COMPRA','VENDA') THEN 1 ELSE 0 END)
-            FROM log_avaliacoes WHERE symbol=? AND timestamp LIKE ?
-        """, (symbol, f"{hoje}%")).fetchone()
-
-        trades = conn.execute("""
-            SELECT COUNT(*),
-                   SUM(CASE WHEN pnl_usdt > 0 THEN 1 ELSE 0 END),
-                   SUM(pnl_usdt), SUM(pnl_pct)
-            FROM log_trades WHERE symbol=? AND timestamp_saida LIKE ?
-            AND pnl_usdt IS NOT NULL
-        """, (symbol, f"{hoje}%")).fetchone()
-
-        conn.close()
+            trades = conn.execute(self._sql("""
+                SELECT COUNT(*),
+                       SUM(CASE WHEN pnl_usdt > 0 THEN 1 ELSE 0 END),
+                       SUM(pnl_usdt), SUM(pnl_pct)
+                FROM log_trades WHERE symbol=? AND timestamp_saida LIKE ?
+                AND pnl_usdt IS NOT NULL
+            """), (symbol, f"{hoje}%")).fetchone()
+        finally:
+            conn.close()
 
         print(f"\n  RELATORIO DIARIO — {hoje} ({symbol})")
         print(f"  {'='*45}")
@@ -346,14 +401,15 @@ class LoggerBot:
 
     def ultimos_trades(self, n=10, symbol="BTCUSDT"):
         """Retorna ultimos N trades."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("""
-            SELECT * FROM log_trades
-            WHERE symbol=? AND pnl_usdt IS NOT NULL
-            ORDER BY timestamp_saida DESC LIMIT ?
-        """, (symbol, n)).fetchall()
-        conn.close()
+        conn = self._connect_rows()
+        try:
+            rows = conn.execute(self._sql("""
+                SELECT * FROM log_trades
+                WHERE symbol=? AND pnl_usdt IS NOT NULL
+                ORDER BY timestamp_saida DESC LIMIT ?
+            """), (symbol, n)).fetchall()
+        finally:
+            conn.close()
         return [dict(r) for r in rows]
 
 
