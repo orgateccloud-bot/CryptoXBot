@@ -1,7 +1,7 @@
 ---
 tags: [scorecard, maturidade]
-atualizado: 2026-06-21
-nota_global: 8.0
+atualizado: 2026-06-22
+nota_global: 8.2
 ---
 
 # 📊 Pontuações do Projeto (Maturidade)
@@ -23,36 +23,37 @@ Avaliação do estado **pós-aposentadoria do cluster async** (branch
 | Arquitetura & organização | 🟢 **8** | 1.0 | arquitetura única após aposentar cluster; `indicadores.py` desduplicado; gap: `logger` SQLite-only |
 | ML / Sinais | 🟡 **7** | 1.0 | XGBoost+MLP+FSRS+ensemble; ml_filtro/regime testados; riscos: overfitting MLP, scaler drift, ADX manual |
 | Qualidade de código | 🟡 **7** | 1.0 | pre-commit completo; `indicadores.py` desduplicado + bugs corrigidos; gaps: `.bandit`/`.secrets.baseline` ausentes |
-| Deploy & Infra | 🟡 **7** | 1.0 | Supabase + Railway prontos e documentados; `deploy.yml`/compose ainda GCP |
-| Observabilidade | 🟡 **7** | 0.8 | logs estruturados, `/health`, Telegram, dashboard; `logger` não vai p/ Supabase |
+| Deploy & Infra | 🟢 **8** | 1.0 | Supabase + Railway prontos; **backend Postgres validado** (fix do pool `open=True`); shutdown limpo; gap menor: `deploy.yml`/compose ainda GCP (legado) |
+| Observabilidade | 🟢 **8** | 0.8 | logs estruturados, `/health`, Telegram, dashboard; **`logger` agora persiste no Supabase** (sem split-brain) |
 | Documentação | 🟢 **8** | 0.8 | vault Obsidian + relatórios + deploy guides; CLAUDE.md alinhado |
 
 ## Nota global ponderada
 
 ```
 Σ(nota × peso) / Σ(peso)
-= (9·1.5 + 9·1.5 + 8·1.2 + 9·1.2 + 8·1.0 + 7·1.0 + 7·1.0 + 7·1.0 + 7·0.8 + 8·0.8) / 11.0
-= 88.4 / 11.0
-≈ 8.04
+= (9·1.5 + 9·1.5 + 8·1.2 + 9·1.2 + 8·1.0 + 7·1.0 + 7·1.0 + 8·1.0 + 8·0.8 + 8·0.8) / 11.0
+= 90.2 / 11.0
+≈ 8.20
 ```
 
-> ## 🟢 Nota global: **8.0 / 10 — "Beta maduro"**
-> **Meta de 8.0 atingida.** Pronto para **paper trading**, com **599 testes**, um 3º
-> showstopper corrigido (estratégia), segurança endurecida (SECRET_KEY + pre-commit
-> funcional) e shutdown limpo (fecha pool no SIGTERM do Railway).
-> Caminho para **8.5+**: `logger` Postgres (PR dedicado), revalidação walk-forward
-> do ML, testes de backtesting, canonizar deploy Railway (ver [[Planejamento de Melhorias]]).
+> ## 🟢 Nota global: **8.2 / 10 — "Beta maduro"**
+> Pronto para **paper trading**, com **600 testes**. O backend **Postgres/Supabase
+> foi validado end-to-end** contra um Postgres real provisionado — o que revelou e
+> corrigiu 2 bugs de produção: pool sem `open=True` (Supabase inoperante em
+> psycopg_pool ≥ 3.2) e o `logger` que só gravava em SQLite (split-brain).
+> Caminho para **8.5+**: revalidação walk-forward do ML, testes de backtesting,
+> canonizar deploy Railway/aposentar GCP (ver [[Planejamento de Melhorias]]).
 
 ## Radar (visão rápida)
 ```
-Testes            █████████░  9   ← 599 testes (era 4 no início)
+Testes            █████████░  9   ← 600 testes (era 4 no início)
 Executabilidade   █████████░  9
 Risco             █████████░  9
-Segurança         ████████░░  8   ← SECRET_KEY + pre-commit funcional
+Segurança         ████████░░  8
 Arquitetura       ████████░░  8
 Documentação      ████████░░  8
-Deploy/Infra      ███████░░░  7
-Observabilidade   ███████░░░  7
+Deploy/Infra      ████████░░  8   ← backend Postgres validado (fix do pool)
+Observabilidade   ████████░░  8   ← logger persiste no Supabase
 ML/Sinais         ███████░░░  7
 Qualidade código  ███████░░░  7
 ```
@@ -66,6 +67,7 @@ Qualidade código  ███████░░░  7
 | Pós testes do core | ~7.4 | 295 testes; core de trading coberto |
 | Pós trailing stop testado | ~7.6 | 323 testes; `_monitorar` + equivalência provada |
 | Pós fix da estratégia + ML/sinais testados | ~7.9 | 595 testes; 3º showstopper corrigido (otimizada/indicadores) |
-| **Pós hygiene de segurança + shutdown limpo** | **8.0** | **599 testes**; SECRET_KEY endurecido, pre-commit funcional, `fechar_pool` no SIGTERM |
+| Pós hygiene de segurança + shutdown limpo | ~8.0 | 599 testes; SECRET_KEY endurecido, pre-commit funcional, `fechar_pool` no SIGTERM |
+| **Pós validação Postgres real (logger + pool)** | **8.2** | logger multi-backend validado em Postgres; **2 bugs de produção corrigidos** (pool `open=True`, split-brain do logger) |
 
-Próximo salto previsto: **8.5+** ao concluir `logger` Postgres, revalidação walk-forward do ML e testes de backtesting.
+Próximo salto previsto: **8.5+** ao revalidar o ML (walk-forward), testar backtesting e canonizar o deploy Railway (aposentar GCP).

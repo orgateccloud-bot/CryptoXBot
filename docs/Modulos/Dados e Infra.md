@@ -15,10 +15,10 @@ tags: [modulo, dados, infra, observabilidade]
 - **Riscos:** timestamps divergem (SQLite `isoformat` TEXT vs Postgres `TIMESTAMPTZ`); `INSERT OR IGNORE` (SQLite) vs `ON CONFLICT` (PG) não 100% idênticos.
 - ✅ Corrigido nesta sessão: `fechar_pool()` agora é chamado no shutdown (SIGTERM/finally em `main.py`) — não vaza mais conexões no restart do Railway.
 
-## `logger.py` — Logging analítico 🟡 Média
+## `logger.py` — Logging analítico 🟢 Alta
 - **Propósito:** tabelas `log_avaliacoes`, `log_trades`, `log_performance` (análise detalhada).
-- ✅ Corrigido nesta sessão: (1) `LoggerBot` delega `.warning/.error/.critical` (corrige AttributeError nos erros do WebSocket); (2) whitelist de tabelas em `exportar_csv` (SQL injection); cobertura `test_logger` (13).
-- **Gap remanescente (P0):** ainda grava SEMPRE em SQLite — em produção Supabase cria um 2º banco desacoplado (split-brain). Port para Postgres é PR dedicado (ver [[Planejamento de Melhorias]]).
+- ✅ **Multi-backend (validado em Postgres real):** segue a config de `database.py` (SQLite local / Postgres-Supabase em prod) — DDL/placeholders/ON CONFLICT/RETURNING por backend, `connect_timeout` + init resiliente. **Fim do split-brain.**
+- ✅ Também: delega `.warning/.error/.critical` (fix do AttributeError no WS); whitelist em `exportar_csv`. Testes: `test_logger` (13) + `test_logger_postgres` (integração skippable).
 
 ## `health.py` — Health endpoint 🟢 Alta
 - `/health` (sempre 200) e `/ready` (testa `database.healthcheck()` → 200/503). Usado pelos probes do Railway.

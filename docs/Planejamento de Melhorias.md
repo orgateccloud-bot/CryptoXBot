@@ -24,11 +24,11 @@ Legenda esforço: ⏱️ pequeno (<1h) · ⏱️⏱️ médio (meio dia) · ⏱�
 - ✅ **Hygiene de segurança** — `SECRET_KEY` endurecido em produção; `.secrets.baseline` + `.bandit` criados (pre-commit funcional); `requirements-dev.txt`.
 - ✅ **Shutdown limpo** — `database.fechar_pool()` no `finally` + handler de SIGTERM (Railway).
 
-## 🔴 P0 — Antes de operar capital real
-1. ✅ ~~Testes do core + trailing stop + estratégia/ML~~ — **feito** (599 testes; otimizada 93%, indicadores 100%, regime 99%, score 96%).
-2. **`logger.py` Postgres/Supabase** — hoje grava SEMPRE em SQLite local (split-brain em produção). Requer port das 3 tabelas (DDL + placeholders `%s`) via roteador de `database.py` + remover efeito de import. **PR dedicado** (precisa de instância Supabase p/ validar). ⏱️⏱️
-3. ✅ ~~`pytest`/`pytest-cov` declarados + `.secrets.baseline`/`.bandit`~~ — **feito** (`requirements-dev.txt` + configs do pre-commit).
-4. ✅ ~~`database.fechar_pool()` no shutdown~~ — **feito** (SIGTERM + finally).
+## ✅ P0 — concluído
+1. ✅ ~~Testes do core + trailing stop + estratégia/ML~~ (otimizada 93%, indicadores 100%, regime 99%, score 96%).
+2. ✅ ~~`logger.py` Postgres/Supabase~~ — **feito e validado contra Postgres real**. LoggerBot multi-backend (SQLite/Postgres), DDL/placeholders/ON CONFLICT/RETURNING por backend, `connect_timeout` + init resiliente. Fim do split-brain. Também corrigiu o **pool do `database.py`** (`open=True`, sem o qual o Supabase backend não abria em psycopg_pool ≥ 3.2).
+3. ✅ ~~`pytest`/`pytest-cov` declarados + `.secrets.baseline`/`.bandit`~~.
+4. ✅ ~~`database.fechar_pool()` no shutdown~~ (SIGTERM + finally).
 
 ## 🟡 P1 — Robustez
 5. ✅ ~~Refatorar `indicadores.py`~~ — **feito** (duplicatas mortas removidas, bugs corrigidos, 100% cobertura).

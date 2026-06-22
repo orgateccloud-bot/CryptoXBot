@@ -10,8 +10,8 @@ Bot de trading algorítmico para Binance Futures, **long-only**, com estratégia
 multi-filtro + ensemble de ML, gestão de risco (Kelly + circuit breaker) e deploy
 em **Railway + Supabase**.
 
-> **Estado atual:** Beta maduro · pronto para **paper trading** · `import main` limpo · `pytest` verde (**599 passed**, 6 skipped).
-> **Nota de maturidade global: 🟢 8.0/10** — ver [[Pontuacoes do Projeto]].
+> **Estado atual:** Beta maduro · pronto para **paper trading** · `import main` limpo · `pytest` verde (**599 passed**, 7 skipped).
+> **Nota de maturidade global: 🟢 8.2/10** — ver [[Pontuacoes do Projeto]].
 
 ## 🗺️ Navegação
 
@@ -44,9 +44,9 @@ em **Railway + Supabase**.
 | Arquitetura | 🟢 8 | cluster async aposentado; `indicadores.py` desduplicado |
 | Documentação | 🟢 8 | vault Obsidian + deploy guides |
 | Segurança | 🟢 8 | SECRET_KEY endurecido; pre-commit funcional |
+| Deploy/Infra | 🟢 8 | Supabase/Railway prontos; backend Postgres validado |
+| Observabilidade | 🟢 8 | logger persiste no Supabase (sem split-brain) |
 | ML / Sinais | 🟡 7 | XGBoost+MLP+FSRS; ml_filtro/regime testados |
 | Qualidade de código | 🟡 7 | indicadores desduplicado + bugs corrigidos |
-| Observabilidade | 🟡 7 | logs, health, Telegram, dashboard |
-| Deploy/Infra | 🟡 7 | Supabase + Railway prontos; fecha pool no SIGTERM |
 
-> 🎯 **Meta 8.0 atingida.** Próximos focos para **8.5+**: `logger` Postgres (PR dedicado), revalidação walk-forward do ML, testes de backtesting, canonizar deploy Railway.
+> 🎯 **8.2/10.** Validação contra Postgres real corrigiu 2 bugs de produção (pool `open=True`, split-brain do logger). Próximos focos para **8.5+**: revalidação walk-forward do ML, testes de backtesting, canonizar deploy Railway.
