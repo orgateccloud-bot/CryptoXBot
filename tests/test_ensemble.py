@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import ensemble
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -24,10 +23,11 @@ def _mock_xgb(prob: float):
 
 def _prever_com_mocks(xgb_prob, lstm_prob, regime="INDEFINIDO", features_fsrs=None):
     """Invoca ensemble.prever() com modelos mockados."""
-    with patch("ensemble.ml_filtro", create=True), patch(
-        "ensemble.lstm_modelo", create=True
-    ), patch("ml_filtro.prever", return_value=(xgb_prob, "OK")), patch(
-        "lstm_modelo.prever", return_value=(lstm_prob, "OK")
+    with (
+        patch("ensemble.ml_filtro", create=True),
+        patch("ensemble.lstm_modelo", create=True),
+        patch("ml_filtro.prever", return_value=(xgb_prob, "OK")),
+        patch("lstm_modelo.prever", return_value=(lstm_prob, "OK")),
     ):
         # Patch lazy imports dentro de prever()
         import importlib
@@ -106,9 +106,18 @@ class TestCalculoEnsemble:
 
     def test_retorna_campos_obrigatorios(self):
         r = _prever_com_mocks(0.65, 0.60)
-        campos = ["prob_ensemble", "prob_xgb", "prob_lstm", "concordancia",
-                  "confianca", "pode_operar", "motivo", "regime",
-                  "pesos_aplicados", "fator_fsrs"]
+        campos = [
+            "prob_ensemble",
+            "prob_xgb",
+            "prob_lstm",
+            "concordancia",
+            "confianca",
+            "pode_operar",
+            "motivo",
+            "regime",
+            "pesos_aplicados",
+            "fator_fsrs",
+        ]
         for campo in campos:
             assert campo in r, f"Campo '{campo}' ausente"
 
@@ -174,14 +183,16 @@ class TestFSRSIntegration:
         mock_fsrs.avaliar_com_detalhe.return_value = {"status": "CONFIAVEL", "fator_confianca": 0.8}
         mock_get_fsrs = MagicMock(return_value=mock_fsrs)
 
-        with patch("ensemble._FSRS_DISPONIVEL", True), patch(
-            "ensemble._get_fsrs", mock_get_fsrs
-        ), patch.dict(
-            "sys.modules",
-            {
-                "ml_filtro": MagicMock(prever=lambda *a, **kw: (0.70, "OK")),
-                "lstm_modelo": MagicMock(prever=lambda *a, **kw: (0.65, "OK")),
-            },
+        with (
+            patch("ensemble._FSRS_DISPONIVEL", True),
+            patch("ensemble._get_fsrs", mock_get_fsrs),
+            patch.dict(
+                "sys.modules",
+                {
+                    "ml_filtro": MagicMock(prever=lambda *a, **kw: (0.70, "OK")),
+                    "lstm_modelo": MagicMock(prever=lambda *a, **kw: (0.65, "OK")),
+                },
+            ),
         ):
             r = ensemble.prever(
                 regime_atual="TENDENCIA_ALTA",
@@ -196,14 +207,16 @@ class TestFSRSIntegration:
         mock_fsrs.avaliar_com_detalhe.return_value = {"status": "EVITAR", "fator_confianca": 0.1}
         mock_get_fsrs = MagicMock(return_value=mock_fsrs)
 
-        with patch("ensemble._FSRS_DISPONIVEL", True), patch(
-            "ensemble._get_fsrs", mock_get_fsrs
-        ), patch.dict(
-            "sys.modules",
-            {
-                "ml_filtro": MagicMock(prever=lambda *a, **kw: (0.60, "OK")),
-                "lstm_modelo": MagicMock(prever=lambda *a, **kw: (0.58, "OK")),
-            },
+        with (
+            patch("ensemble._FSRS_DISPONIVEL", True),
+            patch("ensemble._get_fsrs", mock_get_fsrs),
+            patch.dict(
+                "sys.modules",
+                {
+                    "ml_filtro": MagicMock(prever=lambda *a, **kw: (0.60, "OK")),
+                    "lstm_modelo": MagicMock(prever=lambda *a, **kw: (0.58, "OK")),
+                },
+            ),
         ):
             r = ensemble.prever(
                 regime_atual="INDEFINIDO",
