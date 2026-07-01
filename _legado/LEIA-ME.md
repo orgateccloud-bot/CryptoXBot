@@ -3,6 +3,36 @@
 > **Branch:** `chore/aposentar-cluster-async` · **Princípio @Zeta:** nunca
 > deletar — arquivar preservando reversibilidade total.
 
+## Lote 3 — Docker (2026-07-01)
+
+**Decisão:** o deploy é **único — systemd na VPS + Supabase (Postgres)**.
+Docker havia sido reintroduzido após a aposentadoria do Railway (commit
+`d9149d2`) como caminho alternativo de compute ("Opção A" no `CLAUDE.md`),
+coexistindo com systemd ("Opção B"). Para eliminar a duplicidade, o caminho
+Docker foi arquivado — systemd passa a ser o único caminho de execução.
+
+Movido para `_legado/infra/lote3-docker/` (pasta própria para não colidir com
+os artefatos Docker/GCP já arquivados no Lote 2, que têm os mesmos nomes de
+arquivo mas são de uma era anterior — GCP, sem Supabase):
+
+| Arquivado | Era |
+|-----------|-----|
+| `Dockerfile` | imagem Python 3.11-slim (worker + dashboard) |
+| `docker-compose.yml` | orquestração local dos dois serviços |
+| `iniciar.bat` / `parar.bat` | scripts Windows que só chamavam `docker-compose up/down` |
+| `Procfile` | convenção Railway/Heroku, órfã desde a aposentadoria do Railway |
+| `.env.prod.example` | já estava desatualizado (GCP_PROJECT_ID, Redis interno ao Docker) |
+
+**Config canônica que permanece:** `deploy/setup.sh` + `deploy/bxbot-worker.service`
++ `deploy/bxbot-dashboard.service` + `deploy/Caddyfile` — caminho systemd único,
+documentado em `CLAUDE.md`. `.env.example` (raiz) continua sendo o template
+válido de variáveis.
+
+**Rollback:** `git mv _legado/infra/lote3-docker/Dockerfile Dockerfile` (e
+demais arquivos de volta à raiz) + reverter os trechos de `CLAUDE.md`,
+`.github/workflows/ci.yml` e `renovate.json` citados no commit deste lote,
+depois `docker compose up -d --build`.
+
 ## Lote 2 — Infra Docker/GCP (2026-06-22)
 
 **Decisão:** o deploy é **único — Railway (nixpacks) + Supabase (Postgres)**.

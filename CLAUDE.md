@@ -1,8 +1,9 @@
 # CLAUDE.md — BinanceXBot (HFT Trading Bot)
 
 Bot de trading algorítmico de alta frequência para Binance Futures.
-**Deploy: VPS Ubuntu (Docker Compose ou systemd) + Supabase (Postgres gerenciado).**
+**Deploy: VPS Ubuntu (systemd) + Supabase (Postgres gerenciado).**
 Railway foi aposentado em `_legado/infra/railway.toml` — zero acoplamento no código.
+Docker foi aposentado em `_legado/infra/lote3-docker/` — zero acoplamento no código.
 
 ## Stack
 
@@ -10,7 +11,7 @@ Railway foi aposentado em `_legado/infra/railway.toml` — zero acoplamento no c
 |--------|-----------|
 | Core | Python 3.11+ |
 | ML/IA | XGBoost (modelo principal) + sklearn MLP + FSRS, em ensemble |
-| Compute | **Docker Compose** (`Dockerfile` + `docker-compose.yml`) · ou systemd direto (ver `deploy/`) |
+| Compute | **systemd** direto na VPS (ver `deploy/`) |
 | Banco | **Supabase** (Postgres) em produção · SQLite local em dev |
 | CI | GitHub Actions (`ci.yml`: lint + smoke test + pytest + segurança) |
 | Monitoramento | `dashboard.py` (Flask + SocketIO), `/health`, `/metrics`, Telegram Bot |
@@ -32,8 +33,6 @@ templates/         # dashboard HTML
 tests/             # pytest (710 passed, 7 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 _legado/           # código/infra aposentados (ver _legado/LEIA-ME.md)
-Dockerfile         # imagem Python 3.11-slim
-docker-compose.yml # worker + dashboard (dois serviços, mesma imagem)
 ```
 
 Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `database.py`,
@@ -43,17 +42,7 @@ Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `database.py`,
 
 ## Deploy (VPS + Supabase)
 
-### Opção A — Docker Compose (recomendado para inicio rápido)
-
-```bash
-# No servidor (após git clone /opt/binancexbot)
-cp .env.example .env
-nano .env                          # preencher credenciais Binance + Supabase
-docker compose up -d
-docker compose logs -f worker      # acompanhar logs
-```
-
-### Opção B — systemd direto (sem Docker)
+### systemd direto
 
 ```bash
 cd /opt/binancexbot
@@ -104,11 +93,6 @@ python scripts/migrate_sqlite_to_supabase.py --confirmar
 # Monitoramento
 python dashboard.py
 python monitor_fluxo.py
-
-# Docker
-docker compose up -d               # sobe worker + dashboard
-docker compose logs -f             # logs em tempo real
-docker compose restart worker      # reinicia apenas o worker
 ```
 
 ## Variáveis de Ambiente Críticas
@@ -125,7 +109,7 @@ SECRET_KEY=...          # obrigatório em produção (gerado efêmero se ausente
 ENV=production
 CORS_ORIGINS=https://seu-dominio.com
 
-# Worker (injetado pelo docker-compose/systemd — não setar manualmente)
+# Worker (injetado pelo systemd — não setar manualmente)
 SERVICE_ROLE=worker
 PORT=8080
 ENABLE_HEALTH_SERVER=true

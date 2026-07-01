@@ -8,9 +8,6 @@
   "python": {
     "additionalBranchPrefix": "deps/"
   },
-  "docker": {
-    "additionalBranchPrefix": "deps/"
-  },
   "baseBranch": "main",
   "branch": "renovate/{{baseBranch}}",
   "semanticCommits": true,
@@ -54,16 +51,6 @@
       "groupName": "test-dependencies",
       "schedule": [
         "before 3am on Monday"
-      ]
-    },
-    {
-      "description": "Group Docker updates",
-      "matchDatasources": [
-        "docker"
-      ],
-      "groupName": "docker-updates",
-      "schedule": [
-        "before 3am on Sunday"
       ]
     },
     {

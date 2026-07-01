@@ -118,8 +118,8 @@ jobs:
       - name: Run Safety check
         run: safety check --json || true
 
-  # Deploy é via Railway (nixpacks, observando o repo) — sem build de imagem Docker.
-  # Os artefatos Docker/GCP foram arquivados em _legado/infra/.
+  # Deploy é via systemd na VPS (deploy/setup.sh) — sem build de imagem Docker.
+  # Os artefatos Docker/GCP/Railway foram arquivados em _legado/infra/.
 
   notify:
     name: Notify Results
