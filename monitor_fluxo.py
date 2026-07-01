@@ -8,13 +8,15 @@ Monitor de Fluxo em Tempo Real - BTC/USDT Binance Futures
 Uso: python monitor_fluxo.py
 """
 
-import websocket
 import json
-import time
 import threading
+import time
 from datetime import datetime
-from config.runtime_settings import MIN_BTC_VOLUME, SYMBOL_WS, WHALE_BTC_VOLUME
+
+import websocket
+
 import database
+from config.runtime_settings import MIN_BTC_VOLUME, SYMBOL_WS, WHALE_BTC_VOLUME
 
 # === Estado global ===
 cvd = 0.0

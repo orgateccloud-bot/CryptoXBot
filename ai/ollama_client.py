@@ -21,9 +21,10 @@ Uso:
 """
 
 import json
-import requests
 import logging
 from datetime import datetime
+
+import requests
 
 logger = logging.getLogger(__name__)
 

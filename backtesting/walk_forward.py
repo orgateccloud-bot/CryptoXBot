@@ -20,17 +20,18 @@ Uso:
   python backtesting/walk_forward.py --treino 720 --teste 168
 """
 
-import sys
 import os
 import sqlite3
 import statistics
-import numpy as np
+import sys
 from datetime import datetime
+
+import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
+from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx
 from ml_filtro import extrair_features
-from backtesting.motor_ensemble import _adx, TAXA, SLIPPAGE
 
 DB_PATH = "data/btc_data.db"
 

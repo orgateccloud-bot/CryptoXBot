@@ -1,0 +1,10 @@
+[flake8]
+; flake8 nao le pyproject.toml nativamente - por isso esta config vive aqui
+; (ate entao o CI rodava com os defaults de 79 colunas e mascarava tudo).
+max-line-length = 100
+extend-ignore = E203,W503
+exclude = _legado,.venv,venv,build,dist
+per-file-ignores =
+    backtesting/*.py:E402
+    scripts/*.py:E402
+    tests/*.py:E402

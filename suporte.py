@@ -18,11 +18,13 @@ Entrada Scale-In (3 parcelas):
   Preco medio: media ponderada das 3 entradas
 """
 
-import sys, os
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
+
 import indicadores as ind
 
 BASE_URL = "https://api.binance.com"

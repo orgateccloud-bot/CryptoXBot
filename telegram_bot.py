@@ -19,9 +19,11 @@ Alertas enviados:
   - Relatório diário (18h)
 """
 
-import requests
 from datetime import datetime
-from config.runtime_settings import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+
+import requests
+
+from config.runtime_settings import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 
 
 def _enviar(mensagem):

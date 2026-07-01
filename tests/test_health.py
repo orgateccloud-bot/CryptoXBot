@@ -4,8 +4,8 @@ Não abre sockets reais — testa a lógica de payload e roteamento diretamente.
 """
 
 import json
-import sys
 import os
+import sys
 import threading
 from unittest.mock import MagicMock, patch
 

@@ -18,13 +18,13 @@ Uso:
   logger.warning("...")   # tambem delega para logging padrao (usado por main.py)
 """
 
-import os
 import csv
-import sqlite3
 import logging
+import os
+import sqlite3
 from datetime import datetime
 
-from config.runtime_settings import DB_PATH, DATABASE_URL, DATABASE_BACKEND
+from config.runtime_settings import DATABASE_BACKEND, DATABASE_URL, DB_PATH
 
 # Logger estruturado padrão (stdlib) usado para mensagens operacionais.
 _stdlog = logging.getLogger("botbinance")

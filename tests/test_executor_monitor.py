@@ -15,12 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import executor as E
-from executor import (
-    Executor,
-    avaliar_tick_monitor,
-    TRAILING_ATIVACAO,
-    TRAILING_DISTANCIA,
-)
+from executor import TRAILING_ATIVACAO, TRAILING_DISTANCIA, Executor, avaliar_tick_monitor
 
 ENTRADA = 100.0
 STOP = 98.0

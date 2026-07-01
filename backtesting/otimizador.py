@@ -16,15 +16,15 @@ Uso:
   python backtesting/otimizador.py --rapido          (grid menor, mais rapido)
 """
 
-import sys
-import os
 import itertools
+import os
 import statistics
+import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from backtesting.motor_ensemble import carregar, _adx, _score_backtest, TAXA, SLIPPAGE
 import indicadores as ind
+from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, _score_backtest, carregar
 from ml_filtro import extrair_features
 
 DB_PATH = "data/btc_data.db"

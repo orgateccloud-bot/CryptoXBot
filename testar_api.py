@@ -5,10 +5,12 @@ Exibe saldo e permissões da conta. Não realiza nenhuma ordem.
 Uso: python testar_api.py
 """
 
-import hmac
 import hashlib
+import hmac
 import time
+
 import requests
+
 from config.runtime_settings import API_KEY, API_SECRET
 
 BASE_URL = "https://api.binance.com"  # Spot API

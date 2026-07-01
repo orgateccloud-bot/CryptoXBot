@@ -26,7 +26,9 @@ Bloqueios absolutos (score forcado para 0):
   - Fear & Greed > 80 (Ganancia Extrema)
 """
 
-import sys, os
+import os
+import sys
+
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -418,8 +420,8 @@ def imprimir_score(score_result):
 
 
 if __name__ == "__main__":
-    import regime as reg
     import fear_greed as fg
+    import regime as reg
 
     print("Calculando Score Unificado...")
     regime_info = reg.detectar()

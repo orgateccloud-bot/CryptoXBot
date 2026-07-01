@@ -9,12 +9,12 @@ Cobre as 5 melhorias implementadas:
   5. main.py         — funções de retreinamento automático
 """
 
-import sys
-import os
-import unittest
 import json
+import os
+import sys
 import tempfile
 import time
+import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -385,14 +385,14 @@ class TestOllamaCliente(unittest.TestCase):
     """Testes do OllamaCliente — com e sem servidor ativo."""
 
     def setUp(self):
-        from ai.ollama_client import OllamaCliente, MODELO_RAPIDO, MODELO_ANALITICO
+        from ai.ollama_client import MODELO_ANALITICO, MODELO_RAPIDO, OllamaCliente
 
         self.OllamaCliente = OllamaCliente
         self.MODELO_RAPIDO = MODELO_RAPIDO
         self.MODELO_ANALITICO = MODELO_ANALITICO
 
     def test_modelos_configurados_corretos(self):
-        from ai.ollama_client import MODELO_RAPIDO, MODELO_ANALITICO
+        from ai.ollama_client import MODELO_ANALITICO, MODELO_RAPIDO
 
         self.assertEqual(
             MODELO_RAPIDO, "gemma3:4b", "Modelo rápido deve ser gemma3:4b (3.2GB, cabe na VRAM)"
@@ -537,6 +537,7 @@ class TestRetreinamentoAutomatico(unittest.TestCase):
 
     def test_iniciar_retreinamento_cria_thread(self):
         import threading
+
         import main
 
         threads_antes = {t.name for t in threading.enumerate()}

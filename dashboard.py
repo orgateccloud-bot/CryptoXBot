@@ -15,14 +15,15 @@ APIs disponíveis:
 """
 
 import json
-import time
 import threading
+import time
+from datetime import datetime
+
 import requests
 import websocket
-from datetime import datetime
-from flask import Flask, render_template, jsonify, send_from_directory
-from flask_socketio import SocketIO
+from flask import Flask, jsonify, render_template, send_from_directory
 from flask_cors import CORS
+from flask_socketio import SocketIO
 
 import database
 from config.runtime_settings import CORS_ORIGINS, PORT, SECRET_KEY, SYMBOL_WS, WHALE_BTC_VOLUME
@@ -553,7 +554,8 @@ def api_conexao():
     """Status de conectividade com a Binance: REST spot, REST futures, auth e modo."""
     import hashlib
     import hmac as _hmac
-    from config.runtime_settings import API_KEY, API_SECRET, DRY_RUN, ALLOW_REAL_TRADING
+
+    from config.runtime_settings import ALLOW_REAL_TRADING, API_KEY, API_SECRET, DRY_RUN
 
     def _ping(url: str) -> dict:
         t0 = time.time()
@@ -634,7 +636,7 @@ def api_conexao():
 
 @app.route("/api/backtest/<symbol>")
 def api_backtest(symbol="BTCUSDT"):
-    from backtesting.motor_ensemble import rodar, imprimir_relatorio
+    from backtesting.motor_ensemble import imprimir_relatorio, rodar
 
     r = rodar(symbol.upper(), "1h", "4h", 1000.0, usar_ml=False)
     if not r or "erro" in r:

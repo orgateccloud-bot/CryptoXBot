@@ -21,9 +21,9 @@ Nenhuma dependência externa é tocada: o módulo só usa numpy e math puros.
 Valores de referência foram calculados à mão para entradas pequenas.
 """
 
+import math
 import os
 import sys
-import math
 
 import numpy as np
 import pytest

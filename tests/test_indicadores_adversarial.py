@@ -11,9 +11,9 @@ Todos os valores de referência foram calculados à mão. Hermético: só numpy 
 math puros; nenhuma rede, banco ou modelo é tocado.
 """
 
+import math
 import os
 import sys
-import math
 
 import numpy as np
 import pytest

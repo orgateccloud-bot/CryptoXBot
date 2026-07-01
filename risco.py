@@ -9,11 +9,15 @@ Módulos:
   5. Validador de trade     — checa todas as condições antes de executar
 """
 
+import hashlib
+import hmac
+import time
+from datetime import date, datetime
+
 import requests
-from datetime import datetime, date
-from config.runtime_settings import API_KEY, API_SECRET
-import hmac, hashlib, time
+
 import database
+from config.runtime_settings import API_KEY, API_SECRET
 
 BASE_URL = "https://api.binance.com"
 

@@ -4,9 +4,10 @@ Extrai: preço atual, order book, funding rate, open interest
 Não requer chaves de API (endpoints públicos).
 """
 
-import requests
 import json
 from datetime import datetime
+
+import requests
 
 BASE_URL = "https://fapi.binance.com"
 SYMBOL = "BTCUSDT"

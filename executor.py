@@ -14,12 +14,14 @@ Uso:
   ex.abrir_long(preco, tamanho_btc, stop, target)
 """
 
-import hmac
 import hashlib
-import time
+import hmac
 import threading
-import requests
+import time
 from datetime import datetime
+
+import requests
+
 import database
 import risco as gestao_risco
 from config.runtime_settings import API_KEY, API_SECRET

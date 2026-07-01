@@ -11,9 +11,9 @@ O alvo carrega indicadores reais (puros) — não há necessidade de mockar a
 matemática dos indicadores; o que precisa de isolamento é I/O (DB, rede, disco).
 """
 
+import math
 import os
 import sys
-import math
 from unittest import mock
 
 import numpy as np

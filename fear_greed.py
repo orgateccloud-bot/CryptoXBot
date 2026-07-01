@@ -20,8 +20,9 @@ Regras de operacao:
 """
 
 import threading
-import requests
 from datetime import datetime
+
+import requests
 
 API_URL = "https://api.alternative.me/fng/?limit=3&format=json"
 CACHE_TTL_S = 900  # 15 minutos

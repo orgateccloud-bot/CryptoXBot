@@ -3,11 +3,12 @@ Testes das rotas REST do dashboard.py via Flask test client.
 Sem WebSocket real, sem banco real — database é mockado.
 """
 
+import json
 import os
 import sys
-import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

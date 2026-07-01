@@ -20,9 +20,9 @@ Foco:
     extrair_features e prever nunca propagam excecao em entradas validas.
 """
 
+import math
 import os
 import sys
-import math
 from unittest import mock
 
 import numpy as np
@@ -32,8 +32,8 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if RAIZ not in sys.path:
     sys.path.insert(0, RAIZ)
 
-import ml_filtro  # noqa: E402
 import indicadores as ind  # noqa: E402
+import ml_filtro  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Geradores deterministicos

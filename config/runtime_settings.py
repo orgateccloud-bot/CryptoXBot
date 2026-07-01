@@ -85,8 +85,8 @@ SECRET_KEY = _env("SECRET_KEY", "botbinance-local-dev")
 # ambiente, gera uma efêmera aleatória (sessões/CSRF reiniciam a cada deploy,
 # mas a chave nunca é a conhecida do repositório).
 if APP_ENV == "production" and SECRET_KEY == "botbinance-local-dev":
-    import secrets as _secrets
     import logging as _logging
+    import secrets as _secrets
 
     SECRET_KEY = _secrets.token_hex(32)
     _logging.getLogger("botbinance").warning(

@@ -15,14 +15,15 @@ Uso:
   python backtesting/motor.py --intervalo 4h --capital 1000
 """
 
-import sqlite3
 import argparse
-from datetime import datetime
-import sys
 import os
+import sqlite3
+import sys
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
+
 import indicadores as ind
 import score as score_mod
 

@@ -18,13 +18,14 @@ Uso:
   python ml_filtro.py             → avalia probabilidade atual
 """
 
-import os
-import sys
-import sqlite3
-import pickle
 import argparse
-import requests
+import os
+import pickle
+import sqlite3
+import sys
+
 import numpy as np
+import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import indicadores as ind
@@ -144,9 +145,9 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
     if X is None:
         return
 
-    from xgboost import XGBClassifier
-    from sklearn.model_selection import train_test_split
     from sklearn.metrics import classification_report, roc_auc_score
+    from sklearn.model_selection import train_test_split
+    from xgboost import XGBClassifier
 
     print(f"[ML] Dataset: {len(X)} amostras | Positivos: {y.sum()} ({y.mean()*100:.1f}%)")
 

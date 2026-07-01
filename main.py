@@ -19,26 +19,24 @@ Uso:
   python main.py --par BTCUSDT      → operar apenas um par específico
 """
 
-import sys
-import time
-import threading
 import argparse
 import asyncio
-import websockets
 import json
 import logging
-import signal
-from datetime import datetime
 import random
+import signal
+import sys
+import threading
+import time
+from datetime import datetime
+
+import websockets
 
 import database
-import risco as gestao_risco
-import regime as reg
 import fear_greed as fg
-from suporte import ScaleIn
+import regime as reg
+import risco as gestao_risco
 from analise_mercado import relatorio_completo
-from estrategias.otimizada import analisar as analisar_otimizada, imprimir as imprimir_otimizada
-from executor import Executor
 from config.runtime_settings import (
     ALLOW_REAL_TRADING,
     ENABLE_HEALTH_SERVER,
@@ -46,8 +44,12 @@ from config.runtime_settings import (
     SYMBOL_WS,
     WHALE_BTC_VOLUME,
 )
+from estrategias.otimizada import analisar as analisar_otimizada
+from estrategias.otimizada import imprimir as imprimir_otimizada
+from executor import Executor
 from health import start_health_server
 from logger import logger
+from suporte import ScaleIn
 
 # Retreinamento automático semanal (domingo 02h)
 _RETREINAMENTO_HORA = 2  # hora do dia (02:00)
@@ -254,8 +256,8 @@ def _retreinar_modelos(pares: list[str]):
         f"\n\033[94m[RETRAIN] Iniciando retreinamento semanal — {datetime.now().strftime('%d/%m/%Y %H:%M')}\033[0m"
     )
     try:
-        from ml_filtro import treinar as treinar_xgb
         from lstm_modelo import treinar as treinar_mlp
+        from ml_filtro import treinar as treinar_xgb
 
         for par in pares:
             print(f"\033[94m[RETRAIN] XGBoost — {par}...\033[0m")
@@ -546,7 +548,7 @@ def main():
         return
 
     if args.backtest:
-        from backtesting.motor import rodar_backtest, imprimir_relatorio
+        from backtesting.motor import imprimir_relatorio, rodar_backtest
 
         database.inicializar()
         r = rodar_backtest(args.backtest, 1000.0)

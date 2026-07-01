@@ -10,9 +10,10 @@ Uso:
   ema_vals = ema(prices, 20)
 """
 
-import numpy as np
 import math
 from typing import Tuple
+
+import numpy as np
 
 # ── Tendência ─────────────────────────────────────────────────
 

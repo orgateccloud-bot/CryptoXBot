@@ -5,8 +5,10 @@ Testes unitários para CVD calculator e indicadores.
 """
 
 import unittest
+
 import numpy as np
-from data.cvd_calculator import calculate_cvd, calculate_cvd_from_prices, CVDResult
+
+from data.cvd_calculator import CVDResult, calculate_cvd, calculate_cvd_from_prices
 
 
 class TestCVDCalculator(unittest.TestCase):

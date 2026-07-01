@@ -13,17 +13,17 @@ Uso:
   python backtesting/motor_ensemble.py --par ETHUSDT
 """
 
-import sqlite3
 import argparse
+import os
+import sqlite3
 import statistics
 import sys
-import os
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
-from ml_filtro import extrair_features
 from config.params_pares import get_params
+from ml_filtro import extrair_features
 
 DB_PATH = "data/btc_data.db"
 
@@ -286,8 +286,8 @@ def rodar(
     if usar_ml:
         try:
             split_idx = int(len(f1h) * 0.6)
-            from xgboost import XGBClassifier
             import numpy as np
+            from xgboost import XGBClassifier
 
             # Preparar features do treinamento
             X_train, y_train = [], []

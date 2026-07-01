@@ -11,19 +11,22 @@ Filtros adicionados sobre a estratégia base (EMA+RSI):
   6. Market Structure:      Só comprar em HH/HL (estrutura de alta confirmada)
 """
 
-import sys, os
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import requests
 from datetime import datetime
+
+import requests
+
 import database
+import ensemble as ens
+import fear_greed as fg
 import indicadores as ind
 import regime as reg
-import fear_greed as fg
 import score as sc
 import suporte as sup
-import ensemble as ens
 from config.params_pares import get_params
 
 BASE_URL = "https://api.binance.com"

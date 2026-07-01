@@ -9,13 +9,14 @@ Uso:
   python backtesting/coletar_dados.py --dias 730          → 2 anos de dados
 """
 
-import requests
-import sqlite3
+import argparse
 import os
+import sqlite3
 import sys
 import time
-import argparse
 from datetime import datetime, timedelta
+
+import requests
 
 DB_PATH = "data/btc_data.db"
 BASE_URL = "https://api.binance.com"

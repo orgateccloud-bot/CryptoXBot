@@ -19,11 +19,12 @@ Uso:
   python lstm_modelo.py --treinar --epocas 200
 """
 
-import os
-import sys
-import sqlite3
-import pickle
 import argparse
+import os
+import pickle
+import sqlite3
+import sys
+
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -107,10 +108,10 @@ def treinar(intervalo="1h", max_iter=200):
     if X is None:
         return None
 
+    from sklearn.metrics import classification_report, roc_auc_score
+    from sklearn.model_selection import train_test_split
     from sklearn.neural_network import MLPClassifier
     from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import roc_auc_score, classification_report
 
     n = len(X)
     split = int(n * 0.8)

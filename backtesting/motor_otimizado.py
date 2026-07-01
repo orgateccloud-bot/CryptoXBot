@@ -3,10 +3,11 @@ Backtesting da Estratégia Otimizada (MTF + ATR + Volume + VWAP + Bollinger)
 Compara com a estratégia base para medir o ganho de cada filtro.
 """
 
-import sqlite3
 import argparse
+import os
+import sqlite3
+import sys
 from datetime import datetime
-import sys, os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind

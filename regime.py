@@ -12,11 +12,13 @@ O regime e calculado em 3 timeframes (1H, 4H, 1D) e combinado
 em um score. Somente opera se pelo menos 2 de 3 TFs concordam.
 """
 
-import sys, os
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
+
 import indicadores as ind
 
 BASE_URL = "https://api.binance.com"

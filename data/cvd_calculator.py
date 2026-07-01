@@ -14,8 +14,9 @@ Uso:
   cvd_result = calculate_cvd(ticks_array)
 """
 
+from typing import Any, Dict, List
+
 import numpy as np
-from typing import List, Dict, Any
 from pydantic import BaseModel
 
 
