@@ -9,6 +9,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from dotenv import load_dotenv
+
+# Docker/systemd ja injetam .env como env vars do processo (env_file / Environ
+# mentFile); load_dotenv() nao sobrescreve o que ja estiver setado no os.environ
+# - so preenche a lacuna quando o processo roda direto (python main.py).
+load_dotenv()
+
 try:  # Local-only, ignored by git. Do not require it in production.
     from config import settings as _local_settings  # type: ignore
 except Exception:  # pragma: no cover - depends on developer machine

@@ -16,10 +16,14 @@ DEFAULT = "botbinance-local-dev"
 
 
 @pytest.fixture(autouse=True)
-def _restaurar_runtime_settings():
+def _restaurar_runtime_settings(monkeypatch):
+    # config.runtime_settings chama load_dotenv() no import/reload - sem isso,
+    # um .env real no disco do dev (fora do controle do teste) vazaria para
+    # dentro dos cenarios de "SECRET_KEY ausente" abaixo. Neutralizado aqui.
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: False)
+    yield
     # Após cada teste, recarrega o módulo num estado neutro (dev) para não
     # contaminar outros testes que importem config.runtime_settings.
-    yield
     importlib.reload(rs)
 
 
