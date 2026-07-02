@@ -33,6 +33,39 @@
       --radius:   4px;
       --mono:     'Share Tech Mono', monospace;
       --body:     'Exo 2', 'Rajdhani', sans-serif;
+      --glass-1:  rgba(255,255,255,.04);
+      --glass-2:  rgba(255,255,255,.025);
+      --glass-3:  rgba(255,255,255,.015);
+      --header-glass: rgba(12,12,18,.92);
+    }
+
+    /* Tema claro — mesma doutrina cromo-vs-dado (cobre=marca, azul=vivo/compra,
+       vermelho=venda, neutro=aguardar), recalibrada para fundo branco. */
+    :root[data-theme="light"] {
+      --bg:       #f3f1f7;
+      --surface:  #ffffff;
+      --surface2: #f8f6fb;
+      --border:   #e2dee8;
+      --border2:  #d0c9dc;
+      --text:     #4a4358;
+      --text-hi:  #1c1826;
+      --muted:    #8b839c;
+      --cyan:     #0072d1;
+      --cyan2:    #0068c0;
+      --green:    #0072d1;
+      --red:      #c9331a;
+      --yellow:   #a8650f;
+      --purple:   #7a3ad1;
+      --accent:   #0072d1;
+      --copper:   #a8641f;
+      --copper2:  #a8650f;
+      --copper3:  #7d4110;
+      --xblue:    #0068c0;
+      --xblue2:   #0072d1;
+      --glass-1:  rgba(20,15,30,.035);
+      --glass-2:  rgba(20,15,30,.02);
+      --glass-3:  rgba(20,15,30,.012);
+      --header-glass: rgba(255,255,255,.85);
     }
 
     /* SCROLLBAR */
@@ -136,7 +169,7 @@
     header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 24px;
-      background: rgba(12,12,18,.92);
+      background: var(--header-glass);
       border-bottom: 1px solid var(--border2);
       position: sticky; top: 0; z-index: 100;
       backdrop-filter: blur(12px);
@@ -272,10 +305,23 @@
     .sinal-metas .lbl { font-family: var(--mono); font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
     .sinal-metas .val { font-family: var(--mono); font-size: 14px; color: var(--text-hi); margin-top: 2px; }
 
+    /* ── TEMA CLARO/ESCURO ── */
+    #btn-tema {
+      display: flex; align-items: center; justify-content: center;
+      background: var(--glass-1);
+      border: 1px solid var(--border2);
+      border-radius: 4px;
+      width: 28px; height: 28px;
+      cursor: pointer;
+      font-size: 13px; line-height: 1;
+      transition: border-color .2s, background .2s;
+    }
+    #btn-tema:hover { border-color: var(--cyan); background: var(--glass-2); }
+
     /* ── CONEXÃO BINANCE (header button + modal) ── */
     #btn-conexao {
       display: flex; align-items: center; gap: 6px;
-      background: rgba(255,255,255,.04);
+      background: var(--glass-1);
       border: 1px solid var(--border2);
       border-radius: 4px;
       padding: 4px 10px;
@@ -322,7 +368,7 @@
     .mc-close:hover { color: var(--text-hi); }
     .mc-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
     .mc-section {
-      background: rgba(255,255,255,.025);
+      background: var(--glass-2);
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 10px 12px;
@@ -374,7 +420,7 @@
     #card-breakdown { grid-column: span 1; }
     .score-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .score-row .nome { font-family: var(--mono); font-size: 9px; color: var(--muted); width: 68px; flex-shrink: 0; letter-spacing: .5px; }
-    .score-bar-bg { flex: 1; background: rgba(28,28,40,.8); border-radius: 2px; height: 5px; border: 1px solid var(--border); }
+    .score-bar-bg { flex: 1; background: var(--border); border-radius: 2px; height: 5px; border: 1px solid var(--border); }
     .score-bar-fill { height: 3px; border-radius: 1px; transition: width .5s ease; margin: 0; }
     .score-row .pts { font-family: var(--mono); font-size: 9px; width: 28px; text-align: right; flex-shrink: 0; }
 
@@ -399,7 +445,7 @@
     #card-trades { grid-column: span 2; }
     #trades-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
     .trade-hdr { display: grid; grid-template-columns: 52px 72px 1fr 72px 68px; gap: 6px; padding: 4px 10px; font-family: var(--mono); font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
-    .trade-row { display: grid; grid-template-columns: 52px 72px 1fr 72px 68px; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 2px; font-family: var(--mono); font-size: 11px; background: rgba(255,255,255,.015); border-left: 2px solid transparent; transition: background .2s; }
+    .trade-row { display: grid; grid-template-columns: 52px 72px 1fr 72px 68px; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 2px; font-family: var(--mono); font-size: 11px; background: var(--glass-3); border-left: 2px solid transparent; transition: background .2s; }
     .trade-row:hover { background: rgba(0,168,255,.04); }
     .trade-row.compra { border-left-color: var(--green); }
     .trade-row.venda  { border-left-color: var(--red); }
@@ -423,7 +469,7 @@
     /* ── SINAIS ── */
     #card-sinais { grid-column: span 2; }
     #sinais-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-    .sinal-row { display: grid; grid-template-columns: 48px 64px 100px 40px 1fr; gap: 8px; padding: 5px 10px; border-radius: 2px; font-family: var(--mono); font-size: 10px; background: rgba(255,255,255,.015); align-items: center; }
+    .sinal-row { display: grid; grid-template-columns: 48px 64px 100px 40px 1fr; gap: 8px; padding: 5px 10px; border-radius: 2px; font-family: var(--mono); font-size: 10px; background: var(--glass-3); align-items: center; }
 
     /* ── PARAMS STRIP ── */
     .params-strip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
@@ -468,6 +514,12 @@
     @media (max-width: 1100px) { main { grid-template-columns: repeat(2, 1fr); } #card-chart, #card-price, #card-sinal, #card-trades, #card-sinais { grid-column: span 2; } }
     @media (max-width: 600px)  { main { grid-template-columns: 1fr; padding: 8px; } .card { grid-column: span 1 !important; } }
   </style>
+  <script>
+    // Aplica o tema salvo antes do body renderizar (evita flash do tema errado).
+    if (localStorage.getItem('bxbot-tema') === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  </script>
 </head>
 <body>
 <div id="aurora-wrap">
@@ -501,6 +553,7 @@
   </div>
   <div class="header-right">
     <span id="header-time">--:--:--</span>
+    <button id="btn-tema" onclick="alternarTema()" title="Alternar tema claro/escuro">🌙</button>
     <button id="btn-conexao" onclick="abrirModalConexao()" title="Status da conexão Binance">
       <span class="conn-dot" id="conn-dot-binance"></span>
       BINANCE
@@ -612,11 +665,11 @@
     <div style="margin-top:12px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">
       <div>
         <div style="font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;">REGIME</div>
-        <span class="regime-badge" id="regime-badge" style="background:rgba(28,28,40,.5);color:var(--muted)">—</span>
+        <span class="regime-badge" id="regime-badge" style="background:var(--border);color:var(--muted)">—</span>
       </div>
       <div>
         <div style="font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;">FEAR &amp; GREED</div>
-        <span class="regime-badge" id="fg-badge" style="background:rgba(28,28,40,.5);color:var(--muted)">—</span>
+        <span class="regime-badge" id="fg-badge" style="background:var(--border);color:var(--muted)">—</span>
       </div>
     </div>
   </div>
@@ -743,6 +796,29 @@
 <footer>CryptoXbot &nbsp;|&nbsp; Ensemble XGBoost + MLP + FSRS &nbsp;|&nbsp; <span id="footer-update">—</span></footer>
 
 <script>
+// ── TEMA CLARO/ESCURO ────────────────────────────────────────────
+if (localStorage.getItem('bxbot-tema') === 'light') {
+  document.getElementById('btn-tema').textContent = '☀️';
+}
+
+function alternarTema() {
+  const claro = document.documentElement.getAttribute('data-theme') === 'light';
+  if (claro) {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('bxbot-tema', 'dark');
+    el('btn-tema').textContent = '🌙';
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+    localStorage.setItem('bxbot-tema', 'light');
+    el('btn-tema').textContent = '☀️';
+  }
+  // Chart.js usa canvas puro - nao reage a mudanca de var() sozinho.
+  if (typeof gaugeChart !== 'undefined') {
+    gaugeChart.data.datasets[0].backgroundColor[1] = cssVar('--surface2');
+    gaugeChart.update();
+  }
+}
+
 const el = id => document.getElementById(id);
 const fmt = (n, d=2) => n == null ? '—' : Number(n).toLocaleString('pt-BR', {minimumFractionDigits:d, maximumFractionDigits:d});
 const fmtK = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${(n/1e3).toFixed(1)}K`;
@@ -752,13 +828,15 @@ let dadosPares = {};
 let primeiroTrade = true;
 
 // ── SCORE GAUGE ────────────────────────────────────────────────
+// Canvas nao entende var() - le a cor computada do tema atual em tempo real.
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const gCtx = el('gaugeChart').getContext('2d');
 const gaugeChart = new Chart(gCtx, {
   type: 'doughnut',
   data: {
     datasets: [{
       data: [0, 100],
-      backgroundColor: ['#504860', '#14141e'],
+      backgroundColor: [cssVar('--muted'), cssVar('--surface2')],
       borderWidth: 0,
       circumference: 270,
       rotation: 225,
@@ -775,7 +853,7 @@ const gaugeChart = new Chart(gCtx, {
 function atualizarGauge(score) {
   const cor = score >= 70 ? '#00a8ff' : score >= 60 ? '#e09830' : '#ff4422';
   gaugeChart.data.datasets[0].data = [score, 100 - score];
-  gaugeChart.data.datasets[0].backgroundColor = [cor, '#14141e'];
+  gaugeChart.data.datasets[0].backgroundColor = [cor, cssVar('--surface2')];
   gaugeChart.update();
   el('gauge-num').textContent = score;
   el('gauge-num').style.color = cor;
@@ -920,7 +998,7 @@ function aplicarDados(d) {
 
   const rb = el('regime-badge');
   rb.textContent = (d.regime || '—').replace('TENDENCIA_','').replace('_',' ');
-  rb.style.background = d.regime === 'TENDENCIA_ALTA' ? 'rgba(0,168,255,.1)' : d.regime === 'TENDENCIA_BAIXA' ? 'rgba(255,68,34,.1)' : 'rgba(28,28,40,.5)';
+  rb.style.background = d.regime === 'TENDENCIA_ALTA' ? 'rgba(0,168,255,.1)' : d.regime === 'TENDENCIA_BAIXA' ? 'rgba(255,68,34,.1)' : 'var(--border)';
   rb.style.color      = d.regime === 'TENDENCIA_ALTA' ? 'var(--green)'       : d.regime === 'TENDENCIA_BAIXA' ? 'var(--red)'          : 'var(--muted)';
   rb.style.border     = d.regime === 'TENDENCIA_ALTA' ? '1px solid rgba(0,168,255,.3)' : d.regime === 'TENDENCIA_BAIXA' ? '1px solid rgba(255,68,34,.3)' : '1px solid var(--border2)';
 
@@ -1071,8 +1149,8 @@ function addEvento(ev) {
   row.style.cssText = `
     display:grid; grid-template-columns:58px 72px 1fr;
     gap:8px; padding:5px 10px; border-radius:2px;
-    border-left:2px solid ${ev.cor||'#504860'};
-    background:rgba(255,255,255,.015);
+    border-left:2px solid ${ev.cor||'var(--muted)'};
+    background:var(--glass-3);
     font-family:var(--mono); font-size:10px;
     align-items:start; animation:fadeIn .3s ease;
   `;
