@@ -8,6 +8,9 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/opt/binancexbot
 EnvironmentFile=/opt/binancexbot/.env
+# Paper trading por padrao. Para ordens reais: trocar --simulacao por --real
+# (exige DRY_RUN=false + ALLOW_REAL_TRADING=true + ENV=production no .env),
+# depois "sudo systemctl daemon-reload && sudo systemctl restart bxbot-worker".
 ExecStart=/opt/binancexbot/.venv/bin/python main.py --simulacao --intervalo 15
 Restart=on-failure
 RestartSec=10
