@@ -198,7 +198,10 @@ async def process_message(message):
     global cvd_btc, total_compras, total_vendas, preco_atual
 
     data = json.loads(message)
-    trade_id = int(data["t"])  # ID único do trade
+    # Stream @aggTrade usa "a" (aggregate trade id). O antigo "t" (trade id do
+    # stream @trade) nao existe aqui — levantava KeyError silencioso a cada
+    # mensagem, zerando o CVD. Bug exposto pelo watchdog /ready (ws_stale).
+    trade_id = int(data["a"])
     price = float(data["p"])
     quantity = float(data["q"])
     is_buyer_maker = data["m"]
