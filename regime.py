@@ -21,7 +21,9 @@ import requests
 
 import indicadores as ind
 
-BASE_URL = "https://api.binance.com"
+from config.runtime_settings import REST_BASE_URL
+
+BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 SYMBOL = "BTCUSDT"
 
 # Limiares

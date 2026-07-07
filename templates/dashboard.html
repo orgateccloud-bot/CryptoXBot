@@ -305,6 +305,23 @@
     .sinal-metas .lbl { font-family: var(--mono); font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
     .sinal-metas .val { font-family: var(--mono); font-size: 14px; color: var(--text-hi); margin-top: 2px; }
 
+    /* ── BADGE DE MODO (P1: REAL visivel SEMPRE) ── */
+    .hdr-modo {
+      font-family: var(--mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 2px; padding: 3px 12px; border-radius: 2px;
+      border: 1px solid var(--border2); color: var(--muted);
+      background: var(--glass-1);
+    }
+    .hdr-modo.sim { color: var(--copper2); border-color: rgba(224,152,48,.35); }
+    .hdr-modo.real {
+      color: #fff; background: var(--red); border-color: var(--red);
+      animation: pulsar-real 1.6s ease-in-out infinite;
+    }
+    @keyframes pulsar-real {
+      0%, 100% { box-shadow: 0 0 4px rgba(255,68,34,.5); }
+      50%      { box-shadow: 0 0 14px rgba(255,68,34,.9); }
+    }
+
     /* ── TEMA CLARO/ESCURO ── */
     #btn-tema {
       display: flex; align-items: center; justify-content: center;
@@ -552,6 +569,7 @@
     </div>
   </div>
   <div class="header-right">
+    <span id="header-modo" class="hdr-modo sim">—</span>
     <span id="header-time">--:--:--</span>
     <button id="btn-tema" onclick="alternarTema()" title="Alternar tema claro/escuro">🌙</button>
     <button id="btn-conexao" onclick="abrirModalConexao()" title="Status da conexão Binance">
@@ -1373,6 +1391,13 @@ function _renderConexao(d) {
   const badge = el('mc-modo-badge');
   badge.textContent = modo.label || '—';
   badge.className   = 'mc-badge ' + (modo.label === 'REAL' ? 'real' : 'sim');
+  // P1: badge permanente no header — operar em REAL sem perceber e o risco
+  // de UX mais caro que existe num bot de capital real.
+  const hdrModo = el('header-modo');
+  if (hdrModo && modo.label) {
+    hdrModo.textContent = modo.label === 'REAL' ? '⚠ REAL' : 'SIMULAÇÃO';
+    hdrModo.className = modo.label === 'REAL' ? 'hdr-modo real' : 'hdr-modo sim';
+  }
   el('mc-dry-run').textContent    = modo.dry_run   ? '✓ Ativo'   : '✕ Desativado';
   el('mc-dry-run').className      = 'mc-val ' + (modo.dry_run   ? 'warn' : 'ok');
   el('mc-allow-real').textContent = modo.allow_real ? '✓ Permitido' : '✕ Bloqueado';

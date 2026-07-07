@@ -16,7 +16,7 @@ from datetime import datetime
 import websocket
 
 import database
-from config.runtime_settings import MIN_BTC_VOLUME, SYMBOL_WS, WHALE_BTC_VOLUME
+from config.runtime_settings import WS_BASE_URL, MIN_BTC_VOLUME, SYMBOL_WS, WHALE_BTC_VOLUME
 
 # === Estado global ===
 cvd = 0.0
@@ -138,7 +138,7 @@ def on_open(ws):
 
 
 if __name__ == "__main__":
-    url = f"wss://fstream.binance.com/ws/{SYMBOL_WS}@aggTrade"
+    url = f"{WS_BASE_URL}/ws/{SYMBOL_WS}@aggTrade"  # P0-1: spot por padrao
     ws = websocket.WebSocketApp(
         url,
         on_open=on_open,

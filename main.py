@@ -43,6 +43,7 @@ from config.runtime_settings import (
     MIN_BTC_VOLUME,
     SYMBOL_WS,
     WHALE_BTC_VOLUME,
+    WS_BASE_URL,
 )
 from estrategias.otimizada import analisar as analisar_otimizada
 from estrategias.otimizada import imprimir as imprimir_otimizada
@@ -65,6 +66,24 @@ ws_logger.addHandler(handler)
 
 # Pares ativos (BTC sempre ativo, ETH com parâmetros otimizados)
 PARES_ATIVOS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+
+
+# P1: morte de thread NUNCA silenciosa — threads daemon (loop_par, monitor,
+# websocket) que morrem por exceção não capturada ficam registradas em log e
+# no banco (bot_events), para o operador perceber que o bot parou de operar.
+def _thread_excepthook(args):
+    nome = args.thread.name if args.thread else "?"
+    msg = f"Thread '{nome}' morreu: {args.exc_type.__name__}: {args.exc_value}"
+    print(f"\033[91m[THREAD-CRASH] {msg}\033[0m")
+    try:
+        database.salvar_bot_event(
+            "thread_crash", msg, service="worker", severity="CRITICAL"
+        )
+    except Exception:
+        pass  # nunca deixar o hook derrubar o processo
+
+
+threading.excepthook = _thread_excepthook
 
 # ── Estado global ──────────────────────────────────────────────
 cvd_btc = 0.0
@@ -99,7 +118,8 @@ async def websocket_handler():
     """
     Handler assíncrono para WebSocket Binance com retry exponencial e state management.
     """
-    url = f"wss://fstream.binance.com/ws/{SYMBOL_WS}@aggTrade"
+    # P0-1: mesmo mercado da execucao (spot por padrao, via WS_BASE_URL).
+    url = f"{WS_BASE_URL}/ws/{SYMBOL_WS}@aggTrade"
     max_retries = 10
     base_delay = 1.0  # segundos
     max_delay = 300.0  # 5 minutos
@@ -323,6 +343,31 @@ def loop_par(par, intervalo_min, simulacao):
     print(f"\033[94m[BOT] {par} — Estrategia iniciada (intervalo: {intervalo_min} min).\033[0m")
     executor = Executor(simulacao=simulacao, symbol=par)
     _estado_pares[par] = {"executor": executor, "scale_in": None}
+
+    # P0-3: crash recovery — se havia posicao aberta persistida, readota e
+    # religa o monitor (senao a posicao ficaria orfa na exchange sem gestao).
+    try:
+        persistidas = database.carregar_posicoes_abertas()
+        pos_salva = persistidas.get(par)
+        if pos_salva:
+            executor.posicao = pos_salva
+            executor._ativo = True
+            executor._monitor = threading.Thread(target=executor._monitorar, daemon=True)
+            executor._monitor.start()
+            print(
+                f"\033[93m[RECOVERY] {par} — posicao aberta recuperada do banco "
+                f"(entrada ${pos_salva.get('entrada', 0):,.2f}, "
+                f"stop ${pos_salva.get('stop_atual', 0):,.2f}). Monitor religado.\033[0m"
+            )
+            database.salvar_bot_event(
+                "posicao_recuperada",
+                f"Posicao {par} recuperada apos restart (entrada {pos_salva.get('entrada')})",
+                service="worker",
+                symbol=par,
+                severity="WARNING",
+            )
+    except Exception as e:
+        print(f"\033[91m[RECOVERY] {par} — falha ao recuperar posicao: {e}\033[0m")
 
     # Ensemble ML por par
     ensemble_disponivel = False
@@ -566,8 +611,11 @@ def main():
     # === Modo completo =========================================
     database.inicializar()
     if ENABLE_HEALTH_SERVER:
+        import health as _health
+
+        _health.registrar_ws_state(ws_state)  # P1: /ready enxerga WS zumbi
         start_health_server(role="worker")
-        print("[HEALTH] Servidor /health ativo para Railway.")
+        print("[HEALTH] Servidor /health ativo.")
     if args.real and not ALLOW_REAL_TRADING:
         database.salvar_bot_event(
             "real_trading_blocked",

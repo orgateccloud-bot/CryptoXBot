@@ -198,8 +198,12 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
 
     os.makedirs("data", exist_ok=True)
     path = _model_path(symbol)
-    with open(path, "wb") as f:
+    # Escrita atomica (P1): grava em .tmp e troca com os.replace — crash no meio
+    # do retreino nunca corrompe o modelo que o bot carrega no proximo boot.
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "wb") as f:
         pickle.dump({"modelo": modelo, "intervalo": intervalo, "auc": auc, "symbol": symbol}, f)
+    os.replace(tmp_path, path)
     print(f"\n[ML] Modelo salvo em: {path}")
     return modelo
 

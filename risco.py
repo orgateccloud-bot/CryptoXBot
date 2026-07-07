@@ -19,7 +19,9 @@ import requests
 import database
 from config.runtime_settings import API_KEY, API_SECRET
 
-BASE_URL = "https://api.binance.com"
+from config.runtime_settings import REST_BASE_URL
+
+BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 
 # ── Configurações de risco ────────────────────────────────────
 MAX_RISCO_POR_TRADE = 0.02  # 2% do capital por operação
@@ -176,7 +178,8 @@ def verificar_volatilidade(symbol="BTCUSDT"):
 def get_saldo_usdt():
     """Retorna saldo disponível em USDT na conta Spot."""
     try:
-        params = {"timestamp": int(time.time() * 1000)}
+        # P0-4: recvWindow evita rejeicao -1021 por clock drift
+        params = {"timestamp": int(time.time() * 1000), "recvWindow": 5000}
         query = "&".join(f"{k}={v}" for k, v in params.items())
         sig = hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
         params["signature"] = sig
@@ -198,7 +201,8 @@ def get_saldo_usdt():
 def get_saldo_btc():
     """Retorna saldo disponível em BTC na conta Spot."""
     try:
-        params = {"timestamp": int(time.time() * 1000)}
+        # P0-4: recvWindow evita rejeicao -1021 por clock drift
+        params = {"timestamp": int(time.time() * 1000), "recvWindow": 5000}
         query = "&".join(f"{k}={v}" for k, v in params.items())
         sig = hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
         params["signature"] = sig

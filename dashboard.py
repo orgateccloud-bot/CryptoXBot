@@ -14,26 +14,46 @@ APIs disponíveis:
   WS   /                      → Socket.IO (eventos: update, trade, score_update)
 """
 
+import hmac as _hmac
 import json
+import os
 import threading
 import time
 from datetime import datetime
 
 import requests
 import websocket
-from flask import Flask, jsonify, render_template, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
 
 import database
-from config.runtime_settings import CORS_ORIGINS, PORT, SECRET_KEY, SYMBOL_WS, WHALE_BTC_VOLUME
+from config.runtime_settings import WS_BASE_URL, CORS_ORIGINS, PORT, SECRET_KEY, SYMBOL_WS, WHALE_BTC_VOLUME
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 app.config["SECRET_KEY"] = SECRET_KEY
 CORS(app, resources={r"/api/*": {"origins": CORS_ORIGINS}})
 socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode="threading")
 
-BASE_URL = "https://api.binance.com"
+# P0-5: token opcional para todas as rotas /api/*. Se DASHBOARD_TOKEN estiver
+# no ambiente, exigimos "Authorization: Bearer <token>" ou "?token=<token>".
+_DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
+
+
+@app.before_request
+def _exigir_token_api():
+    if not _DASHBOARD_TOKEN or not request.path.startswith("/api/"):
+        return None
+    fornecido = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if not fornecido:
+        fornecido = request.args.get("token", "")
+    if not _hmac.compare_digest(fornecido, _DASHBOARD_TOKEN):
+        return jsonify({"erro": "nao autorizado"}), 401
+    return None
+
+from config.runtime_settings import REST_BASE_URL
+
+BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 BASE_FAPI = "https://fapi.binance.com"
 
 PARES_ATIVOS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
@@ -404,7 +424,7 @@ def ws_on_message(ws_app, message):
 
 
 def iniciar_ws():
-    url = f"wss://fstream.binance.com/ws/{SYMBOL_WS}@aggTrade"
+    url = f"{WS_BASE_URL}/ws/{SYMBOL_WS}@aggTrade"  # P0-1: spot por padrao
     while True:
         ws = websocket.WebSocketApp(url, on_message=ws_on_message)
         ws.run_forever(ping_interval=30, ping_timeout=10)
@@ -583,11 +603,11 @@ def api_conexao():
     if key_ok and rest_spot["ok"]:
         try:
             ts = int(time.time() * 1000)
-            params = f"timestamp={ts}"
+            params = f"timestamp={ts}&recvWindow=5000"  # P0-4
             sig = _hmac.new(API_SECRET.encode(), params.encode(), hashlib.sha256).hexdigest()
             r = requests.get(
                 f"{BASE_URL}/api/v3/account",
-                params={"timestamp": ts, "signature": sig},
+                params={"timestamp": ts, "recvWindow": 5000, "signature": sig},
                 headers={"X-MBX-APIKEY": API_KEY},
                 timeout=8,
             )
@@ -682,7 +702,16 @@ def run_dashboard():
     print("    /api/risco          - gestao de risco")
     print("=" * 56 + "\n")
 
-    socketio.run(app, host="0.0.0.0", port=PORT, debug=False, allow_unsafe_werkzeug=True)
+    # P0-5: bind local por padrao — dashboard expoe saldo/estrategia e NAO tem
+    # auth propria. Para expor na rede: DASHBOARD_BIND=0.0.0.0 no .env (de
+    # preferencia atras do Caddy/VPN) e DASHBOARD_TOKEN definido.
+    bind = os.getenv("DASHBOARD_BIND", "127.0.0.1")
+    if bind != "127.0.0.1" and not os.getenv("DASHBOARD_TOKEN"):
+        print(
+            "[SEGURANCA] AVISO: dashboard exposto na rede SEM DASHBOARD_TOKEN — "
+            "qualquer dispositivo na rede ve saldo e estrategia."
+        )
+    socketio.run(app, host=bind, port=PORT, debug=False, allow_unsafe_werkzeug=True)
 
 
 # ── Inicialização ──────────────────────────────────────────────

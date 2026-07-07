@@ -22,6 +22,15 @@ from config.runtime_settings import DATABASE_BACKEND, PORT
 
 _server: ThreadingHTTPServer | None = None
 
+# P1: referencia viva ao ws_state do worker (injetada por main.py) — permite
+# ao /ready detectar WebSocket zumbi sem importar o modulo main.
+_ws_state_ref: dict[str, Any] | None = None
+
+
+def registrar_ws_state(ref: dict[str, Any]) -> None:
+    global _ws_state_ref
+    _ws_state_ref = ref
+
 # Contadores globais — atualizados pelas threads de trading
 _metrics: dict[str, float] = {
     "sinais_total": 0,
@@ -92,6 +101,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             return
 
         db_ok = True
+        ws_ok = True
         error = None
         if self.path == "/ready":
             try:
@@ -102,9 +112,25 @@ class HealthHandler(BaseHTTPRequestHandler):
                 db_ok = False
                 error = str(exc)
 
-        status_code = 200 if db_ok else 503
+            # P1: /ready tambem exige WebSocket vivo (worker) — detecta conexao
+            # zumbi/CVD congelado que o check de DB nunca enxergaria. A referencia
+            # e injetada por main.py via registrar_ws_state() (import main aqui
+            # criaria um modulo duplicado com ws_state vazio).
+            if self.role == "worker" and _ws_state_ref is not None:
+                try:
+                    import time as _t
+
+                    idade = _t.time() - float(_ws_state_ref.get("last_message_time") or 0)
+                    ws_ok = bool(_ws_state_ref.get("connected")) and idade < 120
+                    if not ws_ok:
+                        error = (error or "") + f" ws_stale={idade:.0f}s"
+                except Exception:  # pragma: no cover - defensive
+                    pass
+
+        pronto = db_ok and ws_ok
+        status_code = 200 if pronto else 503
         body = _payload(
-            "ok" if db_ok else "degraded", self.role, db_ok, {"error": error} if error else None
+            "ok" if pronto else "degraded", self.role, db_ok, {"error": error} if error else None
         )
 
         self.send_response(status_code)

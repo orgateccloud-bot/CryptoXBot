@@ -15,8 +15,8 @@ MIN_BTC_VOLUME = 0.5
 WHALE_BTC_VOLUME = 5.0
 
 # === ENDPOINTS ===
-REST_BASE_URL = "https://fapi.binance.com"
-WS_BASE_URL = "wss://fstream.binance.com"
+REST_BASE_URL = "https://api.binance.com"
+WS_BASE_URL = "wss://stream.binance.com:9443"
 
 # === TELEGRAM (opcional) ===
 TELEGRAM_TOKEN = ""

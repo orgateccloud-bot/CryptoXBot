@@ -18,15 +18,18 @@ import hashlib
 import hmac
 import threading
 import time
+import uuid
 from datetime import datetime
 
 import requests
 
 import database
 import risco as gestao_risco
-from config.runtime_settings import API_KEY, API_SECRET
+from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
 
-BASE_URL = "https://api.binance.com"
+# P0-1: endpoint unico vindo do config (spot por padrao) — nada de hardcode
+# divergente entre modulos (sinal e execucao no MESMO mercado).
+BASE_URL = REST_BASE_URL
 
 # Precisão por par (Binance Spot/Futures)
 _PRECISAO = {
@@ -117,6 +120,9 @@ class Executor:
         self._qty_step = prec["qty_step"]
         self._min_qty = prec["min_qty"]
         self._price_prec = prec["price_prec"]
+        self._offset_ms = 0
+        if not simulacao:
+            self._sincronizar_relogio()  # P0-4: evita -1021 por clock drift
         modo = "SIMULACAO (Paper Trading)" if simulacao else "REAL (Capital Real)"
         print(f"[EXEC] Executor iniciado — {self.symbol} | Modo: {modo}")
 
@@ -134,6 +140,63 @@ class Executor:
 
     def _headers(self):
         return {"X-MBX-APIKEY": API_KEY}
+
+    def _sincronizar_relogio(self):
+        """P0-4: offset serverTime-local evita rejeicao -1021 por clock drift."""
+        try:
+            r = requests.get(f"{BASE_URL}/api/v3/time", timeout=5)
+            server_ms = int(r.json()["serverTime"])
+            self._offset_ms = server_ms - int(time.time() * 1000)
+            if abs(self._offset_ms) > 1000:
+                print(f"[EXEC] Clock drift detectado: {self._offset_ms}ms (compensado)")
+        except Exception:
+            self._offset_ms = 0  # sem sync, segue com relogio local
+
+    def _ts(self):
+        return int(time.time() * 1000) + getattr(self, "_offset_ms", 0)
+
+    def _request_assinado(self, metodo, path, params, timeout=10, tentativas=3):
+        """P0-4: requisicao assinada com recvWindow + retry/backoff para
+        429/-1003/5xx/timeout. Retorna dict da Binance ou {"erro": ...}.
+        """
+        ultima_falha = "sem tentativa"
+        for i in range(tentativas):
+            p = dict(params)
+            p["timestamp"] = self._ts()
+            p["recvWindow"] = 5000
+            p["signature"] = self._assinar(p)
+            try:
+                r = requests.request(
+                    metodo, f"{BASE_URL}{path}", params=p, headers=self._headers(), timeout=timeout
+                )
+                data = r.json()
+            except Exception as e:
+                ultima_falha = f"falha de rede/resposta: {e}"
+                time.sleep(2**i)
+                continue
+            codigo = data.get("code") if isinstance(data, dict) else None
+            # Rate limit / banimento temporario / erro interno: retry com backoff
+            if r.status_code in (429, 418, 500, 502, 503) or codigo in (-1003, -1000):
+                ultima_falha = f"HTTP {r.status_code} code={codigo}: {data.get('msg', '')}"
+                time.sleep(2**i)
+                continue
+            # -1021 (timestamp fora do recvWindow): ressincroniza e tenta de novo
+            if codigo == -1021:
+                self._sincronizar_relogio()
+                ultima_falha = f"-1021 timestamp: {data.get('msg', '')}"
+                continue
+            return data
+        return {"erro": ultima_falha, "timeout_rede": "falha de rede" in ultima_falha}
+
+    def _consultar_ordem(self, client_order_id):
+        """P0-4: apos timeout de rede, confirma na exchange se a ordem existe —
+        evita 'ordem fantasma' (enviada e executada, mas resposta perdida)."""
+        data = self._request_assinado(
+            "GET", "/api/v3/order",
+            {"symbol": self.symbol, "origClientOrderId": client_order_id},
+            timeout=10, tentativas=2,
+        )
+        return data if isinstance(data, dict) and "orderId" in data else None
 
     # ── Preço atual ────────────────────────────────────────────
 
@@ -174,32 +237,89 @@ class Executor:
                 "simulacao": True,
             }
 
-        # Ordem real
+        # Ordem real (P0-4: idempotente via newClientOrderId + retry + confirmacao pos-timeout)
+        client_id = f"bx-{uuid.uuid4().hex[:20]}"
         params = {
             "symbol": self.symbol,
             "side": lado,
             "type": tipo,
             "quantity": qty,
-            "timestamp": int(time.time() * 1000),
+            "newClientOrderId": client_id,
         }
         if tipo == "LIMIT" and preco:
             params["price"] = self._arredondar_preco(preco)
             params["timeInForce"] = "GTC"
 
-        params["signature"] = self._assinar(params)
-        try:
-            r = requests.post(
-                f"{BASE_URL}/api/v3/order", params=params, headers=self._headers(), timeout=10
-            )
-            data = r.json()
-        except Exception as e:
-            # Falha de rede/timeout/JSON invalido — nao deixar propagar como sucesso (P1-8)
-            return {"erro": f"falha de rede/resposta: {e}"}
+        data = self._request_assinado("POST", "/api/v3/order", params)
+
+        # Timeout de rede: a ordem PODE ter sido aceita — confirmar antes de assumir falha
+        if isinstance(data, dict) and data.get("timeout_rede"):
+            existente = self._consultar_ordem(client_id)
+            if existente:
+                print(f"[EXEC] Ordem recuperada pos-timeout ({client_id}): {existente.get('status')}")
+                return existente
 
         # Erros da Binance chegam como {"code": -xxxx, "msg": "..."} sem orderId
         if isinstance(data, dict) and "orderId" not in data:
-            return {"erro": data.get("msg", "resposta sem orderId"), **data}
+            return {"erro": data.get("erro") or data.get("msg", "resposta sem orderId"), **data}
         return data
+
+    # ── Stop loss NA EXCHANGE (P0-2) ───────────────────────────
+    # O monitor local (loop de 10s) vira redundancia: a protecao primaria e uma
+    # ordem STOP_LOSS_LIMIT viva na Binance — sobrevive a crash/travamento do bot.
+
+    def _colocar_stop_exchange(self, qty, stop_price):
+        """Coloca STOP_LOSS_LIMIT SELL na exchange. Retorna orderId ou None."""
+        if self.simulacao:
+            return None
+        qty = self._arredondar_qty(qty)
+        stop = self._arredondar_preco(stop_price)
+        # price um pouco abaixo do stopPrice para garantir fill do limit
+        params = {
+            "symbol": self.symbol,
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "quantity": qty,
+            "stopPrice": stop,
+            "price": self._arredondar_preco(stop * 0.997),
+            "timeInForce": "GTC",
+            "newClientOrderId": f"bxstop-{uuid.uuid4().hex[:16]}",
+        }
+        data = self._request_assinado("POST", "/api/v3/order", params)
+        if isinstance(data, dict) and "orderId" in data:
+            print(f"[EXEC] Stop na exchange @ ${stop:,.2f} (orderId={data['orderId']})")
+            return data["orderId"]
+        print(f"[EXEC] AVISO: falha ao colocar stop na exchange: {data}")
+        return None
+
+    def _cancelar_ordem_exchange(self, order_id):
+        """Cancela ordem aberta. True se cancelou (ou ja nao existia)."""
+        if self.simulacao or not order_id:
+            return True
+        data = self._request_assinado(
+            "DELETE", "/api/v3/order", {"symbol": self.symbol, "orderId": order_id}
+        )
+        if isinstance(data, dict) and ("orderId" in data or data.get("code") == -2011):
+            return True  # -2011 = ordem ja nao existe (executada/cancelada)
+        print(f"[EXEC] AVISO: falha ao cancelar stop {order_id}: {data}")
+        return False
+
+    def _mover_stop_exchange(self, novo_stop):
+        """Cancel-then-replace do stop na exchange (spot: o stop antigo trava o
+        saldo, entao cancela primeiro). Se o novo falhar, tenta restaurar o stop
+        no nivel ANTIGO — melhor stop desatualizado do que posicao sem stop."""
+        if self.simulacao or not self.posicao:
+            return None
+        antigo = self.posicao.get("stop_order_id")
+        stop_antigo = self.posicao.get("stop_atual")
+        qty = self.posicao["tamanho_btc"]
+        if antigo and not self._cancelar_ordem_exchange(antigo):
+            return antigo  # nao conseguiu cancelar: protecao antiga segue viva
+        novo_id = self._colocar_stop_exchange(qty, novo_stop)
+        if novo_id is None and stop_antigo:
+            print("[EXEC] Replace falhou — restaurando stop no nivel antigo")
+            novo_id = self._colocar_stop_exchange(qty, stop_antigo)
+        return novo_id
 
     # ── Abrir posição LONG ─────────────────────────────────────
 
@@ -226,6 +346,9 @@ class Executor:
 
         preco_exec = float(resp.get("price", preco_entrada))
 
+        # P0-2: protecao primaria NA EXCHANGE (sobrevive a crash do bot)
+        stop_order_id = self._colocar_stop_exchange(tamanho_btc, stop_loss)
+
         with self._lock:
             self.posicao = {
                 "tipo": "LONG",
@@ -238,7 +361,14 @@ class Executor:
                 "parcial_feita": False,
                 "abertura": datetime.now().isoformat(),
                 "order_id": resp.get("orderId"),
+                "stop_order_id": stop_order_id,
             }
+
+        # P0-3: posicao persistida — sobrevive a restart (reconciliada no boot)
+        try:
+            database.salvar_posicao_aberta(self.symbol, self.posicao)
+        except Exception as e:
+            print(f"[EXEC] AVISO: falha ao persistir posicao: {e}")
 
         gestao_risco._estado_risco["posicoes_abertas"] += 1
         gestao_risco.persistir_estado()
@@ -255,9 +385,25 @@ class Executor:
 
     # ── Fechar posição ─────────────────────────────────────────
 
+    def _persistir_posicao(self):
+        """P0-3: espelha o estado atual da posicao no DB (stop/parcial mudam)."""
+        try:
+            if self.posicao:
+                database.salvar_posicao_aberta(self.symbol, self.posicao)
+            else:
+                database.remover_posicao_aberta(self.symbol)
+        except Exception as e:
+            print(f"[EXEC] AVISO: falha ao persistir posicao: {e}")
+
     def fechar_posicao(self, preco, motivo, parcial=False):
         if not self.posicao:
             return
+
+        # P0-2: liberar o saldo travado pelo stop na exchange antes do SELL
+        stop_id = self.posicao.get("stop_order_id")
+        if stop_id:
+            self._cancelar_ordem_exchange(stop_id)
+            self.posicao["stop_order_id"] = None
 
         qty = self.posicao["tamanho_btc"]
         if parcial:
@@ -272,12 +418,22 @@ class Executor:
                 f"[EXEC] FALHA ao fechar posicao (ordem nao preenchida): {resp}. "
                 f"Posicao MANTIDA — nova tentativa no proximo ciclo."
             )
+            # P0-2: SELL falhou e o stop foi cancelado — RECOLOCA a protecao
+            self.posicao["stop_order_id"] = self._colocar_stop_exchange(
+                self.posicao["tamanho_btc"], self.posicao["stop_atual"]
+            )
+            self._persistir_posicao()
             return
 
         # Ordem preenchida: agora sim aplica a mutacao do fechamento parcial
         if parcial:
             self.posicao["parcial_feita"] = True
             self.posicao["tamanho_btc"] = qty  # restante
+            # P0-2: recoloca stop para a metade restante (o antigo foi cancelado)
+            self.posicao["stop_order_id"] = self._colocar_stop_exchange(
+                qty, self.posicao["stop_atual"]
+            )
+            self._persistir_posicao()
 
         pnl_pct = (preco - self.posicao["entrada"]) / self.posicao["entrada"] * 100
         pnl_usdt = qty * (preco - self.posicao["entrada"])
@@ -302,6 +458,7 @@ class Executor:
             with self._lock:
                 self.posicao = None
                 self._ativo = False
+            self._persistir_posicao()  # P0-3: remove do DB
             gestao_risco._estado_risco["posicoes_abertas"] -= 1
             gestao_risco.persistir_estado()
 
@@ -348,12 +505,23 @@ class Executor:
                 # Take-profit parcial (50%) + stop em breakeven
                 if d["fechar_parcial"]:
                     self.fechar_posicao(preco, "Take Profit Parcial (50%)", parcial=True)
-                    self.posicao["stop_atual"] = d["stop_breakeven"]
-                    print(f"[EXEC] Stop movido para breakeven: ${self.posicao['stop_atual']:,.2f}")
+                    if self.posicao:
+                        self.posicao["stop_order_id"] = self._mover_stop_exchange(
+                            d["stop_breakeven"]
+                        )
+                        self.posicao["stop_atual"] = d["stop_breakeven"]
+                        self._persistir_posicao()
+                        print(
+                            f"[EXEC] Stop movido para breakeven: ${self.posicao['stop_atual']:,.2f}"
+                        )
 
                 # Trailing stop (pode coexistir com o parcial no mesmo tick)
-                if d["novo_stop_trailing"] is not None:
+                if d["novo_stop_trailing"] is not None and self.posicao:
+                    self.posicao["stop_order_id"] = self._mover_stop_exchange(
+                        d["novo_stop_trailing"]
+                    )
                     self.posicao["stop_atual"] = d["novo_stop_trailing"]
+                    self._persistir_posicao()
                     print(
                         f"[EXEC] Trailing Stop: ${d['novo_stop_trailing']:,.2f} (pico: ${preco_pico:,.2f})"
                     )

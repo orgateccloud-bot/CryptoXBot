@@ -67,8 +67,11 @@ SYMBOL_WS = _env("SYMBOL_WS", _local("SYMBOL_WS", SYMBOL.lower())).lower()
 MIN_BTC_VOLUME = _env_float("MIN_BTC_VOLUME", float(_local("MIN_BTC_VOLUME", 0.5)))
 WHALE_BTC_VOLUME = _env_float("WHALE_BTC_VOLUME", float(_local("WHALE_BTC_VOLUME", 5.0)))
 
-REST_BASE_URL = _env("REST_BASE_URL", _local("REST_BASE_URL", "https://fapi.binance.com"))
-WS_BASE_URL = _env("WS_BASE_URL", _local("WS_BASE_URL", "wss://fstream.binance.com"))
+# Mercado unificado: SPOT (P0-1). O executor sempre operou spot (/api/v3);
+# os dados (WS/klines) agora seguem o mesmo mercado para eliminar divergencia
+# sinal-execucao. Futures (fapi/fstream) só via override explicito no .env.
+REST_BASE_URL = _env("REST_BASE_URL", _local("REST_BASE_URL", "https://api.binance.com"))
+WS_BASE_URL = _env("WS_BASE_URL", _local("WS_BASE_URL", "wss://stream.binance.com:9443"))
 
 TELEGRAM_TOKEN = _env("TELEGRAM_TOKEN", _env("TELEGRAM_BOT_TOKEN", _local("TELEGRAM_TOKEN", "")))
 TELEGRAM_CHAT_ID = _env("TELEGRAM_CHAT_ID", _local("TELEGRAM_CHAT_ID", ""))

@@ -97,8 +97,16 @@ def conectar():
         return psycopg.connect(_pg_dsn(), row_factory=dict_row, prepare_threshold=None)
 
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # busy_timeout: threads concorrentes esperam em vez de "database is locked".
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
+    # WAL: escrita nao bloqueia leitura + robustez contra corrupcao em crash.
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+    except sqlite3.DatabaseError:
+        pass  # pragma pode falhar em DB somente-leitura; segue com defaults
     return conn
 
 
@@ -683,6 +691,55 @@ def carregar_risk_state(name: str = "default") -> dict[str, Any] | None:
     if not row:
         return None
     return json.loads(row["data"])
+
+
+# ── Posições abertas (P0-3: crash recovery) ──────────────────────────────────
+# Reutiliza a tabela risk_state (name PK + data JSON) com prefixo "posicao:" —
+# zero migração de schema, funciona igual em SQLite e Postgres.
+
+_PREFIXO_POSICAO = "posicao:"
+
+
+def salvar_posicao_aberta(symbol: str, posicao: dict[str, Any]) -> None:
+    """Persiste (upsert) a posição aberta do par — sobrevive a restart."""
+    salvar_risk_state(posicao, name=f"{_PREFIXO_POSICAO}{symbol.upper()}")
+
+
+def remover_posicao_aberta(symbol: str) -> None:
+    """Remove a posição persistida do par (posição fechada)."""
+    name = f"{_PREFIXO_POSICAO}{symbol.upper()}"
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            conn.execute("DELETE FROM risk_state WHERE name = %s", (name,))
+            conn.commit()
+        return
+    conn = conectar()
+    conn.execute("DELETE FROM risk_state WHERE name = ?", (name,))
+    conn.commit()
+    conn.close()
+
+
+def carregar_posicoes_abertas() -> dict[str, dict[str, Any]]:
+    """Retorna {symbol: posicao} de todas as posições persistidas (boot recovery)."""
+    padrao = f"{_PREFIXO_POSICAO}%"
+    resultado: dict[str, dict[str, Any]] = {}
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            rows = conn.execute(
+                "SELECT name, data FROM risk_state WHERE name LIKE %s", (padrao,)
+            ).fetchall()
+        for row in rows:
+            data = row["data"]
+            resultado[row["name"][len(_PREFIXO_POSICAO) :]] = (
+                data if isinstance(data, dict) else json.loads(data)
+            )
+        return resultado
+    conn = conectar()
+    rows = conn.execute("SELECT name, data FROM risk_state WHERE name LIKE ?", (padrao,)).fetchall()
+    conn.close()
+    for row in rows:
+        resultado[row["name"][len(_PREFIXO_POSICAO) :]] = json.loads(row["data"])
+    return resultado
 
 
 def salvar_bot_event(
