@@ -212,3 +212,43 @@ class TestApiRisco:
         r = client.get("/api/risco")
         data = r.get_json()
         assert "bloqueado" in data
+
+
+# ── Testes: hardening de segurança web (P2) ──────────────────────────────────
+
+
+class TestSegurancaWeb:
+    def test_headers_de_seguranca_presentes(self, client):
+        r = client.get("/api/risco")
+        csp = r.headers.get("Content-Security-Policy", "")
+        assert "default-src 'self'" in csp
+        assert "script-src 'self'" in csp
+        # sem hosts de CDN externos no script-src (libs vendorizadas)
+        assert "cdn.socket.io" not in csp and "jsdelivr" not in csp
+        assert r.headers.get("X-Content-Type-Options") == "nosniff"
+        assert r.headers.get("X-Frame-Options") == "DENY"
+
+    def test_vendor_serve_libs_locais(self, client):
+        r = client.get("/vendor/socket.io.min.js")
+        assert r.status_code == 200
+        assert b"Socket.IO" in r.data
+
+    def test_rate_limit_dispara_429(self, client):
+        # zera o estado do limiter e satura a janela para o IP de teste
+        dashboard._rate_hits.clear()
+        limite = dashboard._RATE_LIMITE
+        codes = [client.get("/api/estado/BTCUSDT").status_code for _ in range(limite + 5)]
+        assert 429 in codes, "rate limit nao disparou apos o limite"
+        assert codes[0] == 200, "primeiras requisicoes deveriam passar"
+        dashboard._rate_hits.clear()
+
+    def test_token_bloqueia_quando_configurado(self, client):
+        dashboard._rate_hits.clear()
+        original = dashboard._DASHBOARD_TOKEN
+        dashboard._DASHBOARD_TOKEN = "segredo-teste"
+        try:
+            assert client.get("/api/risco").status_code == 401
+            assert client.get("/api/risco?token=segredo-teste").status_code == 200
+        finally:
+            dashboard._DASHBOARD_TOKEN = original
+            dashboard._rate_hits.clear()

@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoXbot — Dashboard</title>
   <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700&family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- P2: libs servidas localmente (/vendor) — sem confianca em CDN externo -->
+  <script src="/vendor/socket.io.min.js"></script>
+  <script src="/vendor/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -840,6 +841,10 @@ function alternarTema() {
 const el = id => document.getElementById(id);
 const fmt = (n, d=2) => n == null ? '—' : Number(n).toLocaleString('pt-BR', {minimumFractionDigits:d, maximumFractionDigits:d});
 const fmtK = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${(n/1e3).toFixed(1)}K`;
+// P2: escapa HTML de qualquer string vinda da API antes de ir para innerHTML
+// (defesa-em-profundidade contra XSS — numeros passam por fmt/Number e sao seguros).
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 let parAtivo = 'BTCUSDT';
 let dadosPares = {};
@@ -950,15 +955,15 @@ function renderParesMini(pares) {
     div.dataset.symbol = p.symbol;
     div.innerHTML = `
       <div>
-        <div class="par-mini-sym">${p.symbol.replace('USDT','')}/<span style="color:var(--muted)">USDT</span></div>
-        <div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:2px;letter-spacing:.5px">${p.tend_4h||'—'} · RSI ${fmt(p.rsi,1)}</div>
+        <div class="par-mini-sym">${esc(String(p.symbol).replace('USDT',''))}/<span style="color:var(--muted)">USDT</span></div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:2px;letter-spacing:.5px">${esc(p.tend_4h||'—')} · RSI ${fmt(p.rsi,1)}</div>
       </div>
       <div style="flex:1">
         <div class="par-mini-preco">$${fmt(p.preco)}</div>
         <div class="par-mini-var" style="color:${corVar}">${vp >= 0 ? '+' : ''}${fmt(vp)}%</div>
       </div>
       <div style="text-align:right">
-        <div class="${sinalCls} par-mini-sinal">${p.sinal}</div>
+        <div class="${sinalCls} par-mini-sinal">${esc(p.sinal)}</div>
         <div style="font-family:var(--mono);font-size:8px;color:var(--muted);margin-top:4px">SCR ${p.score||0}</div>
       </div>`;
     div.onclick = () => trocarPar(p.symbol);
@@ -1173,11 +1178,11 @@ function addEvento(ev) {
     align-items:start; animation:fadeIn .3s ease;
   `;
   row.innerHTML = `
-    <span style="color:var(--muted);font-size:9px">${ev.ts}</span>
-    <span style="color:${ev.cor||'#504860'};letter-spacing:.5px">${ev.icone||'▸'} ${ev.tipo}</span>
+    <span style="color:var(--muted);font-size:9px">${esc(ev.ts)}</span>
+    <span style="color:${ev.cor||'#504860'};letter-spacing:.5px">${esc(ev.icone||'▸')} ${esc(ev.tipo)}</span>
     <span>
-      <span style="color:var(--text-hi);font-weight:600">${ev.titulo}</span>
-      ${ev.mensagem ? `<span style="color:var(--muted);margin-left:6px">${ev.mensagem}</span>` : ''}
+      <span style="color:var(--text-hi);font-weight:600">${esc(ev.titulo)}</span>
+      ${ev.mensagem ? `<span style="color:var(--muted);margin-left:6px">${esc(ev.mensagem)}</span>` : ''}
     </span>`;
   list.insertBefore(row, list.firstChild);
   while (list.children.length > 80) list.removeChild(list.lastChild);
@@ -1198,10 +1203,10 @@ function addTrade(t) {
   const row = document.createElement('div');
   row.className = `trade-row ${dir}${t.baleia ? ' baleia' : ''}`;
   row.innerHTML = `
-    <span style="color:var(--muted)">${t.hora}</span>
-    <span class="trade-dir ${dir}">${t.baleia ? '🐋 ' : ''}${t.direcao}</span>
+    <span style="color:var(--muted)">${esc(t.hora)}</span>
+    <span class="trade-dir ${dir}">${t.baleia ? '🐋 ' : ''}${esc(t.direcao)}</span>
     <span style="color:var(--text-hi)">$${Number(t.preco).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
-    <span>${t.volume}</span>
+    <span>${esc(t.volume)}</span>
     <span style="color:var(--muted)">${fmtK(t.valor_usdt)}</span>`;
   const list = el('trades-list');
   list.insertBefore(row, list.firstChild);
@@ -1221,11 +1226,11 @@ async function carregarSinais() {
       const row = document.createElement('div');
       row.className = 'sinal-row';
       row.innerHTML = `
-        <span style="color:var(--muted)">${ts}</span>
-        <span style="color:${cor}">${s.tipo}</span>
+        <span style="color:var(--muted)">${esc(ts)}</span>
+        <span style="color:${cor}">${esc(s.tipo)}</span>
         <span style="color:var(--text-hi)">$${Number(s.preco).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
         <span style="color:var(--muted)">—</span>
-        <span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${s.motivo}">${s.motivo}</span>`;
+        <span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.motivo)}">${esc(s.motivo)}</span>`;
       list.appendChild(row);
     });
   } catch(e) {}
@@ -1358,9 +1363,9 @@ function _renderConexao(d) {
       ? p.ultima_atualizacao : 'sem dados';
     lista.innerHTML += `
       <div class="mc-row">
-        <span class="mc-lbl">${p.symbol}</span>
+        <span class="mc-lbl">${esc(p.symbol)}</span>
         <span class="mc-val ${age === 'sem dados' ? 'muted' : 'ok'}">
-          ${age !== 'sem dados' ? '✓' : '○'} ${age}
+          ${age !== 'sem dados' ? '✓' : '○'} ${esc(age)}
           ${p.preco ? ' · $' + Number(p.preco).toLocaleString('pt-BR') : ''}
         </span>
       </div>`;

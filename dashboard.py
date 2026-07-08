@@ -39,6 +39,30 @@ socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode="threadin
 # no ambiente, exigimos "Authorization: Bearer <token>" ou "?token=<token>".
 _DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
 
+# P2: rate limit leve, em processo (sem dependencia nova) — janela fixa por IP
+# nas rotas /api/*. Suficiente para um dashboard pessoal single-user; barra
+# scraping/DoS trivial se algum dia exposto na rede.
+_RATE_LIMITE = int(os.getenv("DASHBOARD_RATE_LIMIT", "120"))  # req/janela
+_RATE_JANELA = 60.0  # segundos
+_rate_hits: dict[str, list[float]] = {}
+_rate_lock = threading.Lock()
+
+
+@app.before_request
+def _rate_limit_api():
+    if not request.path.startswith("/api/"):
+        return None
+    ip = request.remote_addr or "?"
+    agora = time.time()
+    with _rate_lock:
+        janela = [t for t in _rate_hits.get(ip, []) if agora - t < _RATE_JANELA]
+        if len(janela) >= _RATE_LIMITE:
+            _rate_hits[ip] = janela
+            return jsonify({"erro": "rate limit excedido"}), 429
+        janela.append(agora)
+        _rate_hits[ip] = janela
+    return None
+
 
 @app.before_request
 def _exigir_token_api():
@@ -50,6 +74,26 @@ def _exigir_token_api():
     if not _hmac.compare_digest(fornecido, _DASHBOARD_TOKEN):
         return jsonify({"erro": "nao autorizado"}), 401
     return None
+
+
+@app.after_request
+def _headers_seguranca(resp):
+    # P2: CSP + hardening. Scripts/estilos so do proprio host + inline (o
+    # dashboard usa <script>/<style> inline). Fontes do Google permitidas
+    # (nao executam codigo). connect-src inclui o WS do proprio host.
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' ws: wss:; "
+        "frame-ancestors 'none'; base-uri 'self'"
+    )
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return resp
 
 from config.runtime_settings import REST_BASE_URL
 
@@ -441,6 +485,13 @@ def index():
         return send_from_directory("frontend/dist", "index.html")
     except Exception:
         return render_template("dashboard.html")
+
+
+@app.route("/vendor/<path:filename>")
+def vendor(filename):
+    # P2: libs (socket.io, chart.js) servidas localmente — zero confianca em CDN
+    # externo (elimina risco de supply-chain e funciona offline).
+    return send_from_directory("static/vendor", filename)
 
 
 @app.route("/health")
