@@ -92,3 +92,31 @@ def test_sequencia_mista_cvd_liquido():
     assert main.cvd_btc == pytest.approx(0.7)
     assert main.total_compras == pytest.approx(1.1)
     assert main.total_vendas == pytest.approx(0.4)
+
+
+# ── C-7: encerramento gracioso (signal handlers) ─────────────────────────────
+
+
+def test_encerrar_seta_o_event_sem_raise():
+    import signal as _sig
+
+    main._shutdown_event.clear()
+    # nao deve levantar excecao (raise dentro de handler e fragil)
+    main._encerrar(_sig.SIGTERM, None)
+    assert main._shutdown_event.is_set()
+    main._shutdown_event.clear()
+
+
+def test_registra_handlers_dos_sinais_de_parada():
+    import signal as _sig
+
+    # salva handlers originais para nao poluir o pytest (SIGINT etc.)
+    nomes = [n for n in ("SIGTERM", "SIGINT", "SIGBREAK") if getattr(_sig, n, None)]
+    originais = {n: _sig.getsignal(getattr(_sig, n)) for n in nomes}
+    try:
+        main._registrar_signal_handlers()
+        for n in nomes:
+            assert _sig.getsignal(getattr(_sig, n)) is main._encerrar, f"{n} nao registrado"
+    finally:
+        for n, h in originais.items():
+            _sig.signal(getattr(_sig, n), h)

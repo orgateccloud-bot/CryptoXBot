@@ -76,9 +76,7 @@ def _thread_excepthook(args):
     msg = f"Thread '{nome}' morreu: {args.exc_type.__name__}: {args.exc_value}"
     print(f"\033[91m[THREAD-CRASH] {msg}\033[0m")
     try:
-        database.salvar_bot_event(
-            "thread_crash", msg, service="worker", severity="CRITICAL"
-        )
+        database.salvar_bot_event("thread_crash", msg, service="worker", severity="CRITICAL")
     except Exception:
         pass  # nunca deixar o hook derrubar o processo
 
@@ -99,6 +97,12 @@ ws_state = {
     "last_message_time": 0.0,
     "latency_ms": 0.0,
 }
+
+# C-7: shutdown gracioso. O Event e signal-safe (setar dentro de um signal
+# handler e seguro; raise nao e confiavel). _ws_loop guarda o loop asyncio do
+# WebSocket para pedir seu encerramento de fora da thread dele.
+_shutdown_event = threading.Event()
+_ws_loop = None
 
 # Estado por par (executor e scale-in independentes)
 _estado_pares = {}  # symbol → {"executor": Executor, "scale_in": ScaleIn|None}
@@ -126,7 +130,7 @@ async def websocket_handler():
     jitter_factor = 0.1
 
     attempt = 0
-    while attempt < max_retries:
+    while attempt < max_retries and not _shutdown_event.is_set():
         try:
             async with websockets.connect(url, ping_interval=30, ping_timeout=10) as websocket_conn:
                 ws_state["connected"] = True
@@ -261,13 +265,52 @@ async def process_message(message):
 def iniciar_websocket_async():
     """
     Inicia o loop assíncrono do WebSocket em uma thread separada.
+
+    C-7: cria o loop explicitamente e guarda a referencia em _ws_loop, para que
+    o signal handler possa pedir seu encerramento (loop.stop) de fora da thread.
     """
 
     def run_async():
-        asyncio.run(websocket_handler())
+        global _ws_loop
+        loop = asyncio.new_event_loop()
+        _ws_loop = loop
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(websocket_handler())
+        except (asyncio.CancelledError, RuntimeError):
+            pass  # loop parado durante shutdown — esperado
+        finally:
+            loop.close()
 
     thread = threading.Thread(target=run_async, daemon=True, name="websocket-async")
     thread.start()
+
+
+# ── Encerramento gracioso (C-7) ───────────────────────────────
+
+
+def _encerrar(signum, frame):
+    """Signal handler: seta o Event (signal-safe) e pede ao loop asyncio para
+    parar. Sem raise — levantar excecao dentro de handler e fragil. Modulo-level
+    para ser testavel e reutilizavel."""
+    _shutdown_event.set()
+    if _ws_loop is not None:
+        try:
+            _ws_loop.call_soon_threadsafe(_ws_loop.stop)
+        except Exception:
+            pass
+
+
+def _registrar_signal_handlers():
+    """Registra _encerrar em todos os sinais de parada disponiveis na
+    plataforma. NSSM/Windows: SIGINT/SIGBREAK; systemd/Linux: SIGTERM."""
+    for nome in ("SIGTERM", "SIGINT", "SIGBREAK"):
+        sig = getattr(signal, nome, None)
+        if sig is not None:
+            try:
+                signal.signal(sig, _encerrar)
+            except (ValueError, OSError):
+                pass  # sinal inexistente na plataforma ou fora da main thread
 
 
 # ── Retreinamento Automático Semanal ──────────────────────────
@@ -662,25 +705,29 @@ def main():
             target=loop_par, args=(par, args.intervalo, simulacao), daemon=True, name=f"loop-{par}"
         ).start()
 
-    # Encerramento limpo: Railway envia SIGTERM no restart/redeploy.
-    def _encerrar(signum, frame):
-        raise KeyboardInterrupt
-
-    try:
-        signal.signal(signal.SIGTERM, _encerrar)
-    except (ValueError, OSError):
-        pass  # plataforma sem SIGTERM ou não estamos na main thread
+    # C-7: encerramento limpo. NSSM (Windows) manda CTRL_C_EVENT (SIGINT) e
+    # CTRL_BREAK_EVENT (SIGBREAK) no stop; systemd/Railway (Linux) manda SIGTERM.
+    _registrar_signal_handlers()
 
     try:
         iniciar_websocket_async()
-        while True:
-            time.sleep(1)
+        # time.sleep (nao Event.wait) porque no Windows o sleep e interrompido
+        # pelo evento de console (CTRL_C/BREAK do NSSM), permitindo ao handler
+        # rodar e ao path gracioso executar. Event.wait bloqueia em C e atrasa
+        # o sinal ate o Windows force-terminar (STATUS_CONTROL_C_EXIT).
+        while not _shutdown_event.is_set():
+            time.sleep(0.5)
+        print("\n\033[93m[BOT] Sinal de encerramento recebido — finalizando.\033[0m")
     except KeyboardInterrupt:
+        _shutdown_event.set()
         print("\n\033[93m[BOT] Encerrado pelo usuario.\033[0m")
-        with _lock:
-            database.salvar_cvd(cvd_btc, total_compras, total_vendas, symbol="BTCUSDT")
-        print(f"[BOT] CVD BTC final: {cvd_btc:+.3f} BTC")
     finally:
+        try:
+            with _lock:
+                database.salvar_cvd(cvd_btc, total_compras, total_vendas, symbol="BTCUSDT")
+            print(f"[BOT] CVD BTC final: {cvd_btc:+.3f} BTC")
+        except Exception as e:
+            print(f"[BOT] AVISO: falha ao salvar CVD final: {e}")
         try:
             database.fechar_pool()  # fecha o pool Postgres/Supabase (evita conexões orphan)
         except Exception:
