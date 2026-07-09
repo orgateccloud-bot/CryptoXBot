@@ -109,21 +109,60 @@ def treinar(intervalo="1h", max_iter=200):
         return None
 
     from sklearn.metrics import classification_report, roc_auc_score
-    from sklearn.model_selection import train_test_split
     from sklearn.neural_network import MLPClassifier
+    from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
-    n = len(X)
-    split = int(n * 0.8)
-    X_tr, X_te = X[:split], X[split:]
-    y_tr, y_te = y[:split], y[split:]
+    from validacao import purged_cv_auc, split_holdout_purgado
 
+    n = len(X)
     pos = int(y.sum())
     neg = len(y) - pos
 
     print(f"[SEQ] Dataset: {n} seq ({SEQ_LEN} velas x {N_FEATURES} feat + deltas)")
     print(f"[SEQ] Features totais: {X.shape[1]}")
     print(f"[SEQ] Positivos: {pos} ({pos/n*100:.1f}%)")
+
+    def _build_mlp():
+        # Pipeline: o StandardScaler é re-fitado por fold no purged CV (senão
+        # normalizar com dados do teste vazaria estatísticas do futuro).
+        return Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "mlp",
+                    MLPClassifier(
+                        hidden_layer_sizes=(128, 64, 32),
+                        activation="relu",
+                        solver="adam",
+                        max_iter=max_iter,
+                        early_stopping=True,
+                        validation_fraction=0.15,
+                        n_iter_no_change=15,
+                        learning_rate="adaptive",
+                        learning_rate_init=0.001,
+                        batch_size=64,
+                        random_state=42,
+                    ),
+                ),
+            ]
+        )
+
+    # P0-1: estimativa honesta via purged & embargoed CV (horizonte = JANELA_FUTURA).
+    # (O CV não aplica sample_weight — AUC é ranking-based, pouco sensível a isso.)
+    cv_aucs = purged_cv_auc(
+        _build_mlp, X, y, n_splits=5, horizonte=JANELA_FUTURA, embargo=JANELA_FUTURA
+    )
+    if cv_aucs:
+        cv_mean, cv_std = float(np.mean(cv_aucs)), float(np.std(cv_aucs))
+        print(f"[SEQ] Purged CV AUC: {cv_mean:.4f} ± {cv_std:.4f}  ({len(cv_aucs)} folds)")
+    else:
+        cv_mean = cv_std = None
+
+    # Holdout cronológico PURGADO (últimas JANELA_FUTURA seq de treino removidas).
+    tr_idx, te_idx = split_holdout_purgado(n, test_frac=0.2, horizonte=JANELA_FUTURA)
+    X_tr, X_te = X[tr_idx], X[te_idx]
+    y_tr, y_te = y[tr_idx], y[te_idx]
 
     # Normalizar
     scaler = StandardScaler()
@@ -158,7 +197,9 @@ def treinar(intervalo="1h", max_iter=200):
     auc = roc_auc_score(y_te, y_prob)
 
     print(f"\n[SEQ] RESULTADO DO TREINAMENTO:")
-    print(f"      AUC-ROC: {auc:.4f}")
+    print(f"      AUC holdout purgado: {auc:.4f}")
+    if cv_mean is not None:
+        print(f"      AUC purged CV (honesto): {cv_mean:.4f} ± {cv_std:.4f}")
     print(f"      Iteracoes: {modelo.n_iter_}")
     print(classification_report(y_te, y_pred, target_names=["Nao Sobe", "Sobe"]))
 
@@ -170,6 +211,8 @@ def treinar(intervalo="1h", max_iter=200):
                 "scaler": scaler,
                 "intervalo": intervalo,
                 "auc": float(auc),
+                "cv_auc_mean": cv_mean,  # P0-1: estimativa honesta (purged CV)
+                "cv_auc_std": cv_std,
                 "seq_len": SEQ_LEN,
                 "n_features": N_FEATURES,
             },

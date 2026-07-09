@@ -146,26 +146,45 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
         return
 
     from sklearn.metrics import classification_report, roc_auc_score
-    from sklearn.model_selection import train_test_split
     from xgboost import XGBClassifier
 
-    print(f"[ML] Dataset: {len(X)} amostras | Positivos: {y.sum()} ({y.mean()*100:.1f}%)")
+    from validacao import purged_cv_auc, split_holdout_purgado
 
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, shuffle=False)
+    print(f"[ML] Dataset: {len(X)} amostras | Positivos: {y.sum()} ({y.mean()*100:.1f}%)")
 
     # Corrige desbalanceamento: 85% negativo / 15% positivo
     ratio = (len(y) - y.sum()) / max(y.sum(), 1)
 
-    modelo = XGBClassifier(
-        n_estimators=300,
-        max_depth=4,
-        learning_rate=0.03,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        eval_metric="logloss",
-        scale_pos_weight=ratio,  # penaliza erros na classe minoritária
-        verbosity=0,
-    )
+    def _build_xgb():
+        return XGBClassifier(
+            n_estimators=300,
+            max_depth=4,
+            learning_rate=0.03,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            eval_metric="logloss",
+            scale_pos_weight=ratio,  # penaliza erros na classe minoritária
+            verbosity=0,
+        )
+
+    # P0-1: métrica HONESTA — purged & embargoed CV (horizonte = JANELA de rótulo).
+    # Um K-fold/holdout ingênuo vaza o futuro pelos labels que olham JANELA velas
+    # à frente, inflando o AUC. Aqui o purge/embargo eliminam esse vazamento.
+    cv_aucs = purged_cv_auc(_build_xgb, X, y, n_splits=5, horizonte=JANELA, embargo=JANELA)
+    if cv_aucs:
+        cv_mean, cv_std = float(np.mean(cv_aucs)), float(np.std(cv_aucs))
+        print(f"[ML] Purged CV AUC: {cv_mean:.4f} ± {cv_std:.4f}  ({len(cv_aucs)} folds)")
+    else:
+        cv_mean = cv_std = None
+        print("[ML] Purged CV: dados insuficientes p/ 5 folds — usando só holdout")
+
+    # Holdout cronológico PURGADO (últimas JANELA amostras de treino removidas
+    # para não vazar no teste). Modelo final treina no treino purgado.
+    tr_idx, te_idx = split_holdout_purgado(len(X), test_frac=0.2, horizonte=JANELA)
+    X_tr, y_tr = X[tr_idx], y[tr_idx]
+    X_te, y_te = X[te_idx], y[te_idx]
+
+    modelo = _build_xgb()
     modelo.fit(X_tr, y_tr, eval_set=[(X_te, y_te)], verbose=False)
 
     y_pred = modelo.predict(X_te)
@@ -173,7 +192,9 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
     auc = roc_auc_score(y_te, y_prob)
 
     print(f"\n[ML] RESULTADO DO TREINAMENTO:")
-    print(f"     AUC-ROC:  {auc:.4f}  (meta: > 0.60)")
+    print(f"     AUC holdout purgado:  {auc:.4f}  (meta: > 0.60)")
+    if cv_mean is not None:
+        print(f"     AUC purged CV (honesto): {cv_mean:.4f} ± {cv_std:.4f}")
     print(classification_report(y_te, y_pred, target_names=["Nao Sobe", "Sobe"]))
 
     # Importância das features
@@ -202,7 +223,17 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
     # do retreino nunca corrompe o modelo que o bot carrega no proximo boot.
     tmp_path = f"{path}.tmp"
     with open(tmp_path, "wb") as f:
-        pickle.dump({"modelo": modelo, "intervalo": intervalo, "auc": auc, "symbol": symbol}, f)
+        pickle.dump(
+            {
+                "modelo": modelo,
+                "intervalo": intervalo,
+                "auc": auc,  # holdout purgado
+                "cv_auc_mean": cv_mean,  # P0-1: estimativa honesta (purged CV)
+                "cv_auc_std": cv_std,
+                "symbol": symbol,
+            },
+            f,
+        )
     os.replace(tmp_path, path)
     print(f"\n[ML] Modelo salvo em: {path}")
     return modelo

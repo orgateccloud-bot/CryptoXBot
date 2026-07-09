@@ -17,7 +17,7 @@ fantasma), **execução maker-first** (custo direto), e **sizing por volatilidad
 
 | # | Ação | Onde | Por quê |
 |---|------|------|---------|
-| P0-1 | **Purged + Embargoed CV** no treino XGBoost/MLP | `ml_filtro.py`, `backtesting/walk_forward.py` | K-fold padrão vaza futuro em séries temporais → backtest otimista que sangra ao vivo. Conserto nº1 do pipeline de ML. |
+| ✅ P0-1 | ~~**Purged + Embargoed CV** no treino XGBoost/MLP~~ **FEITO** (2026-07-09) | `validacao.py` (novo) usado em `ml_filtro.py` + `lstm_modelo.py` | K-fold padrão vaza futuro em séries temporais → backtest otimista que sangra ao vivo. Agora treino/holdout são purgados (gap = JANELA) e o AUC honesto vem de purged CV (mean±std, salvo no pickle). `backtesting/walk_forward.py` pode adotar o mesmo módulo (follow-up). |
 | P0-2 | **`LIMIT_MAKER` (post-only)** nas entradas em vez de LIMIT agressivo/MARKET | `executor.py` | Garante fee de maker, nunca cruza o spread. Maior ganho de custo por esforço. Re-quote (cancel-replace) se não preencher em N s. |
 | P0-3 | **Vol targeting sobre o Kelly**: `size × (vol_alvo / vol_realizada)` | `risco.py` | Kelly fixo (25%) assume vol estável; BTC/ETH/SOL variam ordens de magnitude entre regimes. Corta drawdown com baixo esforço. |
 | P0-4 | **Métricas Sortino/Calmar/Profit Factor/DSR** + registrar nº de trials no backtest | `backtesting/*` | Sharpe pune upside e ignora caudas. DSR corrige Sharpe inflado por multiple-testing (edge fantasma). |
