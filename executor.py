@@ -20,6 +20,7 @@ import threading
 import time
 import uuid
 from datetime import datetime
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 import requests
 
@@ -31,13 +32,53 @@ from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
 # divergente entre modulos (sinal e execucao no MESMO mercado).
 BASE_URL = REST_BASE_URL
 
-# Precisão por par (Binance Spot/Futures)
+# Precisão de FALLBACK por par (usada só se o exchangeInfo falhar no boot).
+# A fonte de verdade e o exchangeInfo da Binance — ver _carregar_precisao().
 _PRECISAO = {
-    "BTCUSDT": {"qty_step": 0.00001, "min_qty": 0.00001, "price_prec": 2},
-    "ETHUSDT": {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2},
-    "SOLUSDT": {"qty_step": 0.1, "min_qty": 0.1, "price_prec": 3},
+    "BTCUSDT": {"qty_step": 0.00001, "min_qty": 0.00001, "price_prec": 2, "tick_size": "0.01"},
+    "ETHUSDT": {"qty_step": 0.0001, "min_qty": 0.0001, "price_prec": 2, "tick_size": "0.01"},
+    "SOLUSDT": {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2, "tick_size": "0.01"},
 }
-_PRECISAO_DEFAULT = {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2}
+_PRECISAO_DEFAULT = {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2, "tick_size": "0.01"}
+
+_precisao_cache: dict[str, dict] = {}
+
+
+def _decimais(valor_str: str) -> int:
+    """Nº de casas decimais de um passo tipo '0.01' -> 2, '1' -> 0."""
+    d = Decimal(valor_str).normalize()
+    exp = d.as_tuple().exponent
+    return -exp if exp < 0 else 0
+
+
+def _carregar_precisao(symbol: str) -> dict:
+    """Busca LOT_SIZE/PRICE_FILTER reais do exchangeInfo (fonte de verdade).
+    Cai no _PRECISAO hardcoded se a chamada falhar. Cacheado por símbolo.
+
+    Corrige divergências do hardcode (ex.: SOLUSDT spot tem tick 0.01, não
+    price_prec 3 — preço com 3 casas era REJEITADO pelo PRICE_FILTER)."""
+    symbol = symbol.upper()
+    if symbol in _precisao_cache:
+        return _precisao_cache[symbol]
+    try:
+        r = requests.get(f"{BASE_URL}/api/v3/exchangeInfo", params={"symbol": symbol}, timeout=8)
+        filtros = {f["filterType"]: f for f in r.json()["symbols"][0]["filters"]}
+        step = filtros["LOT_SIZE"]["stepSize"]
+        tick = filtros["PRICE_FILTER"]["tickSize"]
+        prec = {
+            "qty_step": float(step),
+            "min_qty": float(filtros["LOT_SIZE"]["minQty"]),
+            "price_prec": _decimais(tick),
+            "tick_size": Decimal(tick).normalize().__str__(),
+            "step_size": Decimal(step).normalize().__str__(),
+        }
+    except Exception as e:
+        print(f"[EXEC] exchangeInfo indisponivel p/ {symbol} ({e}) — usando fallback")
+        prec = dict(_PRECISAO.get(symbol, _PRECISAO_DEFAULT))
+        prec.setdefault("step_size", Decimal(str(prec["qty_step"])).normalize().__str__())
+    _precisao_cache[symbol] = prec
+    return prec
+
 
 TRAILING_ATIVACAO = 0.01  # ativa trailing após 1% de ganho
 TRAILING_DISTANCIA = 0.008  # stop segue 0.8% abaixo do pico
@@ -116,10 +157,14 @@ class Executor:
         self._monitor = None
         self._ativo = False
         self._lock = threading.Lock()  # protege o estado da posicao (M-2)
-        prec = _PRECISAO.get(self.symbol, _PRECISAO_DEFAULT)
+        prec = _carregar_precisao(self.symbol)  # exchangeInfo real (fonte de verdade)
         self._qty_step = prec["qty_step"]
         self._min_qty = prec["min_qty"]
         self._price_prec = prec["price_prec"]
+        # Decimal p/ snapping EXATO ao step/tick — float pode gerar 0.5219999...
+        # e derrubar qty/preco valido no filtro da Binance.
+        self._step_dec = Decimal(prec.get("step_size", str(prec["qty_step"])))
+        self._tick_dec = Decimal(prec.get("tick_size", "0.01"))
         self._offset_ms = 0
         if not simulacao:
             self._sincronizar_relogio()  # P0-4: evita -1021 por clock drift
@@ -127,10 +172,14 @@ class Executor:
         print(f"[EXEC] Executor iniciado — {self.symbol} | Modo: {modo}")
 
     def _arredondar_qty(self, qty):
-        return round(int(qty / self._qty_step) * self._qty_step, 8)
+        # Floor ao step (nunca arredonda p/ cima — evita exceder saldo/risco).
+        d = (Decimal(str(qty)) / self._step_dec).to_integral_value(ROUND_DOWN) * self._step_dec
+        return float(d)
 
     def _arredondar_preco(self, preco):
-        return round(preco, self._price_prec)
+        # Snap ao tick mais proximo (exato, sem artefato de float).
+        d = (Decimal(str(preco)) / self._tick_dec).to_integral_value(ROUND_HALF_UP) * self._tick_dec
+        return float(d)
 
     # ── Assinatura da API ──────────────────────────────────────
 
@@ -192,9 +241,11 @@ class Executor:
         """P0-4: apos timeout de rede, confirma na exchange se a ordem existe —
         evita 'ordem fantasma' (enviada e executada, mas resposta perdida)."""
         data = self._request_assinado(
-            "GET", "/api/v3/order",
+            "GET",
+            "/api/v3/order",
             {"symbol": self.symbol, "origClientOrderId": client_order_id},
-            timeout=10, tentativas=2,
+            timeout=10,
+            tentativas=2,
         )
         return data if isinstance(data, dict) and "orderId" in data else None
 
@@ -256,7 +307,9 @@ class Executor:
         if isinstance(data, dict) and data.get("timeout_rede"):
             existente = self._consultar_ordem(client_id)
             if existente:
-                print(f"[EXEC] Ordem recuperada pos-timeout ({client_id}): {existente.get('status')}")
+                print(
+                    f"[EXEC] Ordem recuperada pos-timeout ({client_id}): {existente.get('status')}"
+                )
                 return existente
 
         # Erros da Binance chegam como {"code": -xxxx, "msg": "..."} sem orderId

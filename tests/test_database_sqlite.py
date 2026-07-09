@@ -216,3 +216,33 @@ class TestRiskState:
         database.salvar_risk_state({"capital": 750.0}, name="slot1")
         loaded = database.carregar_risk_state("slot1")
         assert loaded["capital"] == pytest.approx(750.0)
+
+
+# ── A-9: mascaramento de senha do DSN em logs/erros ──────────────────────────
+
+
+def test_mascarar_dsn_oculta_senha():
+    import database as _db
+
+    dsn = "postgresql://postgres.abc:MinhaSenha123@aws-0-sa.pooler.supabase.com:6543/postgres"
+    m = _db._mascarar_dsn(dsn)
+    assert "MinhaSenha123" not in m
+    assert "***" in m
+    assert "aws-0-sa.pooler.supabase.com" in m  # host preservado (útil p/ debug)
+
+
+def test_conectar_pg_seguro_mascara_erro():
+    import database as _db
+
+    class _Boom(Exception):
+        pass
+
+    def _fabrica():
+        raise _Boom("falha em postgresql://u:segredo@host/db")
+
+    try:
+        _db._conectar_pg_seguro(_fabrica)
+        assert False, "deveria ter levantado"
+    except RuntimeError as e:
+        assert "segredo" not in str(e)
+        assert "***" in str(e)

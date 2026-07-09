@@ -30,6 +30,41 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import executor as executor_mod
 from executor import Executor
 
+
+@pytest.fixture(autouse=True)
+def _precisao_hermetica():
+    """Pre-popula o cache de precisao com os valores reais do spot, evitando a
+    chamada de rede ao exchangeInfo no __init__ do Executor (mantem a suite
+    hermetica). Valores = LOT_SIZE/PRICE_FILTER reais da Binance spot."""
+    executor_mod._precisao_cache.update(
+        {
+            "BTCUSDT": {
+                "qty_step": 0.00001,
+                "min_qty": 0.00001,
+                "price_prec": 2,
+                "tick_size": "0.01",
+                "step_size": "0.00001",
+            },
+            "ETHUSDT": {
+                "qty_step": 0.0001,
+                "min_qty": 0.0001,
+                "price_prec": 2,
+                "tick_size": "0.01",
+                "step_size": "0.0001",
+            },
+            "SOLUSDT": {
+                "qty_step": 0.001,
+                "min_qty": 0.001,
+                "price_prec": 2,
+                "tick_size": "0.01",
+                "step_size": "0.001",
+            },
+        }
+    )
+    yield
+    executor_mod._precisao_cache.clear()
+
+
 # ══════════════════════════════════════════════════════════════
 # Fixtures: mocks dos colaboradores externos
 # ══════════════════════════════════════════════════════════════
@@ -119,7 +154,14 @@ def test_arredondar_preco_btc():
     assert ex._arredondar_preco(50000.12345) == 50000.12
 
 
-def test_precisao_simbolo_desconhecido_usa_default():
+def test_precisao_fallback_quando_exchangeinfo_falha(monkeypatch):
+    # exchangeInfo indisponivel + simbolo fora do _PRECISAO -> _PRECISAO_DEFAULT
+    executor_mod._precisao_cache.pop("DOGEUSDT", None)
+
+    def _sem_rede(*a, **k):
+        raise RuntimeError("sem rede")
+
+    monkeypatch.setattr(executor_mod.requests, "get", _sem_rede)
     ex = Executor(simulacao=True, symbol="DOGEUSDT")
     assert ex._qty_step == 0.001
     assert ex._min_qty == 0.001
@@ -303,17 +345,20 @@ def test_status_com_posicao(ex_sim):
 
 
 def test_precisao_ethusdt():
+    # Valores reais do spot (exchangeInfo): step/minQty 0.0001, tick 0.01.
     ex = Executor(simulacao=True, symbol="ETHUSDT")
-    assert ex._qty_step == 0.001
-    assert ex._min_qty == 0.001
+    assert ex._qty_step == 0.0001
+    assert ex._min_qty == 0.0001
     assert ex._price_prec == 2
 
 
-def test_precisao_solusdt_price_prec_3():
+def test_precisao_solusdt_spot():
+    # SOLUSDT spot: tick 0.01 (2 casas) — NAO 3 como o hardcode antigo (futures).
+    # Preco com 3 casas era rejeitado pelo PRICE_FILTER em modo real.
     ex = Executor(simulacao=True, symbol="SOLUSDT")
-    assert ex._qty_step == 0.1
-    assert ex._min_qty == 0.1
-    assert ex._price_prec == 3
+    assert ex._qty_step == 0.001
+    assert ex._min_qty == 0.001
+    assert ex._price_prec == 2
 
 
 def test_symbol_normalizado_para_maiusculo():
@@ -323,11 +368,11 @@ def test_symbol_normalizado_para_maiusculo():
     assert ex._qty_step == 0.00001
 
 
-def test_arredondar_qty_erro_de_ponto_flutuante_no_step():
+def test_arredondar_qty_sem_artefato_de_float():
     ex = Executor(simulacao=True, symbol="BTCUSDT")
-    # COMPORTAMENTO REAL: 0.00123 / 0.00001 = 122.999... -> int() trunca p/ 122.
-    # Este é um efeito de truncamento float documentado pelo código atual.
-    assert ex._arredondar_qty(0.00123) == 0.00122
+    # Com Decimal o artefato de float sumiu: 0.00123 permanece 0.00123
+    # (o codigo antigo com int(qty/step) truncava para 0.00122).
+    assert ex._arredondar_qty(0.00123) == 0.00123
     # exatamente no min_qty NÃO é truncado para zero
     assert ex._arredondar_qty(0.00001) == 0.00001
 
@@ -338,16 +383,18 @@ def test_arredondar_qty_abaixo_do_step_vira_zero():
     assert ex._arredondar_qty(0.000009) == 0.0
 
 
-def test_arredondar_qty_solusdt_trunca():
+def test_arredondar_qty_solusdt_floor_ao_step():
     ex = Executor(simulacao=True, symbol="SOLUSDT")
-    # step 0.1 -> 1.27 trunca para 1.2
-    assert ex._arredondar_qty(1.27) == 1.2
-    assert ex._arredondar_qty(0.05) == 0.0
+    # step real 0.001 -> 1.2745 faz floor para 1.274
+    assert ex._arredondar_qty(1.2745) == 1.274
+    # 0.05 e multiplo valido do step 0.001 -> permanece
+    assert ex._arredondar_qty(0.05) == 0.05
 
 
-def test_arredondar_preco_solusdt_3_casas():
+def test_arredondar_preco_solusdt_snap_ao_tick():
     ex = Executor(simulacao=True, symbol="SOLUSDT")
-    assert ex._arredondar_preco(123.45678) == 123.457
+    # tick 0.01 -> 2 casas (nao 3): 123.45678 -> 123.46
+    assert ex._arredondar_preco(123.45678) == 123.46
 
 
 def test_arredondar_qty_zero_e_negativo():

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -52,6 +53,22 @@ def _pg_dsn() -> str:
     return DATABASE_URL
 
 
+def _mascarar_dsn(dsn: str) -> str:
+    """A-9: oculta a senha do DSN para nunca vazar em log/traceback.
+    postgresql://user:SENHA@host:port/db -> postgresql://user:***@host:port/db"""
+    return re.sub(r"(://[^:/@]+:)[^@]*(@)", r"\1***\2", dsn)
+
+
+def _conectar_pg_seguro(fabrica):
+    """Executa uma fabrica de conexao Postgres mascarando o DSN em qualquer
+    erro — psycopg costuma ecoar o conninfo (com senha) no traceback."""
+    try:
+        return fabrica()
+    except Exception as exc:
+        msg = _mascarar_dsn(str(exc))
+        raise RuntimeError(f"Falha ao conectar no Postgres: {msg}") from None
+
+
 def _pg_json(value: Any):
     from psycopg.types.json import Json
 
@@ -70,12 +87,14 @@ def _get_pg_pool():
                 "Instale requirements.txt atualizado."
             ) from exc
 
-        _pg_pool = ConnectionPool(
-            conninfo=_pg_dsn(),
-            min_size=DB_POOL_MIN,
-            max_size=DB_POOL_MAX,
-            kwargs={"row_factory": dict_row, "prepare_threshold": None},
-            open=True,  # psycopg_pool >= 3.2 nao abre o pool implicitamente; sem isto, .connection() da PoolTimeout
+        _pg_pool = _conectar_pg_seguro(
+            lambda: ConnectionPool(
+                conninfo=_pg_dsn(),
+                min_size=DB_POOL_MIN,
+                max_size=DB_POOL_MAX,
+                kwargs={"row_factory": dict_row, "prepare_threshold": None},
+                open=True,  # psycopg_pool >= 3.2 nao abre o pool implicitamente; sem isto, .connection() da PoolTimeout
+            )
         )
     return _pg_pool
 
@@ -94,7 +113,9 @@ def conectar():
             from psycopg.rows import dict_row
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("psycopg nao instalado para backend Postgres.") from exc
-        return psycopg.connect(_pg_dsn(), row_factory=dict_row, prepare_threshold=None)
+        return _conectar_pg_seguro(
+            lambda: psycopg.connect(_pg_dsn(), row_factory=dict_row, prepare_threshold=None)
+        )
 
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     # busy_timeout: threads concorrentes esperam em vez de "database is locked".
