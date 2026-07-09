@@ -1,12 +1,10 @@
 [tool.black]
 line-length = 100
 target-version = ["py311"]
-extend-exclude = "_legado"
 
 [tool.isort]
 profile = "black"
 line_length = 100
-extend_skip = ["_legado"]
 
 # flake8 nao suporta config em pyproject.toml - ver .flake8 na raiz
 
@@ -14,4 +12,4 @@ extend_skip = ["_legado"]
 python_version = "3.11"
 ignore_missing_imports = true
 warn_unused_ignores = false
-exclude = ["_legado", "venv", ".venv"]
+exclude = ["venv", ".venv"]

@@ -4,8 +4,8 @@ Bot de trading algorítmico de alta frequência para **Binance Spot**.
 Execução via `/api/v3/order` (spot); indicadores de **funding rate / open
 interest** são lidos de Futures (`fapi.binance.com`) apenas como sentimento.
 **Deploy: serviço 24/7 (Windows NSSM no PC · systemd na VPS) + Supabase.**
-Railway aposentado em `_legado/infra/railway.toml`; Docker em
-`_legado/infra/lote3-docker/` — zero acoplamento no código.
+Railway e Docker foram aposentados e removidos do repo (recuperáveis via
+histórico git) — zero acoplamento no código.
 
 ## Stack
 
@@ -36,7 +36,6 @@ supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
 tests/             # pytest (721 passed, 7 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
-_legado/           # código/infra aposentados (ver _legado/LEIA-ME.md)
 ```
 
 Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `database.py`,
@@ -207,5 +206,6 @@ Proteções de execução (`executor.py`, todas só em modo real):
 - Python 3.11+, type hints obrigatórios
 - Variáveis e logs em português
 - Testes obrigatórios: `pytest tests/ -v` antes de qualquer PR
-- Aposentar (não deletar): mover para `_legado/` com plano de rollback (@Zeta)
+- Aposentar código: preferir mover para pasta de arquivo com plano de rollback;
+  remoção definitiva só quando o histórico git for rollback suficiente (@Zeta)
 ```

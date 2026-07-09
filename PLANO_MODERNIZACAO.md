@@ -53,8 +53,9 @@ fantasma), **execução maker-first** (custo direto), e **sizing por volatilidad
 
 - **`_klines` duplicado em 4 lugares** (`dashboard.py:189`, `regime.py:36`, `suporte.py:42`, `estrategias/otimizada.py:43`) — cada um refaz fetch, sem cache, divergentes. Centralizar em `data/klines.py` com cache TTL.
 - **EMA/RSI reimplementados** em `dashboard.py`, `analise_mercado.py`, `backtesting/motor.py` — drift de cálculo vs `indicadores.py` (a versão numpy canônica). Remover as cópias.
-- **`docs/` vault desatualizado** (snapshot 2026-06-20): 11 arquivos ainda citam Railway/Docker/Futures. Decidir: atualizar, arquivar ou remover.
-- **`_legado/`** (51 arquivos): arquivo de rollback @Zeta. Git já preserva o histórico — decidir se mantém.
+- **`docs/` vault** (snapshot 2026-06-20): sendo atualizado para o estado atual
+  (Railway/Docker/Futures → NSSM/systemd/Spot).
+- **`_legado/`**: removido do repo em 2026-07-09 (recuperável via histórico git).
 
 ---
 

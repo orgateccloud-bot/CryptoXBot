@@ -30,9 +30,8 @@ estrategias/       # Estratégias de trading (otimizada)
 scripts/           # migrate_sqlite_to_supabase.py
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard HTML
-tests/             # pytest (710 passed, 7 skipped)
+tests/             # pytest (723 passed, 7 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
-_legado/           # código/infra aposentados (ver _legado/LEIA-ME.md)
 ```
 
 Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `database.py`,
@@ -91,5 +90,5 @@ Guia completo, variáveis de ambiente e modelos ML: ver [CLAUDE.md](CLAUDE.md).
 ## Documentação
 
 - [`CLAUDE.md`](CLAUDE.md) — referência completa (stack, comandos, variáveis, modelos ML)
+- [`PLANO_MODERNIZACAO.md`](PLANO_MODERNIZACAO.md) — roadmap de modernização (P0-P3)
 - [`docs/`](docs/) — vault Obsidian (arquitetura, operação, pontuações)
-- [`_legado/LEIA-ME.md`](_legado/LEIA-ME.md) — histórico de módulos/infra aposentados e como revertê-los
