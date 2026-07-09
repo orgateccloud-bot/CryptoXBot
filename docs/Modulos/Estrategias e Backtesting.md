@@ -22,7 +22,7 @@ tags: [modulo, backtesting, testes, qualidade]
 - ✅ **Realista:** slippage 0.05% + taxa Binance 0.04%/lado; calcula Sharpe, win rate, max drawdown.
 - **Gaps:** otimizador sem early-stopping nem out-of-sample; nenhum teste de determinismo do backtest.
 
-## Testes ativos 🟡 Cobertura do core OK
+## Testes ativos 🟢 Core coberto (723 testes)
 - `tests/test_data.py` — CVD calculator + indicadores (9 testes).
 - `tests/test_melhorias.py` — score (pesos), FSRS, ensemble+FSRS, Ollama (fallback), retreino.
 - ✅ **Novo nesta sessão (P0):** `tests/test_executor.py` (43), `tests/test_risco.py` (74), `tests/test_score.py` (136), `tests/test_executor_monitor.py` (28) — herméticos (sem rede/banco).
@@ -30,14 +30,15 @@ tags: [modulo, backtesting, testes, qualidade]
   - ✅ **Trailing stop**: `_monitorar` refatorado p/ função pura `avaliar_tick_monitor` + **oráculo de equivalência** (8.160 casos) prova que o refactor preserva o comportamento.
 - ✅ **Novo (P1):** `test_indicadores`(+adv), `test_otimizada_e2e`(+adv, regressão do showstopper), `test_ml_filtro`(+adv), `test_regime`, `test_suporte`, `test_logger` — gerados via Workflow multi-agente.
   - Cobertura: indicadores **100%**, regime **99%**, score **96%**, otimizada **93%**, ml_filtro 65%, suporte 69%.
-- **Lacunas remanescentes:** **backtesting sem testes diretos** (determinismo), `database`/`dashboard`/`monitor_fluxo` sem testes.
-- Estado: `pytest` → **595 passed, 6 skipped** (testes do cluster async em `_legado/`, ignorados por `pytest.ini`).
+- **Lacunas remanescentes:** **backtesting sem testes diretos** (determinismo) — ver P0-4 em `PLANO_MODERNIZACAO.md`.
+- Estado: `pytest` → **723 passed, 7 skipped** (suite hermética; `database`/`dashboard`/`analise_mercado`/`ensemble` cobertos).
 
-## Qualidade de código 🟢/🟡
+## Qualidade de código 🟢
 - `.pre-commit-config.yaml` — Black, isort, Flake8, MyPy, Bandit, detect-secrets, yamllint.
-  - ⚠️ Referencia `-c .bandit` e `.secrets.baseline` que **não existem** → pre-commit pode falhar.
+  - ✅ `.bandit` (YAML) + `.secrets.baseline` presentes e funcionais (o hook não está mais morto).
+- `pyproject.toml` — config de lint versionada; `black` aplicado no repo.
 - `renovate.json` — automerge patch/minor, agrupamento, security imediato.
-- `requirements.txt` — ✅ limpo nesta sessão (removidas 5 deps órfãs do cluster; `psycopg` mantido p/ Supabase). Falta `pytest`/`pytest-cov` listados.
+- `requirements.txt` — ✅ limpo (removidas 5 deps órfãs do cluster; `psycopg` mantido p/ Supabase); `requirements-dev.txt` com `pytest`/`pytest-cov`.
 
 ---
 
@@ -45,7 +46,7 @@ tags: [modulo, backtesting, testes, qualidade]
 | Área | Nota |
 |---|---|
 | Backtesting (motor/walk-forward) | 🟢 Alta |
-| Tooling de qualidade | 🟡 Média (configs faltando) |
-| Cobertura de testes do core | 🔴 Baixa |
+| Tooling de qualidade | 🟢 Alta (`.bandit`/`.secrets.baseline`/`pyproject.toml` presentes) |
+| Cobertura de testes do core | 🟢 Alta (723 testes, suite hermética) |
 
-Ações em [[Planejamento de Melhorias]].
+Ações em [[Planejamento de Melhorias]] · Modernização em `PLANO_MODERNIZACAO.md`.

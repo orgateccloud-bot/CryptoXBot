@@ -23,8 +23,8 @@ Pipeline de Machine Learning e geração de sinal. **ML real = XGBoost + sklearn
 
 ## `ml_filtro.py` — XGBoost (modelo principal) 🟡 Média
 - **API:** `prever(symbol)`, `treinar(intervalo, symbol)`, `extrair_features(...)` (11 features).
-- **Lib real:** `xgboost.XGBClassifier`. **Persistência:** `data/modelo_xgb_{symbol}.pkl` (+ fallback `modelo_xgb.pkl`).
-- **Riscos:** `requests.get` com timeout 8s **sem retry** (`ml_filtro.py:207`); split sem shuffle (correto p/ série, mas favorece padrões recentes).
+- **Lib real:** `xgboost.XGBClassifier`. **Persistência:** `data/modelo_xgb_{symbol}.pkl` (+ fallback `modelo_xgb.pkl`), salvo **atomicamente** (`tmp` + `os.replace` — crash no retreino não corrompe o modelo).
+- **Riscos:** split sem shuffle (correto p/ série, mas favorece padrões recentes); K-fold padrão ainda vaza futuro em série temporal (ver P0-1 em `PLANO_MODERNIZACAO.md`).
 
 ## `lstm_modelo.py` — MLP sequencial 🟡 Média
 - **Lib real:** `sklearn.neural_network.MLPClassifier` + `StandardScaler` (**não é LSTM**).

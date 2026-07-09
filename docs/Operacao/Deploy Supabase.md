@@ -4,14 +4,14 @@ tags: [operacao, deploy, supabase, banco]
 
 # 🐘 Deploy — Supabase (Postgres gerenciado)
 
-> Voltar: [[00 - Home]] · Relacionado: [[Deploy Railway]] · [[Variaveis de Ambiente]] · [[Dados e Infra]]
+> Voltar: [[00 - Home]] · Relacionado: [[Deploy VPS]] · [[Variaveis de Ambiente]] · [[Dados e Infra]]
 
 O Supabase é o **backend de produção** do banco (Postgres). O `database.py` usa
 Postgres automaticamente quando `DATABASE_URL` está setado e
 `DATABASE_BACKEND ∈ {postgres, postgresql, supabase}`.
 
 ## 1. Criar o projeto Supabase
-1. https://supabase.com → **New project** (escolha região próxima da do Railway p/ baixa latência).
+1. https://supabase.com → **New project** (escolha região próxima do host do bot — PC/VPS — p/ baixa latência).
 2. Defina a senha do banco (guarde — vai na connection string).
 
 ## 2. Aplicar o schema
@@ -36,7 +36,7 @@ pooler** (porta 6543) para apps com muitas conexões curtas:
 ```
 postgresql://postgres.<ref>:<senha>@aws-0-<region>.pooler.supabase.com:6543/postgres
 ```
-Esse valor vai em `DATABASE_URL` (no Railway). Defina também `DATABASE_BACKEND=postgres`.
+Esse valor vai em `DATABASE_URL` (no `.env` do serviço). Defina também `DATABASE_BACKEND=postgres`.
 
 ## 4. (Opcional) Migrar dados locais SQLite → Supabase
 Use o migrador idempotente:
@@ -54,7 +54,9 @@ DATABASE_BACKEND=postgres DATABASE_URL="..." python -c "import database; databas
 ```
 Deve imprimir backend `postgres` e `healthcheck: True`.
 
-## ⚠️ Pendências conhecidas (ver [[Planejamento de Melhorias]])
-- `logger.py` ainda escreve **só em SQLite** → suas tabelas de log não vão para o Supabase.
-- `database.fechar_pool()` não é chamado no shutdown (conexões podem vazar em restart).
-- Pooler de transação não suporta certas features de sessão; se houver erro, use o **Session pooler** (5432) ou Direct connection.
+## Notas de operação
+- ✅ `logger.py` é **multi-backend** e persiste no Supabase em produção (fim do
+  split-brain — validado em Postgres real).
+- ✅ `database.fechar_pool()` é chamado no shutdown gracioso (não vaza conexões no
+  restart do serviço).
+- ⚠️ Pooler de transação não suporta certas features de sessão; se houver erro, use o **Session pooler** (5432) ou Direct connection.

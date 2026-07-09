@@ -8,8 +8,13 @@ tags: [arquitetura]
 
 ## Princípio
 Arquitetura **síncrona com threads** (uma thread por par + uma para WebSocket +
-uma para retreino semanal). A alternativa async ("fase 2") foi **aposentada** em
-`_legado/` (ver `_legado/LEIA-ME.md`) — hoje existe **uma única arquitetura**.
+uma para retreino semanal). A alternativa async ("fase 2") foi **aposentada e
+removida do repo** (o histórico git preserva) — hoje existe **uma única
+arquitetura**.
+
+Mercado: **Binance Spot** (execução via `/api/v3/order`). Futures
+(`fapi.binance.com`) é lido **apenas** para funding rate / open interest como
+sentimento — não é o mercado de execução.
 
 ## Diagrama
 
@@ -19,7 +24,7 @@ flowchart TD
         MAIN[main.py — orquestrador<br/>threads: WS + loop/par + retreino]
     end
     subgraph TEMPO_REAL[Dados em tempo real]
-        WS[WebSocket Binance Futures<br/>aggTrade → CVD BTC]
+        WS[WebSocket Binance Spot<br/>aggTrade → CVD BTC]
     end
     subgraph SINAL[Geração de sinal por par]
         OTM[estrategias/otimizada.py<br/>8 filtros + MTF + VWAP]
@@ -60,7 +65,7 @@ flowchart TD
 - **Sinal / ML** → [[ML e Sinais]]
 - **Persistência / observabilidade** → [[Dados e Infra]]
 - **Validação histórica** → [[Estrategias e Backtesting]]
-- **Operação** → [[Deploy Supabase]], [[Deploy Railway]]
+- **Operação** → [[Deploy Supabase]], [[Deploy VPS]]
 
 ## Decisões arquiteturais relevantes
 1. **Long-only** hoje: a estratégia gera sinais de VENDA, mas o `executor` só
@@ -69,4 +74,6 @@ flowchart TD
    Postgres/Supabase em produção) — ver [[Dados e Infra]].
 3. **Paper trading é o padrão** (`DRY_RUN=true`); ordens reais exigem
    `ALLOW_REAL_TRADING=true` (defesa em profundidade).
-4. **Migração de deploy** GCP (legado) → **Railway + Supabase** (atual).
+4. **Deploy como serviço 24/7**: Windows NSSM (PC) ou systemd na VPS
+   (`deploy/`) + Supabase. Docker/Railway/GCP foram removidos do repo
+   (ver [[Deploy VPS]]).

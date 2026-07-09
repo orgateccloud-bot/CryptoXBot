@@ -23,11 +23,12 @@ docs/
 │   └── Estrategias e Backtesting.md
 ├── Operacao/
 │   ├── Deploy Supabase.md
-│   ├── Deploy Railway.md
+│   ├── Deploy VPS.md
 │   └── Variaveis de Ambiente.md
 ├── Planejamento de Melhorias.md
 └── Pontuacoes do Projeto.md
 ```
 
-> Gerado em 2026-06-20 a partir da análise da branch `chore/aposentar-cluster-async`
-> (estado pós-aposentadoria do cluster async — ver `_legado/LEIA-ME.md`).
+> Atualizado em 2026-07-09 a partir da análise da branch `chore/aposentar-cluster-async`
+> (estado atual: mercado Spot, serviço 24/7 NSSM/systemd, 723 testes, hardening de
+> segurança/confiabilidade concluído).

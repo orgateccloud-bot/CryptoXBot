@@ -1,17 +1,22 @@
 ---
 tags: [moc, home]
-atualizado: 2026-06-20
+atualizado: 2026-07-09
 branch: chore/aposentar-cluster-async
 ---
 
 # 🤖 BinanceXBot — Mapa de Conteúdo (MOC)
 
-Bot de trading algorítmico para Binance Futures, **long-only**, com estratégia
-multi-filtro + ensemble de ML, gestão de risco (Kelly + circuit breaker) e deploy
-em **Railway + Supabase**.
+Bot de trading algorítmico para Binance **Spot** (execução via `/api/v3/order`),
+**long-only**, com estratégia multi-filtro + ensemble de ML, gestão de risco
+(Kelly + circuit breaker) e deploy como **serviço 24/7 (Windows NSSM · VPS
+systemd) + Supabase**. Futures (`fapi.binance.com`) é lido **apenas** para
+funding rate / open interest como sentimento — não é o mercado de execução.
 
-> **Estado atual:** Beta maduro · pronto para **paper trading** · `import main` limpo · `pytest` verde (**599 passed**, 7 skipped).
-> **Nota de maturidade global: 🟢 8.2/10** — ver [[Pontuacoes do Projeto]].
+> **Estado atual:** Beta maduro · paper trading 24/7 em serviço · hardening de
+> segurança/confiabilidade concluído · `import main` limpo · `pytest` verde
+> (**723 passed**, 7 skipped).
+> **Nota de maturidade global: 🟢 9.2/10** — ver [[Pontuacoes do Projeto]].
+> **Roadmap de modernização:** `PLANO_MODERNIZACAO.md` (raiz) — P0–P3.
 
 ## 🗺️ Navegação
 
@@ -27,7 +32,7 @@ em **Railway + Supabase**.
 
 ### Operação
 - [[Deploy Supabase]] — banco Postgres gerenciado (schema + migração)
-- [[Deploy Railway]] — worker + dashboard
+- [[Deploy VPS]] — serviço 24/7 (Windows NSSM · VPS systemd) + Caddy
 - [[Variaveis de Ambiente]] — referência completa de env vars
 
 ### Gestão
@@ -38,15 +43,20 @@ em **Railway + Supabase**.
 
 | Dimensão | Nota | Destaque |
 |---|---|---|
-| Testes | 🟢 9 | **595 testes**; indicadores 100%, regime 99%, score 96%, otimizada 93% |
+| Testes | 🟢 9 | **723 testes**; indicadores 100%, regime 99%, score 96%, otimizada 93% |
 | Executabilidade | 🟢 9 | clone→run OK + smoke test no CI |
 | Gestão de risco | 🟢 9 | Kelly + circuit breaker + drawdown; trailing stop testado |
-| Arquitetura | 🟢 8 | cluster async aposentado; `indicadores.py` desduplicado |
+| Confiabilidade de execução | 🟢 9 | stop loss NA exchange + crash recovery de posição + API robusta (retry/idempotência) |
+| Arquitetura | 🟢 9 | cluster async aposentado; `indicadores.py` desduplicado |
 | Documentação | 🟢 8 | vault Obsidian + deploy guides |
-| Segurança | 🟢 8 | SECRET_KEY endurecido; pre-commit funcional |
-| Deploy/Infra | 🟢 8 | Supabase/Railway prontos; backend Postgres validado |
-| Observabilidade | 🟢 8 | logger persiste no Supabase (sem split-brain) |
-| ML / Sinais | 🟡 7 | XGBoost+MLP+FSRS; ml_filtro/regime testados |
-| Qualidade de código | 🟡 7 | indicadores desduplicado + bugs corrigidos |
+| Segurança | 🟢 9 | SECRET_KEY endurecido; dashboard bind local + token + CSP + rate limit; libs vendorizadas |
+| Deploy/Infra | 🟢 9 | serviço 24/7 (NSSM/systemd) + Supabase; Caddy p/ HTTPS |
+| Observabilidade | 🟢 9 | `/health`, `/ready` (watchdog WS), `/metrics`; logger persiste no Supabase |
+| ML / Sinais | 🟢 9 | XGBoost+MLP+FSRS; ml_filtro/regime/ensemble testados |
+| Qualidade de código | 🟢 9 | indicadores desduplicado + bugs corrigidos + black aplicado |
 
-> 🎯 **8.2/10.** Validação contra Postgres real corrigiu 2 bugs de produção (pool `open=True`, split-brain do logger). Próximos focos para **8.5+**: revalidação walk-forward do ML, testes de backtesting, canonizar deploy Railway.
+> 🎯 **9.2/10.** Hardening recente concluído: stop loss na exchange, crash
+> recovery de posição, API robusta (recvWindow/sync de relógio/retry/idempotência),
+> dashboard seguro e bug do CVD corrigido (`data["a"]` do @aggTrade). Próximos
+> focos de modernização (validação de ML, execução maker-first, sizing por
+> volatilidade) estão em `PLANO_MODERNIZACAO.md`.

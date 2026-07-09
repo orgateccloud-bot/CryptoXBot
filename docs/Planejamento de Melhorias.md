@@ -9,20 +9,24 @@ atualizado: 2026-06-20
 
 Legenda esforço: ⏱️ pequeno (<1h) · ⏱️⏱️ médio (meio dia) · ⏱️⏱️⏱️ grande.
 
-## ✅ Já concluído nesta sessão
+## ✅ Já concluído
 - Showstoppers de clone limpo (`data/cvd_calculator`, `_score_regime`) — PR de fixes em `main`.
 - Coerência de trading: VENDA ignorada explicitamente; voto de regime com 1D; lock no Executor; validação de resposta da Binance + fix do `fechar_posicao`.
 - Whitelist SQL em `logger.exportar_csv`; docs (CLAUDE.md) alinhadas.
-- Aposentadoria do cluster async → `_legado/` ([[Dados e Infra|PR #1]]).
+- Aposentadoria do cluster async (removido do repo; histórico git preserva).
 - `requirements.txt` limpo (5 deps órfãs removidas; `psycopg` mantido p/ Supabase).
-- Vault Obsidian + estrutura de deploy Supabase/Railway.
+- Vault Obsidian + estrutura de deploy Supabase + serviço 24/7 (NSSM/systemd).
 - ✅ **P0-1 testes do core** — `test_executor.py` (43), `test_risco.py` (74), `test_score.py` (136), `test_executor_monitor.py` (28); **323 passed**; risco 90% / score 75% / executor 82%.
 - ✅ **Trailing stop testado** — `_monitorar` refatorado p/ função pura `avaliar_tick_monitor`, coberto + **oráculo de equivalência** (8.160 casos) provando preservação de comportamento.
 - ✅ **3º showstopper corrigido** — `otimizada.analisar()` quebrava todo ciclo (`volume_relativo` IndexError + `bollinger` NameError em `indicadores.py`). Corrigido + `indicadores.py` desduplicado (100% cobertura) + regressão E2E (`otimizada` 93%).
-- ✅ **Testes ML/sinais** — `ml_filtro` (65%), `regime` (99%), `suporte` (69%), `indicadores` (100%); **595 testes** no total.
-- ✅ **Resiliência do `logger`** — `LoggerBot` agora delega `.warning/.error/.critical` (corrige AttributeError nos erros do WebSocket).
+- ✅ **Testes ML/sinais** — `ml_filtro` (65%), `regime` (99%), `suporte` (69%), `indicadores` (100%). Suite atual: **723 passed, 7 skipped**.
+- ✅ **Resiliência do `logger`** — `LoggerBot` agora delega `.warning/.error/.critical` (corrige AttributeError nos erros do WebSocket); multi-backend (validado em Postgres real).
 - ✅ **Hygiene de segurança** — `SECRET_KEY` endurecido em produção; `.secrets.baseline` + `.bandit` criados (pre-commit funcional); `requirements-dev.txt`.
-- ✅ **Shutdown limpo** — `database.fechar_pool()` no `finally` + handler de SIGTERM (Railway).
+- ✅ **Shutdown gracioso multi-sinal** — `database.fechar_pool()` no `finally` + handler de SIGTERM/SIGINT/SIGBREAK.
+- ✅ **Hardening de execução** — stop loss NA exchange (STOP_LOSS_LIMIT); crash recovery de posição; API robusta (recvWindow, sync de relógio, retry/backoff, newClientOrderId idempotente); precisão via `exchangeInfo` dinâmico.
+- ✅ **Dashboard seguro** — bind `127.0.0.1`, `DASHBOARD_TOKEN`, CSP, rate limit, `esc()` anti-XSS, libs vendorizadas em `static/vendor/`.
+- ✅ **Bug do CVD corrigido** — parser do `@aggTrade` usa `data["a"]` (aggregate trade id), não `data["t"]` (que zerava o CVD).
+- ✅ **Deploy migrado** — serviço 24/7 (Windows NSSM · VPS systemd `deploy/`); Docker/Railway/GCP removidos do repo.
 
 ## ✅ P0 — concluído
 1. ✅ ~~Testes do core + trailing stop + estratégia/ML~~ (otimizada 93%, indicadores 100%, regime 99%, score 96%).
@@ -35,7 +39,7 @@ Legenda esforço: ⏱️ pequeno (<1h) · ⏱️⏱️ médio (meio dia) · ⏱�
 6. **Retry/backoff** nas chamadas de `ml_filtro`/`lstm_modelo`/`regime` (timeout 8s sem retry). ⏱️
 7. **Persistir estado do `ScaleIn`** — hoje some no restart, deixando parcelas inconsistentes. ⏱️⏱️
 8. **Lock no JSON do FSRS** (`fsrs_padroes.json`) — evitar corrupção concorrente. ⏱️
-9. **Canonizar deploy Railway** — aposentar/atualizar `deploy.yml` (GCP) e `docker-compose.prod.yml` (`@Zeta`). ⏱️⏱️
+9. ✅ ~~Canonizar deploy~~ — **feito**: serviço 24/7 (Windows NSSM · VPS systemd em `deploy/`); Docker/Railway/GCP removidos do repo (`@Zeta`).
 
 ## 🟢 P2 — Evolução
 10. **Revalidação ML walk-forward** — overfitting do MLP (~264-517 features) e scaler drift (`@Sigma`). ⏱️⏱️⏱️
@@ -50,3 +54,7 @@ P0 (1-4) → suíte cobre o core + Supabase íntegro   ← pré-requisito p/ cap
 P1 (5-9) → robustez de cálculo, rede e deploy
 P2 (10-14) → evolução de modelo e estratégia
 ```
+
+> 🚀 **Modernização de estado-da-arte** (validação de ML com purged CV, execução
+> maker-first `LIMIT_MAKER`, vol targeting, meta-labeling, OBI): roadmap P0–P3 em
+> `PLANO_MODERNIZACAO.md` (raiz do repo).

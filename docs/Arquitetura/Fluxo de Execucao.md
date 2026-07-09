@@ -15,8 +15,10 @@ tags: [arquitetura, fluxo]
    `relatorio_completo()` (analise_mercado), agenda **retreino semanal**
    (domingo 02h) em thread daemon.
 3. **Threads** — uma `loop_par(par)` por par de `PARES_ATIVOS`
-   (`BTCUSDT, ETHUSDT, SOLUSDT`) + `websocket_handler()` async (CVD BTC, com
-   backoff exponencial + dedupe por `trade_id`).
+   (`BTCUSDT, ETHUSDT, SOLUSDT`) + `websocket_handler()` async lendo o
+   `@aggTrade` do **mercado spot** (CVD BTC, com backoff exponencial + dedupe por
+   `aggregate trade id`). O parser usa `data["a"]` — **não `data["t"]`** (bug
+   histórico que zerava o CVD).
 4. **Loop de sinal por par** (a cada N min) — snapshot do CVD →
    `ensemble.prever()` → `estrategias.otimizada.analisar()` → `score.calcular()`
    → decisão `OPERAR_CHEIO | OPERAR_REDUZIDO | AGUARDAR`.
@@ -26,7 +28,8 @@ tags: [arquitetura, fluxo]
 6. **Monitor** (thread por posição em `executor._monitorar`, a cada 10s) — stop
    loss, take-profit parcial (50%), trailing stop (após +1%), take-profit final.
 7. **Persistência contínua** — trades, snapshots, CVD e eventos em `database`;
-   alertas via `telegram_bot`; `/health` para probes do Railway.
+   alertas via `telegram_bot`; `/health` (sempre 200) e `/ready` (watchdog do WS:
+   `degraded` se sem mensagem >120s) para o serviço (NSSM/systemd).
 
 ## Pontos de atenção do fluxo
 - `loop_par` usa `time.sleep(intervalo*60)` síncrono — um par lento atrasa só a
