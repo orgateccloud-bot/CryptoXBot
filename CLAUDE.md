@@ -156,6 +156,10 @@ comando (o serviço tem `--simulacao` fixo como trava extra; trocar por `--real`
 + restart). `main.py` faz fail-fast no boot se faltar API_KEY/SECRET ou ENV.
 
 Proteções de execução (`executor.py`, todas só em modo real):
+- **Entrada maker-first (P0-2)**: `LIMIT_MAKER` (post-only) no melhor bid — sempre
+  fee de maker, nunca cruza o spread; re-quota se não preencher (`MAKER_*` no
+  `.env`); fills parciais acumulados (posição usa o qty realmente executado).
+  `MAKER_FIRST=false` volta ao LIMIT cruzando.
 - **Stop loss NA EXCHANGE**: `STOP_LOSS_LIMIT` colocado na Binance após o fill
   (sobrevive a crash do bot); trailing/breakeven via cancel-then-replace com
   restauração do nível antigo se o novo falhar.

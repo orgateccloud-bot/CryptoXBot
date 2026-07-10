@@ -26,7 +26,14 @@ import requests
 
 import database
 import risco as gestao_risco
-from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
+from config.runtime_settings import (
+    API_KEY,
+    API_SECRET,
+    MAKER_FIRST,
+    MAKER_MAX_REQUOTES,
+    MAKER_TIMEOUT_S,
+    REST_BASE_URL,
+)
 
 # P0-1: endpoint unico vindo do config (spot por padrao) — nada de hardcode
 # divergente entre modulos (sinal e execucao no MESMO mercado).
@@ -79,6 +86,9 @@ def _carregar_precisao(symbol: str) -> dict:
     _precisao_cache[symbol] = prec
     return prec
 
+
+# Estados terminais de uma ordem na Binance (nao muda mais sozinha)
+_STATUS_TERMINAL = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
 
 TRAILING_ATIVACAO = 0.01  # ativa trailing após 1% de ganho
 TRAILING_DISTANCIA = 0.008  # stop segue 0.8% abaixo do pico
@@ -166,6 +176,11 @@ class Executor:
         self._step_dec = Decimal(prec.get("step_size", str(prec["qty_step"])))
         self._tick_dec = Decimal(prec.get("tick_size", "0.01"))
         self._offset_ms = 0
+        # P0-2: parametros da execucao maker-first (instancia p/ serem ajustaveis em teste)
+        self._maker_first = MAKER_FIRST
+        self._maker_timeout_s = MAKER_TIMEOUT_S
+        self._maker_max_requotes = MAKER_MAX_REQUOTES
+        self._maker_poll_s = 2.0
         if not simulacao:
             self._sincronizar_relogio()  # P0-4: evita -1021 por clock drift
         modo = "SIMULACAO (Paper Trading)" if simulacao else "REAL (Capital Real)"
@@ -262,10 +277,28 @@ class Executor:
 
     # ── Enviar ordem ───────────────────────────────────────────
 
+    def _melhor_bid(self):
+        """P0-2: melhor bid do book (topo da fila de compra). Uma ordem BUY
+        colocada AQUI descansa como maker (nao cruza o ask)."""
+        try:
+            r = requests.get(
+                f"{BASE_URL}/api/v3/ticker/bookTicker", params={"symbol": self.symbol}, timeout=5
+            )
+            return float(r.json()["bidPrice"])
+        except Exception:
+            return 0.0
+
+    def _status_ordem(self, order_id):
+        """Consulta o estado de uma ordem por orderId. None se falhar."""
+        data = self._request_assinado(
+            "GET", "/api/v3/order", {"symbol": self.symbol, "orderId": order_id}, tentativas=2
+        )
+        return data if isinstance(data, dict) and "status" in data else None
+
     def _enviar_ordem(self, lado, qty, preco=None, tipo="LIMIT"):
         """
         lado:  BUY ou SELL
-        tipo:  LIMIT ou MARKET
+        tipo:  LIMIT | MARKET | LIMIT_MAKER
         """
         qty = self._arredondar_qty(qty)
         if qty < self._min_qty:
@@ -300,6 +333,10 @@ class Executor:
         if tipo == "LIMIT" and preco:
             params["price"] = self._arredondar_preco(preco)
             params["timeInForce"] = "GTC"
+        elif tipo == "LIMIT_MAKER" and preco:
+            # post-only: a Binance REJEITA (-2010) se a ordem cruzaria o book.
+            # LIMIT_MAKER nao aceita timeInForce.
+            params["price"] = self._arredondar_preco(preco)
 
         data = self._request_assinado("POST", "/api/v3/order", params)
 
@@ -374,6 +411,82 @@ class Executor:
             novo_id = self._colocar_stop_exchange(qty, stop_antigo)
         return novo_id
 
+    # ── Entrada maker-first / post-only (P0-2) ─────────────────
+    # Em vez de cruzar o spread (LIMIT acima do ask = taker), coloca LIMIT_MAKER
+    # no melhor bid: descansa no book, sempre paga fee de MAKER e nao sofre
+    # slippage de cruzamento. Se nao preencher, cancela e re-quota no bid novo.
+
+    def _aguardar_fill(self, order_id, resp_inicial):
+        """Poll do status até terminal (FILLED/CANCELED/...) ou timeout.
+        Checa ao menos uma vez antes de olhar o deadline."""
+        status = resp_inicial
+        deadline = time.time() + self._maker_timeout_s
+        while True:
+            st = self._status_ordem(order_id)
+            if st:
+                status = st
+            if status.get("status") in _STATUS_TERMINAL:
+                return status
+            if time.time() >= deadline:
+                return status
+            time.sleep(self._maker_poll_s)
+
+    def _entrar_maker(self, qty_alvo):
+        """Entrada post-only com re-quote. Preenchimentos parciais são ACUMULADOS
+        (a posição usa o qty realmente executado, não o pedido).
+
+        Retorna {"status":"FILLED","executedQty","price","maker":True} ou
+        {"erro": ..., "executedQty": <parcial>}.
+        """
+        restante = self._arredondar_qty(qty_alvo)
+        preenchido = 0.0
+        custo = 0.0
+
+        for tentativa in range(self._maker_max_requotes + 1):
+            if restante < self._min_qty:
+                break
+            bid = self._melhor_bid()
+            if bid <= 0:
+                return {"erro": "book indisponivel (bid=0)", "executedQty": preenchido}
+
+            resp = self._enviar_ordem("BUY", restante, bid, "LIMIT_MAKER")
+            if "orderId" not in resp:
+                # -2010 = cruzaria o book (bid subiu entre ler e enviar) -> re-quota
+                print(f"[EXEC] LIMIT_MAKER recusado ({tentativa+1}): {resp.get('erro')}")
+                continue
+
+            order_id = resp["orderId"]
+            status = self._aguardar_fill(order_id, resp)
+            st = status.get("status")
+
+            if st != "FILLED":
+                self._cancelar_ordem_exchange(order_id)  # libera o restante
+
+            exec_qty = float(status.get("executedQty", 0) or 0)
+            if exec_qty > 0:
+                cqq = float(status.get("cummulativeQuoteQty", 0) or 0)
+                custo += cqq if cqq > 0 else exec_qty * bid
+                preenchido += exec_qty
+                restante = self._arredondar_qty(qty_alvo - preenchido)
+
+            if st == "FILLED" or restante < self._min_qty:
+                break
+            print(
+                f"[EXEC] Maker sem fill em {self._maker_timeout_s}s — "
+                f"re-quote {tentativa+1}/{self._maker_max_requotes}"
+            )
+
+        if preenchido >= self._min_qty:
+            preco_medio = custo / preenchido
+            print(f"[EXEC] Entrada MAKER: {preenchido} @ ${preco_medio:,.2f} (fee de maker)")
+            return {
+                "status": "FILLED",
+                "executedQty": preenchido,
+                "price": preco_medio,
+                "maker": True,
+            }
+        return {"erro": "maker-first nao preencheu apos re-quotes", "executedQty": preenchido}
+
     # ── Abrir posição LONG ─────────────────────────────────────
 
     def abrir_long(self, preco_entrada, tamanho_btc, stop_loss, take_profit):
@@ -389,15 +502,27 @@ class Executor:
                 print(f"[EXEC] Trade bloqueado pelo risco: {validacao['motivo']}")
                 return False
 
-        # Usar preço limite ligeiramente acima (garante execução)
-        preco_limit = self._arredondar_preco(preco_entrada * 1.001)
-        resp = self._enviar_ordem("BUY", tamanho_btc, preco_limit, "LIMIT")
+        # P0-2: entrada MAKER-FIRST (post-only) — nunca cruza o spread, sempre
+        # paga fee de maker. Fallback p/ LIMIT cruzando se MAKER_FIRST=false.
+        if not self.simulacao and self._maker_first:
+            resp = self._entrar_maker(tamanho_btc)
+        else:
+            # Limite ligeiramente acima (cruza o book = taker, garante execução)
+            preco_limit = self._arredondar_preco(preco_entrada * 1.001)
+            resp = self._enviar_ordem("BUY", tamanho_btc, preco_limit, "LIMIT")
 
         if resp.get("status") != "FILLED" and not self.simulacao:
             print(f"[EXEC] Ordem nao preenchida: {resp}")
             return False
 
         preco_exec = float(resp.get("price", preco_entrada))
+
+        # Maker pode preencher PARCIAL: posição e stop devem usar o qty REAL
+        # executado, senão o stop cobriria mais do que se comprou.
+        if not self.simulacao:
+            exec_qty = float(resp.get("executedQty", 0) or 0)
+            if exec_qty > 0:
+                tamanho_btc = exec_qty
 
         # P0-2: protecao primaria NA EXCHANGE (sobrevive a crash do bot)
         stop_order_id = self._colocar_stop_exchange(tamanho_btc, stop_loss)

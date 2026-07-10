@@ -441,7 +441,12 @@ def test_enviar_ordem_orderid_unico_prefixo_sim(ex_sim):
 
 
 def _novo_executor_real(monkeypatch):
+    # Hermético: sem sync de relógio (rede). maker_first=False para exercitar o
+    # caminho LIMIT de fallback — o caminho maker-first (P0-2) tem suíte própria
+    # em tests/test_executor_maker.py.
+    monkeypatch.setattr(Executor, "_sincronizar_relogio", lambda self: None)
     ex = Executor(simulacao=False, symbol="BTCUSDT")
+    ex._maker_first = False
     ex._monitorar = lambda: None
     ex.get_preco = lambda: 50000.0
     return ex

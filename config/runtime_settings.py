@@ -115,3 +115,10 @@ if APP_ENV == "production" and CORS_ORIGINS == "*":
 DRY_RUN = _env_bool("DRY_RUN", True)
 ALLOW_REAL_TRADING = _env_bool("ALLOW_REAL_TRADING", False)
 ENABLE_HEALTH_SERVER = _env_bool("ENABLE_HEALTH_SERVER", bool(os.getenv("PORT")))
+
+# P0-2: execução maker-first (post-only). Entradas viram LIMIT_MAKER no melhor
+# bid — sempre paga fee de maker, nunca cruza o spread. Se não preencher em
+# MAKER_TIMEOUT_S, cancela e re-quota no novo bid (até MAKER_MAX_REQUOTES).
+MAKER_FIRST = _env_bool("MAKER_FIRST", True)
+MAKER_TIMEOUT_S = _env_int("MAKER_TIMEOUT_S", 20)
+MAKER_MAX_REQUOTES = _env_int("MAKER_MAX_REQUOTES", 3)
