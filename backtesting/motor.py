@@ -26,6 +26,13 @@ import numpy as np
 
 import indicadores as ind
 import score as score_mod
+from backtesting.metricas import (
+    calmar_ratio,
+    deflated_sharpe_ratio,
+    profit_factor,
+    sharpe_ratio,
+    sortino_ratio,
+)
 
 DB_PATH = "data/btc_data.db"
 SYMBOL = "BTCUSDT"
@@ -243,7 +250,7 @@ def calcular_metricas(operacoes, capital_inicial, capital_final, intervalo):
     win_rate = len(ganhos) / total * 100
     lucro_total = sum(o["resultado"] for o in ganhos)
     perda_total = abs(sum(o["resultado"] for o in perdas))
-    profit_factor = lucro_total / perda_total if perda_total else 999.0
+    pf = profit_factor(lucro_total, perda_total)
     retorno_total = (capital_final - capital_inicial) / capital_inicial * 100
 
     # Max Drawdown
@@ -260,14 +267,12 @@ def calcular_metricas(operacoes, capital_inicial, capital_final, intervalo):
 
     # Sharpe Ratio (simplificado, risk-free = 0)
     retornos = [o["resultado_pct"] for o in operacoes]
-    if len(retornos) > 1:
-        import statistics
+    sharpe = sharpe_ratio(retornos)
 
-        media_ret = statistics.mean(retornos)
-        std_ret = statistics.stdev(retornos)
-        sharpe = (media_ret / std_ret) * (252**0.5) if std_ret else 0
-    else:
-        sharpe = 0
+    # Periodo do backtest (para Calmar) — mesmo formato de datetime ja usado
+    dt_ini = datetime.strptime(operacoes[0]["entrada_dt"], "%d/%m/%Y %H:%M")
+    dt_fim = datetime.strptime(operacoes[-1]["saida_dt"], "%d/%m/%Y %H:%M")
+    dias_periodo = max((dt_fim - dt_ini).total_seconds() / 86400, 0)
 
     # Expectância (valor esperado por trade em %)
     media_ganho = sum(o["resultado_pct"] for o in ganhos) / len(ganhos) if ganhos else 0
@@ -280,12 +285,15 @@ def calcular_metricas(operacoes, capital_inicial, capital_final, intervalo):
         "win_rate_%": round(win_rate, 1),
         "trades_ganhos": len(ganhos),
         "trades_perdas": len(perdas),
-        "profit_factor": round(profit_factor, 2),
+        "profit_factor": round(pf, 2),
         "retorno_total_%": round(retorno_total, 2),
         "capital_inicial": capital_inicial,
         "capital_final": round(capital_final, 2),
         "max_drawdown_%": round(max_dd, 2),
         "sharpe_ratio": round(sharpe, 2),
+        "sortino_ratio": round(sortino_ratio(retornos), 2),
+        "calmar_ratio": round(calmar_ratio(retorno_total, max(max_dd, 0.0), dias_periodo), 2),
+        "dsr": round(deflated_sharpe_ratio(retornos, None), 4),
         "expectancia_%": round(expectancia, 2),
         "media_ganho_%": round(media_ganho, 2),
         "media_perda_%": round(media_perda, 2),
@@ -327,6 +335,16 @@ def imprimir_relatorio(r):
     print(f"  Expectancia:   {r['expectancia_%']:6.2f}%   {nota(r['expectancia_%'], 0.1, 0.5)}")
     print(
         f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   {nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}"
+    )
+    print(
+        f"  Sortino Ratio: {r.get('sortino_ratio', 0):6.2f}    {nota(r.get('sortino_ratio', 0), 1.5, 2.0)}"
+    )
+    print(
+        f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}    {nota(r.get('calmar_ratio', 0), 1.0, 2.0)}"
+    )
+    print(
+        f"  DSR (PSR, sem correção de multiple-testing — 1 único backtest): "
+        f"{r.get('dsr', 0):6.4f}    {nota(r.get('dsr', 0), 0.90, 0.95)}"
     )
     print(f"  Retorno Total: {r['retorno_total_%']:6.2f}%")
     print()

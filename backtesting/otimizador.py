@@ -18,12 +18,12 @@ Uso:
 
 import itertools
 import os
-import statistics
 import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
+from backtesting import metricas
 from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, _score_backtest, carregar
 from ml_filtro import extrair_features
 
@@ -185,11 +185,7 @@ def _rodar_com_params(
 
     wrate = ganhos / total * 100
     retorno = (capital - capital_inicial) / capital_inicial * 100
-    sharpe = 0
-    if len(rets) > 1:
-        std = statistics.stdev(rets)
-        if std > 0:
-            sharpe = (statistics.mean(rets) / std) * (252**0.5)
+    sharpe = metricas.sharpe_ratio(rets)
 
     return {
         "params": params,
@@ -199,6 +195,7 @@ def _rodar_com_params(
         "max_dd": round(max_dd, 2),
         "sharpe": round(sharpe, 2),
         "capital_final": round(capital, 2),
+        "retornos_pct": rets,
     }
 
 
@@ -355,6 +352,11 @@ def imprimir_top(resultados, top_n=10, ordenar_por="sharpe"):
 
     # Melhor parametro
     best = resultados[0]
+
+    n_trials = len(resultados)
+    sharpes_trials_pt = [r["sharpe"] / (252**0.5) for r in resultados]  # DESANUALIZAR
+    dsr_best = metricas.deflated_sharpe_ratio(best["retornos_pct"], sharpes_trials_pt)
+
     print(f"\n  MELHOR CONFIGURACAO:")
     for k, v in best["params"].items():
         if "pct" in k:
@@ -365,6 +367,8 @@ def imprimir_top(resultados, top_n=10, ordenar_por="sharpe"):
         f"    Resultado: {best['total']} trades, WR {best['win_rate']:.1f}%, "
         f"Ret {best['retorno']:.2f}%, DD {best['max_dd']:.2f}%, Sharpe {best['sharpe']:.2f}"
     )
+    print(f"  N trials válidos: {n_trials}")
+    print(f"  DSR (melhor resultado, corrigido p/ multiple-testing): {dsr_best:.4f}")
     print(f"{'='*80}")
 
     return resultados[:top_n]

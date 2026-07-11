@@ -11,6 +11,13 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
+from backtesting.metricas import (
+    calmar_ratio,
+    deflated_sharpe_ratio,
+    profit_factor,
+    sharpe_ratio,
+    sortino_ratio,
+)
 
 DB_PATH = "data/btc_data.db"
 SYMBOL = "BTCUSDT"
@@ -220,7 +227,7 @@ def rodar(intervalo_entrada="1h", intervalo_mtf="4h", capital_inicial=1000.0):
     wrate = len(ganhos) / total * 100
     lucro = sum(o["resultado"] for o in ganhos)
     perda = abs(sum(o["resultado"] for o in perdas))
-    pf = lucro / perda if perda else 999.0
+    pf = profit_factor(lucro, perda)
     retorno = (capital - capital_inicial) / capital_inicial * 100
 
     # Max Drawdown
@@ -236,14 +243,13 @@ def rodar(intervalo_entrada="1h", intervalo_mtf="4h", capital_inicial=1000.0):
             max_dd = dd
 
     # Sharpe
-    import statistics
-
     rets = [o["resultado_pct"] for o in operacoes]
-    sharpe = (
-        (statistics.mean(rets) / statistics.stdev(rets) * (252**0.5))
-        if len(rets) > 1 and statistics.stdev(rets) > 0
-        else 0
-    )
+    sharpe = sharpe_ratio(rets)
+
+    # Periodo do backtest (para Calmar) — mesmo formato de datetime ja usado
+    dt_ini = datetime.strptime(operacoes[0]["entrada_dt"], "%d/%m/%Y %H:%M")
+    dt_fim = datetime.strptime(operacoes[-1]["saida_dt"], "%d/%m/%Y %H:%M")
+    dias_periodo = max((dt_fim - dt_ini).total_seconds() / 86400, 0)
 
     mg = sum(o["resultado_pct"] for o in ganhos) / len(ganhos) if ganhos else 0
     mp = abs(sum(o["resultado_pct"] for o in perdas) / len(perdas)) if perdas else 0
@@ -261,6 +267,9 @@ def rodar(intervalo_entrada="1h", intervalo_mtf="4h", capital_inicial=1000.0):
         "capital_final": round(capital, 2),
         "max_drawdown_%": round(max_dd, 2),
         "sharpe_ratio": round(sharpe, 2),
+        "sortino_ratio": round(sortino_ratio(rets), 2),
+        "calmar_ratio": round(calmar_ratio(retorno, max(max_dd, 0.0), dias_periodo), 2),
+        "dsr": round(deflated_sharpe_ratio(rets, None), 4),
         "expectancia_%": round(exp, 2),
         "media_ganho_%": round(mg, 2),
         "media_perda_%": round(mp, 2),

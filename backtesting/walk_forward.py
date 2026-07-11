@@ -30,6 +30,13 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
+from backtesting.metricas import (
+    calmar_ratio,
+    deflated_sharpe_ratio,
+    profit_factor,
+    sharpe_ratio,
+    sortino_ratio,
+)
 from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx
 from ml_filtro import extrair_features
 
@@ -319,6 +326,9 @@ def walk_forward(
     ganhos = [o for o in todas_ops if o["resultado"] > 0]
     perdas = [o for o in todas_ops if o["resultado"] <= 0]
     wrate = len(ganhos) / total * 100
+    lucro = sum(o["resultado"] for o in ganhos)
+    perda = abs(sum(o["resultado"] for o in perdas))
+    pf = profit_factor(lucro, perda)
     retorno = (capital - capital_inicial) / capital_inicial * 100
 
     pico = capital_inicial
@@ -333,11 +343,12 @@ def walk_forward(
             max_dd = dd
 
     rets = [o["resultado_pct"] for o in todas_ops]
-    sharpe = 0
-    if len(rets) > 1:
-        std = statistics.stdev(rets)
-        if std > 0:
-            sharpe = (statistics.mean(rets) / std) * (252**0.5)
+    sharpe = sharpe_ratio(rets)
+
+    # Periodo do backtest (para Calmar) — mesmo formato de datetime ja usado
+    dt_ini = datetime.strptime(todas_ops[0]["entrada_dt"], "%d/%m/%Y %H:%M")
+    dt_fim = datetime.strptime(todas_ops[-1]["saida_dt"], "%d/%m/%Y %H:%M")
+    dias_periodo = max((dt_fim - dt_ini).total_seconds() / 86400, 0)
 
     mg = sum(o["resultado_pct"] for o in ganhos) / len(ganhos) if ganhos else 0
     mp = abs(sum(o["resultado_pct"] for o in perdas) / len(perdas)) if perdas else 0
@@ -352,11 +363,15 @@ def walk_forward(
         "win_rate_%": round(wrate, 1),
         "trades_ganhos": len(ganhos),
         "trades_perdas": len(perdas),
+        "profit_factor": round(pf, 2),
         "retorno_total_%": round(retorno, 2),
         "capital_inicial": capital_inicial,
         "capital_final": round(capital, 2),
         "max_drawdown_%": round(max_dd, 2),
         "sharpe_ratio": round(sharpe, 2),
+        "sortino_ratio": round(sortino_ratio(rets), 2),
+        "calmar_ratio": round(calmar_ratio(retorno, max(max_dd, 0.0), dias_periodo), 2),
+        "dsr": round(deflated_sharpe_ratio(rets, None), 4),
         "media_ganho_%": round(mg, 2),
         "media_perda_%": round(mp, 2),
         "janelas": janelas,
@@ -380,6 +395,11 @@ def imprimir_relatorio(r):
     print(f"  Win Rate:      {r['win_rate_%']:6.1f}%")
     print(f"  Sharpe Ratio:  {r['sharpe_ratio']:6.2f}")
     print(f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%")
+    print(f"  Sortino Ratio: {r.get('sortino_ratio', 0):6.2f}")
+    print(f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}")
+    print(
+        f"  DSR (PSR, sem correção de multiple-testing — 1 único backtest): {r.get('dsr', 0):6.4f}"
+    )
     print(f"  Retorno Total: {r['retorno_total_%']:6.2f}%")
     print(f"  Capital:       ${r['capital_inicial']:,.2f} → ${r['capital_final']:,.2f}")
     print()
