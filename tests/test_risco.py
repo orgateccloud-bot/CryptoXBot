@@ -701,3 +701,168 @@ class TestValidarTradeExtra:
         r2 = risco.validar_trade("COMPRA", 68000, 1000)
         assert r2["pode"] is False
         assert "bloqueado" in r2["motivo"].lower()
+
+
+# ══════════════════════════════════════════════════════════════
+# 13. fator_volatilidade()  — vol targeting (P0-3)
+# ══════════════════════════════════════════════════════════════
+
+
+class TestFatorVolatilidade:
+
+    def test_neutro_quando_none(self):
+        assert risco.fator_volatilidade(None) == 1.0
+
+    def test_neutro_quando_zero(self):
+        assert risco.fator_volatilidade(0.0) == 1.0
+
+    def test_neutro_quando_negativo(self):
+        assert risco.fator_volatilidade(-1.5) == 1.0
+
+    def test_vol_alta_reduz_multiplicador(self):
+        # atr_relativo=2 -> mult = 1/2 = 0.5
+        assert risco.fator_volatilidade(2.0) == 0.5
+
+    def test_vol_baixa_aumenta_multiplicador_ate_o_teto(self):
+        # atr_relativo=0.5 -> mult = 1/0.5 = 2.0 -> clamp 1.5 (teto exato)
+        assert risco.fator_volatilidade(0.5) == 1.5
+
+    def test_vol_muito_baixa_clampada_no_teto_nao_no_bruto(self):
+        # atr_relativo=0.1 -> mult bruto = 10.0 -> clampado a 1.5, nao 10.0
+        assert risco.fator_volatilidade(0.1) == 1.5
+
+    def test_vol_muito_alta_clampada_no_piso_nao_no_bruto(self):
+        # atr_relativo=10 -> mult bruto = 0.1 -> clampado a 0.5, nao 0.1
+        assert risco.fator_volatilidade(10.0) == 0.5
+
+    def test_resultado_arredondado_4_casas(self):
+        valor = risco.fator_volatilidade(1.3)
+        assert valor == round(valor, 4)
+
+
+# ══════════════════════════════════════════════════════════════
+# 14. calcular_tamanho() — vol targeting (P0-3)
+# ══════════════════════════════════════════════════════════════
+
+
+class TestCalcularTamanhoVolTargeting:
+
+    def test_atr_relativo_alto_reduz_tamanho_vs_sem_ele(self, monkeypatch):
+        # Kelly abaixo do teto (0.01 < 0.02) para o multiplicador ter efeito direto.
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.01)
+        sem = risco.calcular_tamanho(1000, 100, 90)
+        com = risco.calcular_tamanho(1000, 100, 90, atr_relativo=2.0)  # mult=0.5
+        assert com < sem
+        assert com == pytest.approx(sem * 0.5)
+
+    def test_atr_relativo_baixo_aumenta_tamanho_quando_kelly_abaixo_do_teto(self, monkeypatch):
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.01)
+        sem = risco.calcular_tamanho(1000, 100, 90)
+        com = risco.calcular_tamanho(1000, 100, 90, atr_relativo=0.5)  # mult=1.5
+        assert com > sem
+        assert com == pytest.approx(sem * 1.5)
+
+    def test_atr_relativo_baixo_nunca_excede_max_risco_com_kelly_no_teto(self, monkeypatch):
+        # TESTE MAIS IMPORTANTE DA TAREFA: Kelly bruto muito acima do teto
+        # (0.50) + vol muito baixa (atr_relativo=0.1, mult clampado a 1.5) —
+        # a fracao de capital efetivamente arriscada nao pode ultrapassar
+        # MAX_RISCO_POR_TRADE mesmo com o multiplicador no teto de 1.5x.
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.50)
+        capital, preco, stop = 1000, 100, 90
+        tam = risco.calcular_tamanho(capital, preco, stop, atr_relativo=0.1)
+        fracao_efetiva = (tam * abs(preco - stop)) / capital
+        assert fracao_efetiva <= risco.MAX_RISCO_POR_TRADE + 1e-9
+        assert fracao_efetiva == pytest.approx(risco.MAX_RISCO_POR_TRADE)
+
+    def test_fator_risco_explicito_ignora_atr_relativo(self):
+        # fator_risco explicito e um bypass intencional do chamador; vol
+        # targeting so se aplica ao caminho derivado do Kelly (fator_risco=None).
+        # Isso vale tanto para o calculo de risco quanto para o teto de 20%.
+        sem = risco.calcular_tamanho(1000, 100, 90, fator_risco=0.02)
+        com = risco.calcular_tamanho(1000, 100, 90, fator_risco=0.02, atr_relativo=2.0)
+        assert com == sem
+
+    def test_backward_compat_sem_atr_relativo_identico_ao_anterior(self, monkeypatch):
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.50)
+        assert risco.calcular_tamanho(1000, 100, 90) == 2.0  # mesmo resultado de antes do P0-3
+
+    def test_teto_de_20pct_tambem_e_modulado_pela_volatilidade(self, monkeypatch):
+        # Kelly no teto (0.50 -> capado a 0.02) + stop apertado (1.5%, o mesmo
+        # usado por validar_trade em producao): o sizing por risco sempre
+        # excede o teto notional, entao e o teto quem domina o tamanho final
+        # — e ele precisa responder a volatilidade, senao o vol targeting e
+        # um no-op em producao (achado da revisao adversarial do P0-3).
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.50)
+        capital, preco = 1000, 68000
+        stop = preco * (1 - 0.015)
+        neutro = risco.calcular_tamanho(capital, preco, stop)
+        vol_alta = risco.calcular_tamanho(capital, preco, stop, atr_relativo=2.0)  # mult=0.5
+        vol_baixa = risco.calcular_tamanho(capital, preco, stop, atr_relativo=0.5)  # mult=1.5
+        # tolerancia absoluta: calcular_tamanho arredonda em 6 casas, mais
+        # apertado que o rel=1e-6 default do pytest.approx nessa magnitude.
+        assert neutro == pytest.approx(capital * 0.20 / preco, abs=1e-6)
+        assert vol_alta == pytest.approx(neutro * 0.5, abs=1e-6)
+        assert vol_baixa == pytest.approx(neutro * 1.5, abs=1e-6)
+
+    def test_teto_fica_fixo_em_20pct_quando_fator_risco_explicito(self):
+        # Mesmo com stop apertado e atr_relativo extremo, um fator_risco
+        # explicito bypassa o teto vol-targetado (mesma semantica do bypass
+        # do calculo de risco).
+        capital, preco = 1000, 68000
+        stop = preco * (1 - 0.015)
+        tam = risco.calcular_tamanho(capital, preco, stop, fator_risco=0.50, atr_relativo=0.1)
+        assert tam == pytest.approx(capital * 0.20 / preco, abs=1e-6)
+
+
+# ══════════════════════════════════════════════════════════════
+# 15. validar_trade() — vol targeting (P0-3)
+# ══════════════════════════════════════════════════════════════
+
+
+class TestValidarTradeVolTargeting:
+
+    @pytest.fixture(autouse=True)
+    def _estado_dia_atual(self, monkeypatch):
+        _set_estado(
+            data_dia=str(date.today()),
+            pnl_dia=0.0,
+            bloqueado=False,
+            motivo_bloqueio="",
+            posicoes_abertas=0,
+            capital_inicio_dia=None,
+        )
+        monkeypatch.setattr(risco, "verificar_volatilidade", lambda *a, **k: 0.0)
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.02)
+
+    def test_fator_volatilidade_aparece_no_retorno(self):
+        r = risco.validar_trade("COMPRA", 68000, 1000, atr_relativo=2.0)
+        assert r["pode"] is True
+        assert r["fator_volatilidade"] == 0.5
+
+    def test_atr_relativo_repassado_reduz_tamanho(self):
+        # Com o teto de 20% tambem modulado por volatilidade (ver
+        # test_teto_de_20pct_tambem_e_modulado_pela_volatilidade em
+        # TestCalcularTamanhoVolTargeting), o efeito aparece mesmo com o
+        # kelly_do_banco=0.02 padrao da fixture da classe (que satura o
+        # sizing por risco no teto de 20% independente de atr_relativo).
+        sem = risco.validar_trade("COMPRA", 68000, 1000)
+        com = risco.validar_trade("COMPRA", 68000, 1000, atr_relativo=2.0)
+        assert com["tamanho_btc"] < sem["tamanho_btc"]
+
+    def test_fator_volatilidade_reflete_o_multiplicador_efetivo_aplicado(self):
+        # Achado da revisao adversarial do P0-3: o campo "fator_volatilidade"
+        # nao pode divergir do efeito real no tamanho. Com kelly_do_banco=0.02
+        # (fixture, no teto) e stop de 1.5%, o sizing por risco satura no teto
+        # notional em ambos os casos — mas o teto em si escala por mult_vol,
+        # entao a razao real entre os tamanhos bate exatamente com o campo.
+        sem = risco.validar_trade("COMPRA", 68000, 1000)
+        com = risco.validar_trade("COMPRA", 68000, 1000, atr_relativo=2.0)
+        assert com["fator_volatilidade"] == 0.5
+        assert com["tamanho_btc"] == pytest.approx(
+            sem["tamanho_btc"] * com["fator_volatilidade"], abs=1e-6
+        )
+
+    def test_backward_compat_sem_atr_relativo_fator_volatilidade_neutro(self):
+        r = risco.validar_trade("COMPRA", 68000, 1000)
+        assert r["fator_volatilidade"] == 1.0
+        assert r["tamanho_btc"] > 0

@@ -161,7 +161,7 @@ def test_abrir_long_real_usa_maker_e_adota_qty_executado(ex, monkeypatch):
     monkeypatch.setattr(ex, "_colocar_stop_exchange", lambda q, p: stops.append(q) or 777)
     monkeypatch.setattr(executor_mod.gestao_risco, "get_saldo_usdt", lambda: 10000.0)
     monkeypatch.setattr(
-        executor_mod.gestao_risco, "validar_trade", lambda *a: {"pode": True, "motivo": "ok"}
+        executor_mod.gestao_risco, "validar_trade", lambda *a, **k: {"pode": True, "motivo": "ok"}
     )
     monkeypatch.setattr(executor_mod.gestao_risco, "persistir_estado", lambda: None)
     monkeypatch.setattr(executor_mod.gestao_risco, "_estado_risco", {"posicoes_abertas": 0})

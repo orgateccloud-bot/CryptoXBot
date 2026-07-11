@@ -17,9 +17,7 @@ from datetime import date, datetime
 import requests
 
 import database
-from config.runtime_settings import API_KEY, API_SECRET
-
-from config.runtime_settings import REST_BASE_URL
+from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
 
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 
@@ -31,6 +29,8 @@ KELLY_FATOR = 0.25  # Kelly fracionado (25% do Kelly puro) — conservador
 VOLATILIDADE_MAXIMA = 0.08  # 8% de variação em 1h = mercado extremo
 MAX_POSICOES_ABERTAS = 1  # só 1 posição por vez
 FUNDING_LIMITE = 0.10  # % — não operar se funding acima disso
+VOL_TARGET_MULT_MIN = 0.5  # nunca reduz abaixo de 50% do fator Kelly
+VOL_TARGET_MULT_MAX = 1.5  # nunca aumenta acima de 150% do fator Kelly
 
 
 # ── Estado do dia ─────────────────────────────────────────────
@@ -118,10 +118,33 @@ def kelly_do_banco():
         return MAX_RISCO_POR_TRADE
 
 
+# ── Vol Targeting (P0-3) ────────────────────────────────────────
+
+
+def fator_volatilidade(atr_relativo):
+    """Multiplicador de vol targeting: size x (vol_alvo / vol_realizada).
+
+    atr_relativo = atr_atual / atr_media (idioma já usado em estrategias/
+    otimizada.py e ml_filtro.py). vol_alvo = atr_media (baseline recente),
+    vol_realizada = atr_atual -> multiplicador = atr_media/atr_atual =
+    1/atr_relativo.
+
+    None ou <=0 (sem dado, ou dado corrompido/negativo) => neutro (1.0).
+    Vol atual ACIMA da média (atr_relativo > 1) encolhe o tamanho;
+    vol ABAIXO da média (atr_relativo < 1) permite crescer até o teto.
+    """
+    if atr_relativo is None or atr_relativo <= 0:
+        return 1.0
+    mult = 1.0 / atr_relativo
+    return round(min(max(mult, VOL_TARGET_MULT_MIN), VOL_TARGET_MULT_MAX), 4)
+
+
 # ── Tamanho da posição ────────────────────────────────────────
 
 
-def calcular_tamanho(capital_usdt, preco_entrada, stop_loss, fator_risco=None):
+def calcular_tamanho(
+    capital_usdt, preco_entrada, stop_loss, fator_risco=None, *, atr_relativo=None
+):
     """
     Calcula tamanho da posição baseado no risco máximo em USDT.
 
@@ -129,9 +152,22 @@ def calcular_tamanho(capital_usdt, preco_entrada, stop_loss, fator_risco=None):
     preco_entrada:  preço de entrada
     stop_loss:      preço do stop
     fator_risco:    fração do capital a arriscar (usa Kelly se None)
+    atr_relativo:   atr_atual/atr_media (P0-3, vol targeting). Só tem efeito
+                     quando fator_risco não é passado explicitamente — um
+                     fator_risco explícito é um bypass intencional do cálculo
+                     padrão (inclusive do teto), e o vol targeting não deve
+                     sobrescrever essa escolha do chamador.
     """
+    mult_vol = 1.0
     if fator_risco is None:
         fator_risco = kelly_do_banco()
+        fator_risco = min(fator_risco, MAX_RISCO_POR_TRADE)
+        mult_vol = fator_volatilidade(atr_relativo)
+        fator_risco = fator_risco * mult_vol
+        # RE-cap: o multiplicador pode chegar a 1.5x o fator já capado pelo
+        # Kelly; sem este segundo min(), o invariante "nunca arrisca mais
+        # que MAX_RISCO_POR_TRADE" quebraria sempre que o Kelly já estivesse
+        # no teto e a vol estivesse abaixo da média.
         fator_risco = min(fator_risco, MAX_RISCO_POR_TRADE)
 
     risco_usdt = capital_usdt * fator_risco
@@ -144,8 +180,18 @@ def calcular_tamanho(capital_usdt, preco_entrada, stop_loss, fator_risco=None):
     tamanho_btc = risco_usdt / distancia_stop
     tamanho_usdt = tamanho_btc * preco_entrada
 
-    # Nunca arriscar mais que 20% do capital em uma única posição
-    tamanho_usdt = min(tamanho_usdt, capital_usdt * 0.20)
+    # Teto de exposição por posição: 20% do capital na vol de referência,
+    # também modulado por mult_vol (P0-3) — sem isso, com o stop de 1.5%
+    # usado por validar_trade, este teto domina o sizing em praticamente
+    # todo cenário real (risco_usdt/distancia_stop já excede 20% do capital
+    # para qualquer fator_risco >= ~0.3%, bem abaixo do range normal do
+    # Kelly) e o multiplicador de vol targeting nunca chega a se refletir
+    # no tamanho final. Escalar o teto junto faz o teto respirar entre 10%
+    # e 30% do capital conforme a volatilidade, preservando o propósito da
+    # feature mesmo quando ela é o fator dominante. mult_vol fica 1.0
+    # (teto fixo em 20%) no caminho de fator_risco explícito, mesma
+    # semântica de bypass do cálculo padrão usada acima.
+    tamanho_usdt = min(tamanho_usdt, capital_usdt * 0.20 * mult_vol)
     tamanho_btc = tamanho_usdt / preco_entrada
 
     return round(tamanho_btc, 6)
@@ -224,7 +270,7 @@ def get_saldo_btc():
 # ── Validador completo ────────────────────────────────────────
 
 
-def validar_trade(sinal, preco, capital_usdt):
+def validar_trade(sinal, preco, capital_usdt, *, atr_relativo=None):
     """
     Valida todas as condições de risco antes de executar um trade.
     Retorna: {"pode": bool, "motivo": str, "tamanho_btc": float}
@@ -267,7 +313,7 @@ def validar_trade(sinal, preco, capital_usdt):
 
     # 6. Calcular tamanho
     stop = preco * (1 - 0.015) if sinal == "COMPRA" else preco * (1 + 0.015)
-    tamanho = calcular_tamanho(capital_usdt, preco, stop)
+    tamanho = calcular_tamanho(capital_usdt, preco, stop, atr_relativo=atr_relativo)
 
     if tamanho <= 0:
         return {"pode": False, "motivo": "Tamanho calculado zerado", "tamanho_btc": 0}
@@ -283,6 +329,7 @@ def validar_trade(sinal, preco, capital_usdt):
         "tamanho_btc": tamanho,
         "risco_usdt": round(tamanho * abs(preco - stop), 2),
         "fator_kelly": kelly_do_banco(),
+        "fator_volatilidade": fator_volatilidade(atr_relativo),
     }
 
 

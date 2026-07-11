@@ -493,7 +493,16 @@ def loop_par(par, intervalo_min, simulacao):
                 target = resultado["take_profit"]
                 saldo = gestao_risco.get_saldo_usdt()
 
-                validacao = gestao_risco.validar_trade(sinal, preco, saldo if saldo > 0 else 100)
+                # P0-3: vol targeting — atr_relativo = atr_atual/atr_media, mesmo dado
+                # que a estrategia ja usou para aprovar o sinal (sem chamada de rede extra).
+                atr_relativo = (
+                    resultado["atr"] / resultado["atr_media"]
+                    if resultado.get("atr_media")
+                    else None
+                )
+                validacao = gestao_risco.validar_trade(
+                    sinal, preco, saldo if saldo > 0 else 100, atr_relativo=atr_relativo
+                )
                 if validacao["pode"]:
                     tamanho_base = validacao["tamanho_btc"]
                     fator = resultado.get("tamanho_fator", 1.0)
@@ -543,7 +552,7 @@ def loop_par(par, intervalo_min, simulacao):
                     except Exception:
                         pass
 
-                    exec_par.abrir_long(preco, parcela, stop, target)
+                    exec_par.abrir_long(preco, parcela, stop, target, atr_relativo=atr_relativo)
                 else:
                     print(f"\033[91m[{par}][RISCO] Trade bloqueado: {validacao['motivo']}\033[0m")
 

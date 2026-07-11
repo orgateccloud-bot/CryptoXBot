@@ -489,7 +489,7 @@ class Executor:
 
     # ── Abrir posição LONG ─────────────────────────────────────
 
-    def abrir_long(self, preco_entrada, tamanho_btc, stop_loss, take_profit):
+    def abrir_long(self, preco_entrada, tamanho_btc, stop_loss, take_profit, *, atr_relativo=None):
         if self.posicao:
             print("[EXEC] Ja existe posicao aberta. Aguardar fechamento.")
             return False
@@ -497,7 +497,9 @@ class Executor:
         # Validar risco antes de executar
         saldo = gestao_risco.get_saldo_usdt()
         if not self.simulacao:
-            validacao = gestao_risco.validar_trade("COMPRA", preco_entrada, saldo)
+            validacao = gestao_risco.validar_trade(
+                "COMPRA", preco_entrada, saldo, atr_relativo=atr_relativo
+            )
             if not validacao["pode"]:
                 print(f"[EXEC] Trade bloqueado pelo risco: {validacao['motivo']}")
                 return False
