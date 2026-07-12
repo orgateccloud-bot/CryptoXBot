@@ -18,6 +18,7 @@ após cada teste por uma fixture autouse.
 
 import os
 import sys
+import threading
 from datetime import date
 
 import pytest
@@ -214,6 +215,43 @@ class TestRegistrarResultado:
         _set_estado(data_dia="2000-01-01", pnl_dia=999.0)
         risco.registrar_resultado(8.0)
         assert risco._estado_risco["pnl_dia"] == pytest.approx(8.0)
+
+
+# ══════════════════════════════════════════════════════════════
+# 4b. incrementar/decrementar_posicoes_abertas()
+# ══════════════════════════════════════════════════════════════
+
+
+class TestContadorPosicoesAbertas:
+
+    def test_incrementa(self):
+        _set_estado(posicoes_abertas=0)
+        risco.incrementar_posicoes_abertas()
+        assert risco._estado_risco["posicoes_abertas"] == 1
+
+    def test_decrementa(self):
+        _set_estado(posicoes_abertas=1)
+        risco.decrementar_posicoes_abertas()
+        assert risco._estado_risco["posicoes_abertas"] == 0
+
+    def test_decrementa_nao_fica_negativo(self):
+        # defesa contra decremento espurio (ex: fechar_posicao chamado sem
+        # abrir_long correspondente) -- nunca deve ficar negativo.
+        _set_estado(posicoes_abertas=0)
+        risco.decrementar_posicoes_abertas()
+        assert risco._estado_risco["posicoes_abertas"] == 0
+
+    def test_incrementos_concorrentes_nao_perdem_contagem(self):
+        # regressao para a race condition original: 50 threads incrementando
+        # ao mesmo tempo devem produzir exatamente 50, nao menos (o que
+        # aconteceria com um += sem lock sob contencao real).
+        _set_estado(posicoes_abertas=0)
+        threads = [threading.Thread(target=risco.incrementar_posicoes_abertas) for _ in range(50)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert risco._estado_risco["posicoes_abertas"] == 50
 
 
 # ══════════════════════════════════════════════════════════════

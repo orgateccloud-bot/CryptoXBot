@@ -550,7 +550,7 @@ class Executor:
         except Exception as e:
             print(f"[EXEC] AVISO: falha ao persistir posicao: {e}")
 
-        gestao_risco._estado_risco["posicoes_abertas"] += 1
+        gestao_risco.incrementar_posicoes_abertas()
         gestao_risco.persistir_estado()
         print(
             f"[EXEC] LONG aberto @ ${preco_exec:,.2f} | "
@@ -639,7 +639,7 @@ class Executor:
                 self.posicao = None
                 self._ativo = False
             self._persistir_posicao()  # P0-3: remove do DB
-            gestao_risco._estado_risco["posicoes_abertas"] -= 1
+            gestao_risco.decrementar_posicoes_abertas()
             gestao_risco.persistir_estado()
 
     # ── Monitor de trailing stop ───────────────────────────────

@@ -92,6 +92,14 @@ def gestao_risco_mock(monkeypatch):
         def persistir_estado(self):
             self.persistido += 1
 
+        def incrementar_posicoes_abertas(self):
+            self._estado_risco["posicoes_abertas"] += 1
+
+        def decrementar_posicoes_abertas(self):
+            self._estado_risco["posicoes_abertas"] = max(
+                0, self._estado_risco["posicoes_abertas"] - 1
+            )
+
     fake = _RiscoFake()
     monkeypatch.setattr(executor_mod, "gestao_risco", fake)
     return fake

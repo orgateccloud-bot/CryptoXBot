@@ -11,6 +11,7 @@ Módulos:
 
 import hashlib
 import hmac
+import threading
 import time
 from datetime import date, datetime
 
@@ -44,6 +45,20 @@ _estado_risco = {
     "posicoes_abertas": 0,
 }
 _estado_carregado = False
+# main.py roda 1 thread por par (loop_par) e todas compartilham este mesmo
+# modulo/_estado_risco -- sem lock, abrir/fechar posicoes em pares
+# diferentes ao mesmo tempo pode perder um incremento/decremento (race).
+_lock_posicoes = threading.Lock()
+
+
+def incrementar_posicoes_abertas():
+    with _lock_posicoes:
+        _estado_risco["posicoes_abertas"] += 1
+
+
+def decrementar_posicoes_abertas():
+    with _lock_posicoes:
+        _estado_risco["posicoes_abertas"] = max(0, _estado_risco["posicoes_abertas"] - 1)
 
 
 def _carregar_estado_persistido():
