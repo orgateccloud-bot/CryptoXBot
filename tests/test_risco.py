@@ -904,3 +904,326 @@ class TestValidarTradeVolTargeting:
         r = risco.validar_trade("COMPRA", 68000, 1000)
         assert r["fator_volatilidade"] == 1.0
         assert r["tamanho_btc"] > 0
+
+
+# ══════════════════════════════════════════════════════════════
+# 16. correlacao_pearson() — risco de portfolio (P1-2)
+# ══════════════════════════════════════════════════════════════
+
+
+class TestCorrelacaoPearson:
+    def test_correlacao_perfeita_positiva(self):
+        a = [1.0, 2.0, 3.0, 4.0, 5.0]
+        b = [2.0, 4.0, 6.0, 8.0, 10.0]
+        assert risco.correlacao_pearson(a, b) == pytest.approx(1.0)
+
+    def test_correlacao_perfeita_negativa(self):
+        a = [1.0, 2.0, 3.0, 4.0, 5.0]
+        b = [5.0, 4.0, 3.0, 2.0, 1.0]
+        assert risco.correlacao_pearson(a, b) == pytest.approx(-1.0)
+
+    def test_sem_correlacao(self):
+        a = [1.0, 2.0, 3.0, 4.0, 5.0]
+        b = [1.0, -1.0, 1.0, -1.0, 1.0]
+        assert risco.correlacao_pearson(a, b) == pytest.approx(0.0, abs=1e-9)
+
+    def test_tamanhos_diferentes_levanta_valueerror(self):
+        with pytest.raises(ValueError):
+            risco.correlacao_pearson([1.0, 2.0], [1.0, 2.0, 3.0])
+
+    def test_menos_de_2_pontos_retorna_zero(self):
+        assert risco.correlacao_pearson([1.0], [2.0]) == 0.0
+        assert risco.correlacao_pearson([], []) == 0.0
+
+    def test_serie_constante_retorna_zero(self):
+        # std==0 em qualquer serie -> correlacao indefinida, guard retorna 0.0
+        assert risco.correlacao_pearson([1.0, 1.0, 1.0], [1.0, 2.0, 3.0]) == 0.0
+        assert risco.correlacao_pearson([1.0, 2.0, 3.0], [5.0, 5.0, 5.0]) == 0.0
+
+    def test_resultado_clampado_em_menos1_e_1(self):
+        a = [1.0, 2.0, 3.0, 4.0, 5.0]
+        b = [2.0, 4.0, 6.0, 8.0, 10.0]
+        c = risco.correlacao_pearson(a, b)
+        assert -1.0 <= c <= 1.0
+
+
+# ══════════════════════════════════════════════════════════════
+# 17. _precos_para_retornos()
+# ══════════════════════════════════════════════════════════════
+
+
+class TestPrecosParaRetornos:
+    def test_retornos_calculados_corretamente(self):
+        precos = [100.0, 110.0, 99.0]
+        retornos = risco._precos_para_retornos(precos)
+        assert retornos == pytest.approx([0.10, -0.10])
+
+    def test_pula_pontos_com_preco_anterior_nao_positivo(self):
+        precos = [100.0, 0.0, 50.0, -10.0, 60.0]
+        # i=1: anterior=100 (ok) -> retorno (0-100)/100=-1.0
+        # i=2: anterior=0.0 -> pulado
+        # i=3: anterior=50.0 (ok) -> retorno (-10-50)/50=-1.2
+        # i=4: anterior=-10.0 -> pulado
+        assert risco._precos_para_retornos(precos) == pytest.approx([-1.0, -1.2])
+
+    def test_lista_com_1_preco_retorna_vazio(self):
+        assert risco._precos_para_retornos([100.0]) == []
+
+    def test_lista_vazia_retorna_vazio(self):
+        assert risco._precos_para_retornos([]) == []
+
+
+# ══════════════════════════════════════════════════════════════
+# 18. matriz_correlacao()
+# ══════════════════════════════════════════════════════════════
+
+
+class TestMatrizCorrelacao:
+    def test_dict_vazio_retorna_vazio(self):
+        assert risco.matriz_correlacao({}) == {}
+
+    def test_diagonal_e_1(self):
+        m = risco.matriz_correlacao(
+            {"BTCUSDT": [1.0, 2.0, 3.0, 4.0], "ETHUSDT": [2.0, 4.0, 6.0, 8.0]}
+        )
+        assert m["BTCUSDT"]["BTCUSDT"] == 1.0
+        assert m["ETHUSDT"]["ETHUSDT"] == 1.0
+
+    def test_matriz_simetrica(self):
+        m = risco.matriz_correlacao(
+            {"BTCUSDT": [1.0, 2.0, 3.0, 4.0], "ETHUSDT": [4.0, 3.0, 2.0, 1.0]}
+        )
+        assert m["BTCUSDT"]["ETHUSDT"] == m["ETHUSDT"]["BTCUSDT"]
+
+    def test_series_de_tamanhos_diferentes_nao_quebra(self):
+        # BTCUSDT tem 6 precos, ETHUSDT so 4 -- trunca para o comum (4),
+        # alinhando pelo FIM (os mais recentes).
+        m = risco.matriz_correlacao(
+            {
+                "BTCUSDT": [10.0, 20.0, 1.0, 2.0, 3.0, 4.0],
+                "ETHUSDT": [2.0, 4.0, 6.0, 8.0],
+            }
+        )
+        assert m["BTCUSDT"]["ETHUSDT"] == pytest.approx(1.0)
+
+    def test_precos_com_valores_nao_positivos_nao_quebra(self):
+        # Achado real: precos_por_symbol com mesmo comprimento pode ainda
+        # gerar listas de RETORNOS de tamanhos diferentes (via o skip de
+        # _precos_para_retornos), o que crashava correlacao_pearson antes
+        # do truncamento adicional sobre os retornos.
+        m = risco.matriz_correlacao(
+            {
+                "BTCUSDT": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "ETHUSDT": [2.0, 4.0, 6.0, 8.0, 10.0],
+                "SOLUSDT": [1.0, -1.0, 1.0, -1.0, 1.0],
+            }
+        )
+        assert m["BTCUSDT"]["ETHUSDT"] == pytest.approx(1.0)
+        assert -1.0 <= m["BTCUSDT"]["SOLUSDT"] <= 1.0
+
+    def test_retornos_todos_vazios_nao_quebra(self):
+        # todo preco apos o primeiro e <=0 -> lista de retornos vazia
+        m = risco.matriz_correlacao({"A": [1.0, -1.0, -1.0], "B": [1.0, 2.0, 3.0]})
+        assert m["A"]["B"] == 0.0
+        assert m["A"]["A"] == 1.0
+
+
+# ══════════════════════════════════════════════════════════════
+# 19. _corr_lookup()
+# ══════════════════════════════════════════════════════════════
+
+
+class TestCorrLookup:
+    def test_mesmo_symbol_sempre_1(self):
+        # mesmo que a matriz diga outra coisa, a==b e hardcoded para 1.0
+        matriz = {"BTCUSDT": {"BTCUSDT": 0.3}}
+        assert risco._corr_lookup("BTCUSDT", "BTCUSDT", matriz) == 1.0
+
+    def test_par_presente_usa_matriz(self):
+        matriz = {"BTCUSDT": {"ETHUSDT": 0.75}}
+        assert risco._corr_lookup("BTCUSDT", "ETHUSDT", matriz) == 0.75
+
+    def test_par_ausente_usa_default_conservador(self):
+        assert risco._corr_lookup("BTCUSDT", "SOLUSDT", {}) == risco.CORRELACAO_DEFAULT_AUSENTE
+        assert risco.CORRELACAO_DEFAULT_AUSENTE == 1.0
+
+
+# ══════════════════════════════════════════════════════════════
+# 20. exposicao_agregada_efetiva()
+# ══════════════════════════════════════════════════════════════
+
+
+class TestExposicaoAgregadaEfetiva:
+    def test_posicao_solo_invariante_de_inercia(self):
+        # sem nenhuma posicao aberta, a exposicao efetiva da candidata e
+        # exatamente o proprio notional dela -- nunca amplificada nem
+        # reduzida por uma matriz de correlacao vazia/irrelevante.
+        assert risco.exposicao_agregada_efetiva([], "BTCUSDT", 500.0, {}) == pytest.approx(500.0)
+
+    def test_correlacao_1_e_totalmente_aditiva(self):
+        matriz = {"BTCUSDT": {"ETHUSDT": 1.0}, "ETHUSDT": {"BTCUSDT": 1.0}}
+        r = risco.exposicao_agregada_efetiva(
+            [{"symbol": "BTCUSDT", "notional_usdt": 300.0}], "ETHUSDT", 200.0, matriz
+        )
+        assert r == pytest.approx(500.0)
+
+    def test_correlacao_0_da_beneficio_de_diversificacao(self):
+        matriz = {"BTCUSDT": {"ETHUSDT": 0.0}, "ETHUSDT": {"BTCUSDT": 0.0}}
+        r = risco.exposicao_agregada_efetiva(
+            [{"symbol": "BTCUSDT", "notional_usdt": 300.0}], "ETHUSDT", 200.0, matriz
+        )
+        assert r == pytest.approx((300.0**2 + 200.0**2) ** 0.5)
+        assert r < 500.0  # sempre menor que a soma simples quando corr<1
+
+    def test_correlacao_negativa_reduz_exposicao_abaixo_do_pitagoras(self):
+        matriz = {"BTCUSDT": {"ETHUSDT": -0.5}, "ETHUSDT": {"BTCUSDT": -0.5}}
+        r = risco.exposicao_agregada_efetiva(
+            [{"symbol": "BTCUSDT", "notional_usdt": 300.0}], "ETHUSDT", 200.0, matriz
+        )
+        esperado = (300.0**2 + 200.0**2 + 2 * 300.0 * 200.0 * -0.5) ** 0.5
+        assert r == pytest.approx(esperado)
+        assert r < (300.0**2 + 200.0**2) ** 0.5
+
+    def test_tres_posicoes_soma_dupla_completa(self):
+        matriz = {
+            "BTCUSDT": {"ETHUSDT": 0.8, "SOLUSDT": 0.6},
+            "ETHUSDT": {"BTCUSDT": 0.8, "SOLUSDT": 0.5},
+            "SOLUSDT": {"BTCUSDT": 0.6, "ETHUSDT": 0.5},
+        }
+        abertas = [
+            {"symbol": "BTCUSDT", "notional_usdt": 100.0},
+            {"symbol": "ETHUSDT", "notional_usdt": 150.0},
+        ]
+        r = risco.exposicao_agregada_efetiva(abertas, "SOLUSDT", 80.0, matriz)
+        n = {"BTCUSDT": 100.0, "ETHUSDT": 150.0, "SOLUSDT": 80.0}
+        soma_manual = sum(n[a] * n[b] * (1.0 if a == b else matriz[a][b]) for a in n for b in n)
+        assert r == pytest.approx(soma_manual**0.5)
+
+
+# ══════════════════════════════════════════════════════════════
+# 21. obter_matriz_correlacao_cache()
+# ══════════════════════════════════════════════════════════════
+
+
+class TestObterMatrizCorrelacaoCache:
+    @pytest.fixture(autouse=True)
+    def _limpar_cache(self):
+        original = dict(risco._cache_correlacao)
+        yield
+        risco._cache_correlacao.clear()
+        risco._cache_correlacao.update(original)
+
+    def _klines_fake(self, precos):
+        return _FakeResp([["t", "o", "h", "l", str(p), "v"] for p in precos])
+
+    def test_busca_e_cacheia_matriz(self, monkeypatch):
+        risco._cache_correlacao["matriz"] = {}
+        risco._cache_correlacao["timestamp"] = 0.0
+        monkeypatch.setattr(
+            risco.requests, "get", lambda *a, **k: self._klines_fake([1.0, 2.0, 3.0, 4.0])
+        )
+        m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
+        assert m  # populada
+        assert risco._cache_correlacao["matriz"] == m
+        assert risco._cache_correlacao["timestamp"] > 0.0
+
+    def test_usa_cache_dentro_do_ttl_sem_nova_chamada_de_rede(self, monkeypatch):
+        risco._cache_correlacao["matriz"] = {"BTCUSDT": {"BTCUSDT": 1.0}}
+        risco._cache_correlacao["timestamp"] = risco.time.time()
+        chamou = []
+        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: chamou.append(1))
+        m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
+        assert m == {"BTCUSDT": {"BTCUSDT": 1.0}}
+        assert chamou == []  # nao bateu rede -- veio do cache
+
+    def test_ttl_expirado_busca_de_novo(self, monkeypatch):
+        risco._cache_correlacao["matriz"] = {"BTCUSDT": {"BTCUSDT": 1.0}}
+        risco._cache_correlacao["timestamp"] = risco.time.time() - 1000  # bem antigo
+        monkeypatch.setattr(
+            risco.requests, "get", lambda *a, **k: self._klines_fake([1.0, 2.0, 3.0, 4.0])
+        )
+        m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
+        assert "BTCUSDT" in m
+        # matriz nova populada com o(s) symbol(s) buscados, timestamp atualizado
+        assert risco._cache_correlacao["timestamp"] > risco.time.time() - 5
+
+    def test_falha_total_de_rede_preserva_cache_antigo(self, monkeypatch):
+        antiga = {
+            "BTCUSDT": {"ETHUSDT": 0.9, "BTCUSDT": 1.0},
+            "ETHUSDT": {"BTCUSDT": 0.9, "ETHUSDT": 1.0},
+        }
+        risco._cache_correlacao["matriz"] = antiga
+        risco._cache_correlacao["timestamp"] = risco.time.time() - 1000  # expirado
+
+        def _boom(*a, **k):
+            raise ConnectionError("sem rede")
+
+        monkeypatch.setattr(risco.requests, "get", _boom)
+        m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
+        assert m == antiga  # nao sobrescreveu com {} por causa da falha
+
+
+# ══════════════════════════════════════════════════════════════
+# 22. validar_trade() — risco de portfolio (P1-2)
+# ══════════════════════════════════════════════════════════════
+
+
+class TestValidarTradePortfolio:
+    @pytest.fixture(autouse=True)
+    def _estado_dia_atual(self, monkeypatch):
+        _set_estado(
+            data_dia=str(date.today()),
+            pnl_dia=0.0,
+            bloqueado=False,
+            motivo_bloqueio="",
+            posicoes_abertas=0,
+            capital_inicio_dia=None,
+        )
+        monkeypatch.setattr(risco, "verificar_volatilidade", lambda *a, **k: 0.0)
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.02)
+
+    def test_sem_posicoes_abertas_detalhe_nunca_bate_rede_nem_bloqueia(self, monkeypatch):
+        # comportamento default (hoje sempre, ja que nenhum call site real
+        # popula posicoes_abertas_detalhe): inerte, sem chamada de rede.
+        chamou = []
+        monkeypatch.setattr(
+            risco, "obter_matriz_correlacao_cache", lambda *a, **k: chamou.append(1)
+        )
+        r = risco.validar_trade("COMPRA", 68000, 1000)
+        assert r["pode"] is True
+        assert chamou == []
+        assert r["exposicao_agregada_efetiva"] == pytest.approx(r["tamanho_btc"] * 68000, abs=0.01)
+
+    def test_lista_vazia_explicita_tambem_e_inerte(self, monkeypatch):
+        chamou = []
+        monkeypatch.setattr(
+            risco, "obter_matriz_correlacao_cache", lambda *a, **k: chamou.append(1)
+        )
+        r = risco.validar_trade("COMPRA", 68000, 1000, posicoes_abertas_detalhe=[])
+        assert r["pode"] is True
+        assert chamou == []
+
+    def test_bloqueia_quando_exposicao_agregada_excede_teto(self, monkeypatch):
+        monkeypatch.setattr(risco, "obter_matriz_correlacao_cache", lambda *a, **k: {})
+        # posicao aberta enorme (correlacao default=1.0 -> aditivo) forca a
+        # exposicao agregada a estourar TETO_EXPOSICAO_AGREGADA_PCT*capital.
+        outras = [{"symbol": "ETHUSDT", "notional_usdt": 100000.0}]
+        r = risco.validar_trade(
+            "COMPRA", 68000, 1000, posicoes_abertas_detalhe=outras, symbol="BTCUSDT"
+        )
+        assert r["pode"] is False
+        assert "agregada" in r["motivo"].lower()
+        assert "exposicao_agregada_efetiva" in r
+
+    def test_aprova_quando_exposicao_agregada_dentro_do_teto(self, monkeypatch):
+        monkeypatch.setattr(
+            risco,
+            "obter_matriz_correlacao_cache",
+            lambda *a, **k: {"BTCUSDT": {"ETHUSDT": 0.0}, "ETHUSDT": {"BTCUSDT": 0.0}},
+        )
+        outras = [{"symbol": "ETHUSDT", "notional_usdt": 50.0}]
+        r = risco.validar_trade(
+            "COMPRA", 68000, 1000, posicoes_abertas_detalhe=outras, symbol="BTCUSDT"
+        )
+        assert r["pode"] is True
+        assert "exposicao_agregada_efetiva" in r

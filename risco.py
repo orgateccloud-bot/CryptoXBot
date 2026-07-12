@@ -11,6 +11,7 @@ Módulos:
 
 import hashlib
 import hmac
+import statistics
 import threading
 import time
 from datetime import date, datetime
@@ -18,6 +19,7 @@ from datetime import date, datetime
 import requests
 
 import database
+from config.params_pares import PARAMS_PARES
 from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
 
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
@@ -154,6 +156,182 @@ def fator_volatilidade(atr_relativo):
     return round(min(max(mult, VOL_TARGET_MULT_MIN), VOL_TARGET_MULT_MAX), 4)
 
 
+# ── Risco de Portfolio (P1-2) ──────────────────────────────────
+
+TETO_EXPOSICAO_AGREGADA_PCT = 0.40  # 40% do capital. Maior que o teto de
+# posicao unica (20% base, ate 30% com vol targeting no melhor caso:
+# capital*0.20*mult_vol, mult_vol max 1.5x) para garantir que 1 posicao
+# solitaria NUNCA seja bloqueada por este teto (invariante de inercia) --
+# 0.40 da 10pp de margem acima do pior caso de posicao unica (30%). Valor
+# inicial nao-backtestado; revisar quando/se MAX_POSICOES_ABERTAS>1.
+CORRELACAO_DEFAULT_AUSENTE = 1.0  # par sem dado -> assume correlacao maxima
+# (conservador: subestimar risco de correlacao e pior que superestimar).
+
+_cache_correlacao = {"matriz": {}, "timestamp": 0.0}  # timestamp=0.0 (nao
+# None) para a checagem de TTL nunca comparar None a float na 1a chamada.
+_lock_correlacao = threading.Lock()  # lock DEDICADO, distinto de _lock_posicoes.
+
+
+def correlacao_pearson(retornos_a: list[float], retornos_b: list[float]) -> float:
+    """Coeficiente de Pearson entre duas series de retornos (mesmo tamanho).
+
+    Guardas: tamanhos diferentes -> ValueError (erro claro, nao silencioso);
+    <2 pontos -> 0.0 (neutro, sem dado suficiente); std==0 em qualquer serie
+    (serie constante) -> 0.0 (correlacao indefinida com variancia zero; 0.0
+    e mais seguro que crashar ou assumir correlacao maxima aqui). Resultado
+    clampado em [-1.0, 1.0] (protecao contra erro de ponto flutuante).
+    """
+    if len(retornos_a) != len(retornos_b):
+        raise ValueError("retornos_a e retornos_b precisam ter o mesmo tamanho")
+    if len(retornos_a) < 2:
+        return 0.0
+    std_a = statistics.stdev(retornos_a)
+    std_b = statistics.stdev(retornos_b)
+    if std_a == 0 or std_b == 0:
+        return 0.0
+    media_a = statistics.mean(retornos_a)
+    media_b = statistics.mean(retornos_b)
+    cov = sum((a - media_a) * (b - media_b) for a, b in zip(retornos_a, retornos_b)) / (
+        len(retornos_a) - 1
+    )
+    corr = cov / (std_a * std_b)
+    return max(-1.0, min(1.0, corr))
+
+
+def _precos_para_retornos(precos: list[float]) -> list[float]:
+    """Retornos percentuais simples r_i=(p_i-p_{i-1})/p_{i-1}. Pula pontos
+    onde p_{i-1}<=0 (dado corrompido da API) em vez de propagar ZeroDivisionError
+    -- mesma filosofia de robustez silenciosa ja usada no resto do arquivo."""
+    retornos = []
+    for i in range(1, len(precos)):
+        anterior = precos[i - 1]
+        if anterior <= 0:
+            continue
+        retornos.append((precos[i] - anterior) / anterior)
+    return retornos
+
+
+def matriz_correlacao(precos_por_symbol: dict[str, list[float]]) -> dict[str, dict[str, float]]:
+    """dict aninhado symbol->symbol->float (simetrico, ambas as direcoes
+    populadas: matriz[a][b] == matriz[b][a]). Diagonal (symbol,symbol)=1.0
+    populada explicitamente. Series de tamanhos diferentes entre symbols
+    sao truncadas para o comprimento comum MINIMO, alinhando pelo FIM das
+    listas (os N precos mais recentes de cada symbol) -- alinhar pelo inicio
+    misturaria periodos de tempo diferentes entre symbols."""
+    if not precos_por_symbol:
+        return {}
+    symbols = list(precos_por_symbol.keys())
+    tamanho_comum = min(len(precos_por_symbol[s]) for s in symbols)
+    retornos_por_symbol = {
+        s: _precos_para_retornos(precos_por_symbol[s][-tamanho_comum:]) for s in symbols
+    }
+    # _precos_para_retornos pode pular pontos com preco anterior<=0 (dado
+    # corrompido da API), o que produz listas de RETORNOS de tamanhos
+    # diferentes mesmo quando as listas de PRECOS truncadas acima ja tem o
+    # mesmo tamanho -- truncar de novo aqui, agora sobre os retornos, para
+    # correlacao_pearson nunca receber series de tamanhos diferentes.
+    tamanho_comum_retornos = min((len(v) for v in retornos_por_symbol.values()), default=0)
+    retornos_por_symbol = {
+        s: v[-tamanho_comum_retornos:] if tamanho_comum_retornos else []
+        for s, v in retornos_por_symbol.items()
+    }
+    matriz: dict[str, dict[str, float]] = {s: {} for s in symbols}
+    for i, a in enumerate(symbols):
+        matriz[a][a] = 1.0
+        for b in symbols[i + 1 :]:
+            c = correlacao_pearson(retornos_por_symbol[a], retornos_por_symbol[b])
+            matriz[a][b] = c
+            matriz[b][a] = c
+    return matriz
+
+
+def _obter_precos_klines(symbol: str, intervalo: str = "1h", limit: int = 100) -> list[float]:
+    """Fetch de closes via klines, mesmo padrao de verificar_volatilidade mas
+    usando BASE_URL (config) em vez do hardcode. Falha de rede -> [] (lista
+    vazia, nao propaga excecao)."""
+    try:
+        r = requests.get(
+            f"{BASE_URL}/api/v3/klines",
+            params={"symbol": symbol, "interval": intervalo, "limit": limit},
+            timeout=5,
+        )
+        k = r.json()
+        return [float(c[4]) for c in k]
+    except Exception:
+        return []
+
+
+def obter_matriz_correlacao_cache(ttl_segundos: int = 900) -> dict[str, dict[str, float]]:
+    """Cache module-level com lock dedicado (_lock_correlacao). TODA a
+    logica (checagem de TTL + fetch se necessario + gravacao) roda dentro
+    de UM UNICO 'with' -- lock grosso e simples, serializa fetches
+    concorrentes em vez de arriscar fetches redundantes ou corrupcao de
+    cache por double-checked locking malfeito."""
+    with _lock_correlacao:
+        agora = time.time()
+        if agora - _cache_correlacao["timestamp"] < ttl_segundos and _cache_correlacao["matriz"]:
+            return _cache_correlacao["matriz"]
+        precos_por_symbol = {}
+        for symbol in PARAMS_PARES.keys():
+            precos = _obter_precos_klines(symbol)
+            if precos:
+                precos_por_symbol[symbol] = precos
+        nova_matriz = matriz_correlacao(precos_por_symbol) if precos_por_symbol else {}
+        if nova_matriz:
+            _cache_correlacao["matriz"] = nova_matriz
+            _cache_correlacao["timestamp"] = agora
+        # se nova_matriz veio vazia (falha total de rede) e ja existe uma
+        # matriz anterior valida, MANTEM a matriz antiga (nao sobrescreve
+        # com {} por causa de uma falha transitoria) e nao atualiza o
+        # timestamp (proxima chamada tenta de novo, nao espera o TTL).
+        return _cache_correlacao["matriz"]
+
+
+def _corr_lookup(a: str, b: str, matriz_corr: dict[str, dict[str, float]]) -> float:
+    """Codigo de lookup EXATO a ser usado por exposicao_agregada_efetiva.
+    a==b sempre retorna 1.0 (auto-correlacao hardcoded, defesa em profundidade
+    independente do conteudo da matriz). Par ausente da matriz (symbol
+    desconhecido ou fetch falhou para aquele symbol) usa
+    CORRELACAO_DEFAULT_AUSENTE=1.0 (conservador)."""
+    if a == b:
+        return 1.0
+    return matriz_corr.get(a, {}).get(b, CORRELACAO_DEFAULT_AUSENTE)
+
+
+def exposicao_agregada_efetiva(
+    posicoes_abertas: list[dict],
+    novo_symbol: str,
+    novo_notional_usdt: float,
+    matriz_corr: dict[str, dict[str, float]],
+) -> float:
+    """posicoes_abertas = [{"symbol": str, "notional_usdt": float}, ...]
+    das posicoes JA abertas (SEM a candidata). Formula (soma dupla completa
+    sobre TODOS os pares i,j, incluindo diagonal e ambas as ordens (i,j) e
+    (j,i) -- implementado como double loop literal para evitar erro de
+    fator 2 de otimizacoes manuais):
+
+        exposicao_efetiva = sqrt( sum_i sum_j notional_i * notional_j * corr(i,j) )
+
+    onde a lista de posicoes = posicoes_abertas + [candidata].
+
+    Prova algebrica dos casos de teste (2 posicoes, notionals n1, n2):
+      corr=1.0 -> soma = n1^2 + n2^2 + 2*n1*n2 = (n1+n2)^2 -> sqrt = n1+n2
+                  (aditividade total, sem beneficio de diversificacao)
+      corr=0.0 -> soma = n1^2 + n2^2 (termos cruzados somem) -> sqrt =
+                  sqrt(n1^2+n2^2) (Pitagoras, beneficio maximo)
+      1 posicao so (candidata, posicoes_abertas=[]) -> soma = n^2*1.0 ->
+                  sqrt = n (INVARIANTE DE INERCIA: exposicao == proprio
+                  notional exatamente)
+    """
+    todas = list(posicoes_abertas) + [{"symbol": novo_symbol, "notional_usdt": novo_notional_usdt}]
+    soma = 0.0
+    for i in todas:
+        for j in todas:
+            corr = _corr_lookup(i["symbol"], j["symbol"], matriz_corr)
+            soma += i["notional_usdt"] * j["notional_usdt"] * corr
+    return soma**0.5
+
+
 # ── Tamanho da posição ────────────────────────────────────────
 
 
@@ -285,10 +463,35 @@ def get_saldo_btc():
 # ── Validador completo ────────────────────────────────────────
 
 
-def validar_trade(sinal, preco, capital_usdt, *, atr_relativo=None):
+def validar_trade(
+    sinal,
+    preco,
+    capital_usdt,
+    *,
+    atr_relativo=None,
+    posicoes_abertas_detalhe: list[dict] | None = None,
+    symbol: str | None = None,
+):
     """
     Valida todas as condições de risco antes de executar um trade.
     Retorna: {"pode": bool, "motivo": str, "tamanho_btc": float}
+
+    posicoes_abertas_detalhe: [{"symbol": str, "notional_usdt": float}, ...]
+    das posicoes JA abertas (SEM a candidata), usado no check 6.5 de
+    exposicao agregada de portfolio (P1-2). None/vazio (hoje sempre, pois
+    nenhum chamador real ainda popula isso) pula o check inteiro sem
+    nenhuma chamada de rede.
+    symbol: par da candidata. Simplificacao deliberada: validar_trade() nao
+    recebe hoje um parametro de symbol/par (so sinal/preco/capital), e
+    adiciona-lo como obrigatorio quebraria os call sites existentes
+    (main.py, executor.py) -- fora de escopo. Quando None (sempre, hoje),
+    usa o placeholder "__CANDIDATA__" como chave da posicao candidata no
+    calculo de exposicao agregada; como o lookup de correlacao trata
+    a==b como 1.0 hardcoded e o placeholder nunca colide com um symbol
+    real de posicoes_abertas_detalhe (so populado quando alguem no futuro
+    passar dados reais), isso nao quebra a matematica nem o invariante de
+    inercia. Resolver de verdade (symbol real) fica para quando
+    posicoes_abertas_detalhe for populado de verdade em producao.
     """
     _resetar_se_novo_dia()
 
@@ -333,6 +536,28 @@ def validar_trade(sinal, preco, capital_usdt, *, atr_relativo=None):
     if tamanho <= 0:
         return {"pode": False, "motivo": "Tamanho calculado zerado", "tamanho_btc": 0}
 
+    novo_notional_usdt = tamanho * preco
+    matriz_corr = {}
+    if posicoes_abertas_detalhe:
+        # SO busca a matriz de correlacao (com chance de chamada de rede,
+        # via cache) quando ha de fato outras posicoes abertas -- nunca
+        # gasta rede quando o parametro nao e passado ou vem vazio/None.
+        matriz_corr = obter_matriz_correlacao_cache()
+    exposicao_efetiva = exposicao_agregada_efetiva(
+        posicoes_abertas_detalhe or [],
+        symbol or "__CANDIDATA__",
+        novo_notional_usdt,
+        matriz_corr,
+    )
+    # 6.5 Exposicao agregada excede o teto de portfolio?
+    if posicoes_abertas_detalhe and exposicao_efetiva > capital_usdt * TETO_EXPOSICAO_AGREGADA_PCT:
+        return {
+            "pode": False,
+            "motivo": f"Exposicao agregada de portfolio excedida ({exposicao_efetiva:.2f} USDT)",
+            "tamanho_btc": 0,
+            "exposicao_agregada_efetiva": round(exposicao_efetiva, 2),
+        }
+
     # Inicializar capital do dia se necessário
     if _estado_risco["capital_inicio_dia"] is None:
         _estado_risco["capital_inicio_dia"] = capital_usdt
@@ -345,6 +570,7 @@ def validar_trade(sinal, preco, capital_usdt, *, atr_relativo=None):
         "risco_usdt": round(tamanho * abs(preco - stop), 2),
         "fator_kelly": kelly_do_banco(),
         "fator_volatilidade": fator_volatilidade(atr_relativo),
+        "exposicao_agregada_efetiva": round(exposicao_efetiva, 2),
     }
 
 
