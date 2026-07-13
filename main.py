@@ -28,6 +28,7 @@ import signal
 import sys
 import threading
 import time
+from collections import deque
 from datetime import datetime
 
 import websockets
@@ -90,6 +91,15 @@ total_vendas = 0.0
 preco_atual = 0.0
 _lock = threading.Lock()
 
+# P1-1: buffer dos ultimos N ticks brutos do BTCUSDT (formato consumido por
+# score._score_cvd: preco/is_buyer_maker/quantidade) -- antes desta mudanca
+# so existiam acumuladores escalares (cvd_btc/total_compras/total_vendas),
+# entao o caminho ao vivo nunca tinha o historico bruto que _score_cvd
+# precisa (sempre passava historico_ticks=None, componente CVD do score
+# ficava travado em 50/neutro). maxlen=200 da margem folgada acima do
+# periodo=50 default de _score_cvd sem custo de memoria relevante.
+_historico_ticks_btc = deque(maxlen=200)
+
 # Estado WebSocket
 ws_state = {
     "last_trade_id": 0,  # Para evitar duplicatas
@@ -98,11 +108,35 @@ ws_state = {
     "latency_ms": 0.0,
 }
 
+# ── OBI — Order Book Imbalance (P1-1) ───────────────────────────
+# Partial Book Depth Stream (@depthN@100ms): cada mensagem ja traz os top-N
+# niveis de bid/ask completos e independentes -- ao contrario do diff-depth
+# stream (@depth puro), NAO exige snapshot REST + reconciliacao U/u/pu (o
+# protocolo de sincronizacao da Binance para manter um order book completo
+# e correto). Para OBI so precisamos do volume nos primeiros niveis, entao
+# a partial-book stream evita toda essa classe de bug de dessincronizacao
+# por construcao -- nenhuma logica de continuidade e necessaria aqui.
+OBI_DEPTH_LEVELS = 20  # @depth20 -- top 20 niveis de cada lado
+OBI_JANELA_SUAVIZACAO = 30  # media movel sobre as ultimas 30 mensagens
+# (~3s a 100ms/msg) contra spoofing (ordens fantasma colocadas e canceladas
+# em janelas curtas nao devem mover o OBI suavizado sozinhas).
+
+ws_state_depth = {
+    "connected": False,
+    "last_message_time": 0.0,
+    "latency_ms": 0.0,
+}
+_lock_obi = threading.Lock()  # lock DEDICADO, distinto de _lock (mesmo padrao
+# de _lock_correlacao em risco.py) -- @depth e @aggTrade rodam em threads/
+# conexoes WS independentes, sem motivo para serializar uma no estado da outra.
+_obi_historico = deque(maxlen=OBI_JANELA_SUAVIZACAO)
+
 # C-7: shutdown gracioso. O Event e signal-safe (setar dentro de um signal
 # handler e seguro; raise nao e confiavel). _ws_loop guarda o loop asyncio do
 # WebSocket para pedir seu encerramento de fora da thread dele.
 _shutdown_event = threading.Event()
 _ws_loop = None
+_ws_loop_depth = None  # loop asyncio da conexao @depth (P1-1), independente de _ws_loop
 
 # Estado por par (executor e scale-in independentes)
 _estado_pares = {}  # symbol → {"executor": Executor, "scale_in": ScaleIn|None}
@@ -218,6 +252,9 @@ async def process_message(message):
 
     with _lock:
         preco_atual = price
+        _historico_ticks_btc.append(
+            {"preco": price, "is_buyer_maker": is_buyer_maker, "quantidade": quantity}
+        )
         if is_buyer_maker:
             cvd_btc -= quantity
             total_vendas += quantity
@@ -262,6 +299,166 @@ async def process_message(message):
         )
 
 
+def obter_historico_ticks_btc():
+    """Copia thread-safe do buffer de ticks brutos do BTCUSDT, no formato
+    que score._score_cvd espera. Lista vazia antes do WS acumular dados."""
+    with _lock:
+        return list(_historico_ticks_btc)
+
+
+# ── WebSocket @depth (Order Book Imbalance, P1-1) ────────────────
+
+
+async def websocket_handler_depth():
+    """
+    Handler assincrono para o Partial Book Depth Stream (@depthN@100ms).
+    Espelha websocket_handler() (mesmo retry exponencial com jitter) --
+    conexao INDEPENDENTE do stream @aggTrade, isolamento de falha (uma cair
+    nao derruba a outra).
+    """
+    url = f"{WS_BASE_URL}/ws/{SYMBOL_WS}@depth{OBI_DEPTH_LEVELS}@100ms"
+    max_retries = 10
+    base_delay = 1.0
+    max_delay = 300.0
+    jitter_factor = 0.1
+
+    attempt = 0
+    while attempt < max_retries and not _shutdown_event.is_set():
+        try:
+            async with websockets.connect(url, ping_interval=30, ping_timeout=10) as websocket_conn:
+                ws_state_depth["connected"] = True
+                ws_state_depth["last_message_time"] = time.time()
+                ws_logger.info(
+                    "WebSocket @depth conectado", extra={"symbol": SYMBOL_WS, "attempt": attempt}
+                )
+
+                async for message in websocket_conn:
+                    try:
+                        await process_depth_message(message)
+                        ws_state_depth["last_message_time"] = time.time()
+                    except Exception as e:
+                        ws_logger.error(
+                            "Erro processando mensagem @depth",
+                            extra={
+                                "error": str(e),
+                                "symbol": SYMBOL_WS,
+                                "latency_ms": ws_state_depth["latency_ms"],
+                            },
+                        )
+
+        except (
+            websockets.exceptions.ConnectionClosedError,
+            websockets.exceptions.WebSocketException,
+            asyncio.TimeoutError,
+        ) as e:
+            ws_state_depth["connected"] = False
+            latency = (time.time() - ws_state_depth["last_message_time"]) * 1000
+            ws_state_depth["latency_ms"] = latency
+
+            delay = min(base_delay * (2**attempt), max_delay)
+            jitter = random.uniform(-jitter_factor * delay, jitter_factor * delay)
+            delay += jitter
+            delay = max(0.1, delay)
+
+            logger.warning(
+                "WebSocket @depth desconectado",
+                extra={
+                    "error": str(e),
+                    "symbol": SYMBOL_WS,
+                    "attempt": attempt,
+                    "latency_ms": latency,
+                    "next_retry_in_s": delay,
+                },
+            )
+
+            await asyncio.sleep(delay)
+            attempt += 1
+
+        except Exception as e:
+            logger.error(
+                "Erro crítico WebSocket @depth",
+                extra={"error": str(e), "symbol": SYMBOL_WS, "attempt": attempt},
+            )
+            attempt += 1
+            await asyncio.sleep(1.0)
+
+    logger.critical(
+        "Máximo de tentativas atingido (@depth)",
+        extra={"symbol": SYMBOL_WS, "max_retries": max_retries},
+    )
+
+
+async def process_depth_message(message):
+    """
+    Processa uma mensagem do Partial Book Depth Stream e atualiza o
+    Order Book Imbalance (OBI). Cada mensagem ja traz o top-N completo e
+    independente (nao e um diff) -- sem estado de continuidade a manter.
+
+    OBI = (volume_bid - volume_ask) / (volume_bid + volume_ask), no
+    top-N configurado (OBI_DEPTH_LEVELS). +1 = livro 100% do lado comprador,
+    -1 = 100% vendedor. Acumulado numa janela deslizante
+    (OBI_JANELA_SUAVIZACAO mensagens) para suavizar contra spoofing (ordens
+    fantasma colocadas/canceladas rapido nao devem mover o OBI sozinhas) --
+    ver obter_obi_suavizado().
+    """
+    data = json.loads(message)
+    bids = data.get("bids", [])
+    asks = data.get("asks", [])
+
+    volume_bid = sum(float(qty) for _, qty in bids)
+    volume_ask = sum(float(qty) for _, qty in asks)
+    total = volume_bid + volume_ask
+    obi_bruto = (volume_bid - volume_ask) / total if total > 0 else 0.0
+    obi_bruto = max(-1.0, min(1.0, obi_bruto))  # protecao contra ponto flutuante
+
+    with _lock_obi:
+        _obi_historico.append(obi_bruto)
+
+
+OBI_STALE_SEGUNDOS = 120  # mesmo limiar de staleness usado pelo watchdog
+# /ready do stream @aggTrade (health.py) -- consistencia entre os dois.
+
+
+def obter_obi_suavizado():
+    """Media movel do OBI sobre a janela de suavizacao (thread-safe).
+    None se: (a) nenhuma mensagem @depth recebida ainda, OU (b) a conexao
+    esta stale (>120s sem mensagem) -- sem este segundo guard, uma conexao
+    morta com o buffer ainda cheio de dados ANTIGOS retornaria um OBI
+    plausivel porem obsoleto, silenciosamente, em vez de degradar para o
+    neutro (50) como os demais componentes 'sem dado' do score."""
+    idade = time.time() - ws_state_depth["last_message_time"]
+    if idade >= OBI_STALE_SEGUNDOS:
+        return None
+    with _lock_obi:
+        if not _obi_historico:
+            return None
+        return sum(_obi_historico) / len(_obi_historico)
+
+
+def iniciar_websocket_depth_async():
+    """
+    Inicia o loop assincrono do WebSocket @depth em uma thread separada.
+    Mesmo padrao de iniciar_websocket_async, loop/thread INDEPENDENTES
+    (guardados em _ws_loop_depth para o shutdown gracioso poder para-lo
+    junto com o loop de _ws_loop).
+    """
+
+    def run_async():
+        global _ws_loop_depth
+        loop = asyncio.new_event_loop()
+        _ws_loop_depth = loop
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(websocket_handler_depth())
+        except (asyncio.CancelledError, RuntimeError):
+            pass  # loop parado durante shutdown — esperado
+        finally:
+            loop.close()
+
+    thread = threading.Thread(target=run_async, daemon=True, name="websocket-depth-async")
+    thread.start()
+
+
 def iniciar_websocket_async():
     """
     Inicia o loop assíncrono do WebSocket em uma thread separada.
@@ -297,6 +494,11 @@ def _encerrar(signum, frame):
     if _ws_loop is not None:
         try:
             _ws_loop.call_soon_threadsafe(_ws_loop.stop)
+        except Exception:
+            pass
+    if _ws_loop_depth is not None:
+        try:
+            _ws_loop_depth.call_soon_threadsafe(_ws_loop_depth.stop)
         except Exception:
             pass
 
@@ -428,11 +630,15 @@ def loop_par(par, intervalo_min, simulacao):
     while True:
         time.sleep(intervalo_min * 60)
         try:
-            # CVD: BTC usa WebSocket, ETH e outros usam None (opcional)
+            # CVD/OBI: BTC usa WebSocket, ETH e outros usam None (opcional)
             cvd_snap = None
+            historico_ticks_snap = None
+            obi_snap = None
             if par == "BTCUSDT":
                 with _lock:
                     cvd_snap = cvd_btc
+                historico_ticks_snap = obter_historico_ticks_btc()
+                obi_snap = obter_obi_suavizado()
 
             # Ensemble ML
             ensemble_result = None
@@ -449,10 +655,20 @@ def loop_par(par, intervalo_min, simulacao):
                     pass
 
             resultado = analisar_otimizada(
-                symbol=par, cvd_atual=cvd_snap, ml_prob=ml_prob, ensemble_result=ensemble_result
+                symbol=par,
+                cvd_atual=cvd_snap,
+                ml_prob=ml_prob,
+                ensemble_result=ensemble_result,
+                historico_ticks=historico_ticks_snap,
+                obi=obi_snap,
             )
             imprimir_otimizada(
-                symbol=par, cvd_atual=cvd_snap, ml_prob=ml_prob, ensemble_result=ensemble_result
+                symbol=par,
+                cvd_atual=cvd_snap,
+                ml_prob=ml_prob,
+                ensemble_result=ensemble_result,
+                historico_ticks=historico_ticks_snap,
+                obi=obi_snap,
             )
 
             try:
@@ -669,6 +885,7 @@ def main():
         import health as _health
 
         _health.registrar_ws_state(ws_state)  # P1: /ready enxerga WS zumbi
+        _health.registrar_ws_state_depth(ws_state_depth)  # P1-1: idem p/ @depth (OBI)
         start_health_server(role="worker")
         print("[HEALTH] Servidor /health ativo.")
     if args.real and not ALLOW_REAL_TRADING:
@@ -720,6 +937,7 @@ def main():
 
     try:
         iniciar_websocket_async()
+        iniciar_websocket_depth_async()
         # time.sleep (nao Event.wait) porque no Windows o sleep e interrompido
         # pelo evento de console (CTRL_C/BREAK do NSSM), permitindo ao handler
         # rodar e ao path gracioso executar. Event.wait bloqueia em C e atrasa

@@ -179,19 +179,37 @@ Proteções de execução (`executor.py`, todas só em modo real):
 - `lstm_modelo.py` — **MLP do sklearn** (nome "LSTM" é histórico; não é LSTM real)
 - `ensemble.py` — Ensemble ponderado XGBoost 55% + MLP 45%, ajuste por regime + FSRS
 - `fsrs_trading.py` — Filtro adaptativo (padrões com bom histórico)
-- `score.py` — Score unificado 0-100 (10 componentes; ≥60 opera reduzido, ≥70 cheio)
+- `score.py` — Score unificado 0-100 (11 componentes; ≥60 opera reduzido, ≥70 cheio).
+  CVD (7%) e OBI (8%) — ver seção CVD/OBI/WebSocket abaixo — só têm dado real
+  para BTCUSDT; demais pares operam com esses dois componentes neutros (50).
 - Retreino automático domingo 02h. `lgbm_modelo.py` (LightGBM) aposentado (órfão).
 
-## CVD / WebSocket
+## CVD / OBI / WebSocket
 
-- Fonte: WS `@aggTrade` do mercado spot. O parser usa `data["a"]` (aggregate
-  trade id) — **NÃO `data["t"]`** (bug histórico que zerava o CVD; ver
-  `tests/test_process_message.py`).
-- Watchdog: `/ready` (worker) acusa `degraded` se o WS não recebe mensagem há
-  >120s (`health.registrar_ws_state`) — pega conexão zumbi/CVD congelado.
-- Shutdown gracioso: `main.py` trata SIGTERM/SIGINT/SIGBREAK. No Linux/systemd
-  o path gracioso roda completo; no Windows/NSSM o processo termina prontamente
-  (CVD re-acumula do stream no restart).
+- CVD: WS `@aggTrade` do mercado spot (BTCUSDT). O parser usa `data["a"]`
+  (aggregate trade id) — **NÃO `data["t"]`** (bug histórico que zerava o CVD;
+  ver `tests/test_process_message.py`). `main.py` mantém tanto os
+  acumuladores escalares (`cvd_btc`/`total_compras`/`total_vendas`) quanto um
+  buffer rolante dos últimos 200 ticks brutos (`obter_historico_ticks_btc()`),
+  repassado a `score._score_cvd()` via `historico_ticks` — sem esse buffer o
+  componente CVD do score ficava sempre neutro em produção (P1-1).
+- OBI (Order Book Imbalance, P1-1): 2ª conexão WS independente, Partial Book
+  Depth Stream `@depth20@100ms` — cada mensagem já traz o top-20 completo
+  (não é diff), então **não** precisa do protocolo de sincronização
+  snapshot+`U`/`u`/`pu` do diff-depth stream da Binance. `main.obter_obi_suavizado()`
+  retorna a média móvel de 30 mensagens (~3s), `None` se stale (>120s) ou sem
+  dado — degrada o componente `_score_obi()` para neutro (50) em vez de
+  reportar um valor obsoleto.
+- Watchdog: `/ready` (worker) acusa `degraded` (503) se o WS `@aggTrade` não
+  recebe mensagem há >120s (`health.registrar_ws_state`) — pega conexão
+  zumbi/CVD congelado. O WS `@depth` tem watchdog próprio
+  (`health.registrar_ws_state_depth`) mas **só informativo** no payload
+  (`obi_stream_ok`) — não derruba `/ready`, já que OBI é um componente
+  suplementar do score (8%), não crítico como o preço/CVD.
+- Shutdown gracioso: `main.py` trata SIGTERM/SIGINT/SIGBREAK, para ambos os
+  loops assíncronos (`_ws_loop`/`_ws_loop_depth`). No Linux/systemd o path
+  gracioso roda completo; no Windows/NSSM o processo termina prontamente
+  (CVD/OBI re-acumulam do stream no restart).
 
 ## Segurança
 

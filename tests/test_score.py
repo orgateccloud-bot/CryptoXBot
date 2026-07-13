@@ -60,6 +60,7 @@ def test_pesos_chaves_esperadas():
     esperadas = {
         "regime",
         "cvd",
+        "obi",
         "mtf",
         "ml",
         "ema",
@@ -916,6 +917,53 @@ def test_score_cvd_nao_chama_calculate_cvd_se_curto(monkeypatch):
     assert score._score_cvd(100.0, _ticks([100, 101, 102]), periodo=50) == 50
 
 
+def test_score_cvd_integracao_real_sem_mock_nao_crasha():
+    # Regressao: todos os outros testes de _score_cvd mockam calculate_cvd,
+    # entao nenhum exercitava a fronteira real -- ela crashava com
+    # KeyError('quantity') porque historico_ticks usa preco/quantidade
+    # (portugues) e calculate_cvd espera price/quantity/timestamp (ingles).
+    # Roda a funcao real (sem monkeypatch) para travar essa correcao.
+    precos = [100.0 + i * 0.5 for i in range(60)]
+    resultado = score._score_cvd(precos[-1], _ticks(precos), periodo=50)
+    assert isinstance(resultado, int)
+    assert 0 <= resultado <= 100
+
+
+# ---------------------------------------------------------------------------
+# _score_obi — Order Book Imbalance (P1-1)
+# ---------------------------------------------------------------------------
+
+
+def test_score_obi_none_retorna_neutro():
+    assert score._score_obi(None) == 50
+
+
+def test_score_obi_zero_retorna_neutro():
+    assert score._score_obi(0.0) == 50
+
+
+def test_score_obi_maximo_comprador_satura_100():
+    assert score._score_obi(1.0) == 100
+
+
+def test_score_obi_maximo_vendedor_satura_0():
+    assert score._score_obi(-1.0) == 0
+
+
+def test_score_obi_valor_intermediario_mapeamento_linear():
+    # obi=0.5 -> (0.5+1)/2*100 = 75
+    assert score._score_obi(0.5) == 75
+    # obi=-0.5 -> (−0.5+1)/2*100 = 25
+    assert score._score_obi(-0.5) == 25
+
+
+def test_score_obi_fora_do_range_e_clampado():
+    # nao deveria acontecer na pratica (main.py ja clampa antes de guardar),
+    # mas _score_obi tem seu proprio guard de defesa em profundidade.
+    assert score._score_obi(5.0) == 100
+    assert score._score_obi(-5.0) == 0
+
+
 # ---------------------------------------------------------------------------
 # calcular(...) — integração de branches adicionais
 # ---------------------------------------------------------------------------
@@ -1052,6 +1100,16 @@ def test_calcular_cvd_integrado_via_mock(monkeypatch):
     )
     assert res["scores"]["cvd"] == 100
     assert 0 <= res["score_total"] <= 100
+
+
+def test_calcular_obi_repassado_afeta_score_e_scores():
+    sem_obi = score.calcular(**_inputs_base(preco=100.0))
+    assert sem_obi["scores"]["obi"] == 50
+
+    com_obi = score.calcular(**_inputs_base(preco=100.0, obi=1.0))
+    assert com_obi["scores"]["obi"] == 100
+    # peso de obi (8) deve mover score_total em ~ (100-50)*8/100 = 4 pontos
+    assert com_obi["score_total"] == sem_obi["score_total"] + round(50 * score.PESOS["obi"] / 100)
 
 
 def test_calcular_pesos_nao_mutados_entre_chamadas():

@@ -47,12 +47,27 @@ def _resetar_estado():
     main.total_vendas = 0.0
     main.preco_atual = 0.0
     main.ws_state["last_trade_id"] = 0
+    main._historico_ticks_btc.clear()
+    main._obi_historico.clear()
+    main.ws_state_depth["connected"] = False
+    main.ws_state_depth["last_message_time"] = 0.0
+    main.ws_state_depth["latency_ms"] = 0.0
     yield
 
 
 def _processar(msg):
     with patch("main.database.salvar_trade"):
         asyncio.run(main.process_message(msg))
+
+
+def _processar_depth(msg):
+    asyncio.run(main.process_depth_message(msg))
+    main.ws_state_depth["last_message_time"] = main.time.time()
+
+
+def _msg_depth(bids, asks):
+    """Payload real do Partial Book Depth Stream (@depthN@100ms)."""
+    return json.dumps({"lastUpdateId": 1, "bids": bids, "asks": asks})
 
 
 def test_aggtrade_compra_acumula_cvd_positivo():
@@ -92,6 +107,95 @@ def test_sequencia_mista_cvd_liquido():
     assert main.cvd_btc == pytest.approx(0.7)
     assert main.total_compras == pytest.approx(1.1)
     assert main.total_vendas == pytest.approx(0.4)
+
+
+# ── P1-1: buffer de historico_ticks para o componente CVD do score ──────────
+
+
+def test_process_message_alimenta_historico_ticks():
+    _processar(_msg_aggtrade(1, 63000.0, 0.5, is_buyer_maker=False))
+    ticks = main.obter_historico_ticks_btc()
+    assert ticks == [{"preco": 63000.0, "is_buyer_maker": False, "quantidade": 0.5}]
+
+
+def test_historico_ticks_preserva_ordem_e_direcao():
+    _processar(_msg_aggtrade(1, 63000.0, 1.0, is_buyer_maker=False))
+    _processar(_msg_aggtrade(2, 63010.0, 0.4, is_buyer_maker=True))
+    ticks = main.obter_historico_ticks_btc()
+    assert [t["quantidade"] for t in ticks] == [1.0, 0.4]
+    assert [t["is_buyer_maker"] for t in ticks] == [False, True]
+
+
+def test_historico_ticks_respeita_maxlen_200():
+    for i in range(1, 251):
+        _processar(_msg_aggtrade(i, 63000.0 + i, 0.01, is_buyer_maker=False))
+    ticks = main.obter_historico_ticks_btc()
+    assert len(ticks) == 200
+    # mantem os 200 MAIS RECENTES (descarta os mais antigos primeiro)
+    assert ticks[0]["preco"] == pytest.approx(63000.0 + 51)
+    assert ticks[-1]["preco"] == pytest.approx(63000.0 + 250)
+
+
+def test_obter_historico_ticks_btc_retorna_copia_independente():
+    _processar(_msg_aggtrade(1, 63000.0, 0.5, is_buyer_maker=False))
+    ticks = main.obter_historico_ticks_btc()
+    ticks.append({"preco": 0.0, "is_buyer_maker": False, "quantidade": 0.0})
+    assert len(main.obter_historico_ticks_btc()) == 1  # mutar a copia nao afeta o buffer
+
+
+def test_historico_ticks_vazio_antes_de_qualquer_mensagem():
+    assert main.obter_historico_ticks_btc() == []
+
+
+# ── P1-1: @depth / OBI ────────────────────────────────────────────────────
+
+
+def test_process_depth_message_calcula_obi():
+    # bid=15, ask=5 -> (15-5)/20 = 0.5
+    _processar_depth(_msg_depth([["100.0", "10"], ["99.0", "5"]], [["101.0", "5"]]))
+    assert main.obter_obi_suavizado() == pytest.approx(0.5)
+
+
+def test_process_depth_message_totalmente_vendedor():
+    _processar_depth(_msg_depth([], [["101.0", "10"]]))
+    assert main.obter_obi_suavizado() == pytest.approx(-1.0)
+
+
+def test_process_depth_message_sem_liquidez_nenhuma_e_zero():
+    _processar_depth(_msg_depth([], []))
+    assert main.obter_obi_suavizado() == pytest.approx(0.0)
+
+
+def test_obi_suaviza_entre_mensagens_opostas():
+    _processar_depth(_msg_depth([["100.0", "10"]], []))  # obi=+1.0
+    _processar_depth(_msg_depth([], [["101.0", "10"]]))  # obi=-1.0
+    # media das duas: 0.0, nao um salto direto para -1.0
+    assert main.obter_obi_suavizado() == pytest.approx(0.0)
+
+
+def test_obi_respeita_janela_de_suavizacao():
+    for _ in range(main.OBI_JANELA_SUAVIZACAO):
+        _processar_depth(_msg_depth([["100.0", "1"]], []))  # obi=+1.0 x N
+    assert main.obter_obi_suavizado() == pytest.approx(1.0)
+    _processar_depth(_msg_depth([], [["101.0", "1"]]))  # 1 mensagem obi=-1.0
+    # janela cheia: a mais antiga (+1.0) sai, entra -1.0 -> media desloca
+    esperado = ((main.OBI_JANELA_SUAVIZACAO - 1) * 1.0 + (-1.0)) / main.OBI_JANELA_SUAVIZACAO
+    assert main.obter_obi_suavizado() == pytest.approx(esperado)
+
+
+def test_obi_none_antes_de_qualquer_mensagem():
+    assert main.obter_obi_suavizado() is None
+
+
+def test_obi_none_quando_stream_stale():
+    # Regressao: uma conexao morta com o buffer ainda cheio de dados ANTIGOS
+    # nao pode retornar um OBI plausivel-porem-obsoleto -- deve degradar
+    # para None (neutro no score), igual ao caso "sem dado nenhum".
+    _processar_depth(_msg_depth([["100.0", "10"]], []))
+    assert main.obter_obi_suavizado() == pytest.approx(1.0)  # fresco: ok
+
+    main.ws_state_depth["last_message_time"] = main.time.time() - (main.OBI_STALE_SEGUNDOS + 1)
+    assert main.obter_obi_suavizado() is None  # stale: degrada para None
 
 
 # ── C-7: encerramento gracioso (signal handlers) ─────────────────────────────

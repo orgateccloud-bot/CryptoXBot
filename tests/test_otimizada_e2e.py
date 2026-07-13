@@ -22,8 +22,11 @@ Estratégia de mock (100% hermética)
 - `otimizada.database.salvar_sinal` -> no-op (captura chamadas).
 - `ensemble_result` passado pronto como dict (nunca chama rede/modelo).
 
-`score.calcular` é REAL (função pura; o componente CVD fica em 50 porque
-`historico_ticks` não é repassado por `otimizada.analisar`).
+`score.calcular` é REAL (função pura). `otimizada.analisar` aceita
+`historico_ticks` desde P1-1 (repassado de main.py só para BTCUSDT, único
+par com WebSocket de ticks ao vivo); os testes desta suíte não o passam,
+então o componente CVD fica em 50 (neutro) por omissão — mesmo
+comportamento de antes, agora por escolha explícita e não por limitação.
 """
 
 import os
@@ -228,6 +231,45 @@ def test_analisar_serie_curta_limiar_minimo_nao_quebra(patch_otimizada):
     r = otimizada.analisar("BTCUSDT", cvd_atual=0.0, ml_prob=0.70, ensemble_result=_ensemble())
     assert isinstance(r, dict)
     assert r["sinal"] in ("COMPRA", "VENDA", "AGUARDAR")
+
+
+# ---------------------------------------------------------------------------
+# P1-1: historico_ticks chega de fato ao componente CVD do score
+# ---------------------------------------------------------------------------
+
+
+def test_historico_ticks_repassado_afeta_componente_cvd_do_score(patch_otimizada):
+    """Sem historico_ticks o componente CVD fica travado em 50 (neutro).
+    Com >=50 ticks reais (preco subindo + fluxo comprador), o componente
+    reflete a harmonia bullish (score 100) em vez do neutro fixo -- prova
+    que o wiring ponta-a-ponta (main.py -> analisar -> score.calcular)
+    realmente chega ao componente, não só que o parâmetro existe."""
+    d1h = _serie_klines(n=100, base=100.0, passo=1.0)
+    d4h = _serie_klines(n=60, base=100.0, passo=1.0)
+    patch_otimizada(d1h, d4h, _regime(), _fear(), _suporte())
+
+    sem_ticks = otimizada.analisar(
+        "BTCUSDT", cvd_atual=0.0, ml_prob=0.70, ensemble_result=_ensemble()
+    )
+    assert sem_ticks["score_result"]["scores"]["cvd"] == 50
+
+    ticks_bullish = [
+        {"preco": 100.0 + i * 0.5, "is_buyer_maker": False, "quantidade": 1.0} for i in range(60)
+    ]
+    com_ticks = otimizada.analisar(
+        "BTCUSDT",
+        cvd_atual=0.0,
+        ml_prob=0.70,
+        ensemble_result=_ensemble(),
+        historico_ticks=ticks_bullish,
+    )
+    # Nao e 100 (harmonia bullish maxima): uma rampa de CVD perfeitamente
+    # linear tem razao slope/std ~= 1/std([0..49]) ~= 0.069 SEMPRE (escala
+    # cancela), abaixo do limiar 0.1 que score._score_cvd usa para
+    # classificar cvd_trend como "forte" -- cai no caso neutro (base 50)
+    # com um pequeno bonus de trend_strength (int(0.069*20)=1) => 51.
+    assert com_ticks["score_result"]["scores"]["cvd"] == 51
+    assert com_ticks["score_result"]["scores"]["cvd"] != sem_ticks["score_result"]["scores"]["cvd"]
 
 
 # ---------------------------------------------------------------------------

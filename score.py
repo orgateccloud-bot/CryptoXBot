@@ -3,17 +3,23 @@ Score Unificado 0-100 — BotBinance
 =====================================
 Combina todos os filtros e sinais em um unico score ponderado.
 
-Pesos por componente:
-  Regime de Mercado  20%  — filtro mais importante (macro)
-  CVD Divergence     15%  — fluxo de agressao vs price action (novo componente pesado)
-  Multi-Timeframe    15%  — confirmacao em 4H
-  ML XGBoost         12%  — modelo preditivo
-  EMA Alinhadas      10%  — tendencia de curto prazo
-  Fear & Greed       10%  — sentimento de mercado
-  RSI                 8%  — momentum
-  VWAP                5%  — preco vs media ponderada por volume
-  Volume              3%  — forca do movimento
-  ATR                 2%  — volatilidade adequada
+Pesos por componente (ver dict PESOS abaixo -- fonte da verdade; a lista
+aqui e so documentacao e precisa bater com o dict, ha um teste guard
+test_pesos_somam_100 em tests/test_score.py):
+  Regime de Mercado   18%  — filtro mais importante (macro)
+  ML XGBoost          20%  — modelo preditivo (ensemble)
+  Multi-Timeframe     12%  — confirmacao em 4H
+  OBI                  8%  — Order Book Imbalance, pressao PASSIVA no livro
+                             (P1-1; ortogonal ao CVD -- alinhamento dos dois
+                             sinais reforca a convicção via soma ponderada)
+  EMA Alinhadas         8%  — tendencia de curto prazo
+  Fear & Greed          8%  — sentimento de mercado
+  RSI                   8%  — momentum
+  CVD Divergence        7%  — fluxo de agressao vs price action (compradores/
+                             vendedores que CRUZAM o book, "agressivo")
+  VWAP                  5%  — preco vs media ponderada por volume
+  Volume                4%  — forca do movimento
+  ATR                   2%  — volatilidade adequada
 
 Regras:
   score >= 70  → OPERAR com tamanho cheio
@@ -40,10 +46,13 @@ SCORE_OPERAR = 60  # score minimo para operar
 SCORE_CHEIO = 70  # score para tamanho cheio
 SCORE_REDUZIDO = 60  # score para tamanho 50%
 
-# Pesos (somam 100)
+# Pesos (somam 100 -- guard: tests/test_score.py::test_pesos_somam_100)
 PESOS = {
     "regime": 18,  # -2 (continua filtro macro principal)
-    "cvd": 15,  # = (fluxo institucional, peso mantido)
+    "cvd": 7,  # -8 (P1-1: metade do peso de "fluxo" migra para obi abaixo --
+    # cvd+obi somados = 15, o peso de "fluxo" que cvd tinha sozinho antes)
+    "obi": 8,  # NOVO (P1-1): Order Book Imbalance, pressão passiva no livro,
+    # ortogonal ao cvd (agressivo) -- ver docstring do módulo
     "mtf": 12,  # -3 (confirmação multi-TF)
     "ml": 20,  # +8 (ensemble XGBoost+MLP validado, peso elevado)
     "ema": 8,  # -2 (tendência curto prazo)
@@ -101,11 +110,31 @@ def _score_cvd(preco_atual, historico_ticks, periodo=50):
     if not historico_ticks or len(historico_ticks) < periodo:
         return 50  # neutro sem dados suficientes
 
+    ticks_janela = historico_ticks[-periodo:]
+
+    # calculate_cvd() espera o contrato em ingles (price/quantity/timestamp),
+    # mas historico_ticks segue a convencao em portugues ja documentada acima
+    # (preco/is_buyer_maker/quantidade, sem timestamp) -- sem esta traducao,
+    # calculate_cvd lanca KeyError('quantity') (bug real, confirmado rodando
+    # o codigo: qualquer chamador que de fato populasse historico_ticks, como
+    # backtesting/motor.py, ja crashava aqui). timestamp nao e consumido por
+    # este metodo (so os campos divergence_score/trend_strength do resultado
+    # sao usados abaixo), entao um indice sequencial serve de placeholder.
+    ticks_traduzidos = [
+        {
+            "price": t["preco"],
+            "quantity": t["quantidade"],
+            "is_buyer_maker": t["is_buyer_maker"],
+            "timestamp": i,
+        }
+        for i, t in enumerate(ticks_janela)
+    ]
+
     # Usar CVD calculator vetorizado
-    cvd_result = calculate_cvd(historico_ticks[-periodo:], window_size=periodo)
+    cvd_result = calculate_cvd(ticks_traduzidos, window_size=periodo)
 
     # Calcular slope do preço
-    precos = np.array([t["preco"] for t in historico_ticks[-periodo:]])
+    precos = np.array([t["preco"] for t in ticks_janela])
     x = np.arange(len(precos))
     preco_slope = np.polyfit(x, precos, 1)[0]
 
@@ -133,6 +162,29 @@ def _score_cvd(preco_atual, historico_ticks, periodo=50):
     final_score = min(100, base_score + strength_bonus)
 
     return final_score
+
+
+def _score_obi(obi_suavizado):
+    """0-100 a partir do Order Book Imbalance suavizado (P1-1).
+
+    obi_suavizado: (volume_bid - volume_ask) / (volume_bid + volume_ask)
+    médio na janela de suavização (main.obter_obi_suavizado()), em [-1, 1].
+    None (sem dado -- ex: WebSocket @depth ainda não recebeu nenhuma
+    mensagem) retorna 50, mesma convenção de "sem dado" dos outros
+    componentes (regime/mtf/cvd).
+
+    Mapeamento linear e simétrico: obi=+1 (livro 100% comprador) -> 100;
+    obi=0 (livro equilibrado) -> 50; obi=-1 (livro 100% vendedor) -> 0.
+    Sem lógica especial de "confirmação" do CVD aqui -- o alinhamento
+    OBI+CVD (pressão passiva no livro + fluxo agressivo na mesma direção)
+    emerge da soma ponderada em calcular() quando os dois componentes
+    concordam, consistente com todo componente sendo independente e
+    combinado só no final (mesmo padrão dos demais _score_*).
+    """
+    if obi_suavizado is None:
+        return 50
+    obi_clamped = max(-1.0, min(1.0, obi_suavizado))
+    return round((obi_clamped + 1) / 2 * 100)
 
 
 def _score_mtf(tend_4h, tend_1h_dir=""):
@@ -260,6 +312,7 @@ def calcular(
     atr_atual,
     atr_media,
     historico_ticks=None,
+    obi=None,
     rsi_min=42,
     rsi_max=62,
     score_operar=60,
@@ -267,6 +320,9 @@ def calcular(
 ):
     """
     Calcula o score unificado 0-100.
+
+    obi: Order Book Imbalance suavizado (P1-1), em [-1,1] ou None sem dado
+    -- ver main.obter_obi_suavizado() e _score_obi().
 
     Retorna dict com:
       score_total:   0-100 (score final ponderado)
@@ -280,6 +336,7 @@ def calcular(
     scores_raw = {
         "regime": _score_regime(regime_info),
         "cvd": _score_cvd(preco, historico_ticks or []),
+        "obi": _score_obi(obi),
         "mtf": _score_mtf(tend_4h),
         "ml": _score_ml(ml_prob, regime_info.get("regime_final", "INDEFINIDO")),
         "ema": _score_ema(preco, ema20, ema50),

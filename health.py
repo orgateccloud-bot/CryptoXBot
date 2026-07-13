@@ -26,10 +26,25 @@ _server: ThreadingHTTPServer | None = None
 # ao /ready detectar WebSocket zumbi sem importar o modulo main.
 _ws_state_ref: dict[str, Any] | None = None
 
+# P1-1: referencia viva ao ws_state_depth (stream @depth, OBI) — mesma ideia
+# do ws_state acima, mas so INFORMATIVA no payload de /ready (nao gate a
+# prontidao): OBI e um componente suplementar do score (8% do peso), stale
+# so degrada esse componente para neutro (ver main.obter_obi_suavizado), nao
+# justifica marcar o worker inteiro como not-ready/reiniciar o servico, ao
+# contrario do @aggTrade (preco/CVD), que e critico para operar com dados
+# corretos.
+_ws_state_depth_ref: dict[str, Any] | None = None
+
 
 def registrar_ws_state(ref: dict[str, Any]) -> None:
     global _ws_state_ref
     _ws_state_ref = ref
+
+
+def registrar_ws_state_depth(ref: dict[str, Any]) -> None:
+    global _ws_state_depth_ref
+    _ws_state_depth_ref = ref
+
 
 # Contadores globais — atualizados pelas threads de trading
 _metrics: dict[str, float] = {
@@ -102,6 +117,7 @@ class HealthHandler(BaseHTTPRequestHandler):
 
         db_ok = True
         ws_ok = True
+        ws_depth_ok = True
         error = None
         if self.path == "/ready":
             try:
@@ -127,11 +143,30 @@ class HealthHandler(BaseHTTPRequestHandler):
                 except Exception:  # pragma: no cover - defensive
                     pass
 
+            # P1-1: stream @depth (OBI) — so INFORMATIVO (nao gate 'pronto').
+            # OBI e um componente suplementar do score (8%); stale so degrada
+            # esse componente para neutro (main.obter_obi_suavizado), nao
+            # justifica marcar o worker inteiro not-ready.
+            if self.role == "worker" and _ws_state_depth_ref is not None:
+                try:
+                    import time as _t
+
+                    idade_depth = _t.time() - float(
+                        _ws_state_depth_ref.get("last_message_time") or 0
+                    )
+                    ws_depth_ok = bool(_ws_state_depth_ref.get("connected")) and idade_depth < 120
+                    if not ws_depth_ok:
+                        error = (error or "") + f" ws_depth_stale={idade_depth:.0f}s"
+                except Exception:  # pragma: no cover - defensive
+                    pass
+
         pronto = db_ok and ws_ok
         status_code = 200 if pronto else 503
-        body = _payload(
-            "ok" if pronto else "degraded", self.role, db_ok, {"error": error} if error else None
-        )
+        extra = {"error": error} if error else None
+        if self.path == "/ready" and self.role == "worker":
+            extra = extra or {}
+            extra["obi_stream_ok"] = ws_depth_ok
+        body = _payload("ok" if pronto else "degraded", self.role, db_ok, extra)
 
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")

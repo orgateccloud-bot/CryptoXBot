@@ -28,7 +28,6 @@ import regime as reg
 import score as sc
 import suporte as sup
 from config.params_pares import get_params
-
 from config.runtime_settings import REST_BASE_URL
 
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
@@ -56,11 +55,26 @@ def _klines(intervalo, limite=100, symbol="BTCUSDT"):
     }
 
 
-def analisar(symbol="BTCUSDT", cvd_atual=None, ml_prob=None, ensemble_result=None):
+def analisar(
+    symbol="BTCUSDT",
+    cvd_atual=None,
+    ml_prob=None,
+    ensemble_result=None,
+    historico_ticks=None,
+    obi=None,
+):
     """
     Avalia a estratégia otimizada para o par especificado.
     ml_prob: probabilidade do XGBoost (retrocompat)
     ensemble_result: resultado do ensemble (XGB + LSTM)
+    historico_ticks: ticks brutos recentes (formato preco/is_buyer_maker/
+        quantidade) para o componente CVD do score (P1-1) -- None (default)
+        preserva o comportamento anterior (componente CVD neutro em 50).
+        Hoje só populado de verdade para BTCUSDT (único par com WebSocket
+        de ticks ao vivo em main.py).
+    obi: Order Book Imbalance suavizado (P1-1), em [-1,1] -- None (default)
+        preserva o componente OBI do score neutro em 50. Idem historico_ticks,
+        só populado para BTCUSDT (único par com WebSocket @depth ao vivo).
     """
     # Carregar parâmetros otimizados para o par
     p = get_params(symbol)
@@ -150,6 +164,8 @@ def analisar(symbol="BTCUSDT", cvd_atual=None, ml_prob=None, ensemble_result=Non
         vol_rel=vol_rel,
         atr_atual=atr_atual,
         atr_media=atr_media,
+        historico_ticks=historico_ticks,
+        obi=obi,
         rsi_min=RSI_MIN,
         rsi_max=RSI_MAX,
         score_operar=p["score_operar"],
@@ -274,8 +290,15 @@ def analisar(symbol="BTCUSDT", cvd_atual=None, ml_prob=None, ensemble_result=Non
     return resultado
 
 
-def imprimir(symbol="BTCUSDT", cvd_atual=None, ml_prob=None, ensemble_result=None):
-    r = analisar(symbol, cvd_atual, ml_prob, ensemble_result)
+def imprimir(
+    symbol="BTCUSDT",
+    cvd_atual=None,
+    ml_prob=None,
+    ensemble_result=None,
+    historico_ticks=None,
+    obi=None,
+):
+    r = analisar(symbol, cvd_atual, ml_prob, ensemble_result, historico_ticks, obi)
     verde = "\033[92m"
     vermelho = "\033[91m"
     amarelo = "\033[93m"

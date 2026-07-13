@@ -7,7 +7,10 @@ import json
 import os
 import sys
 import threading
+import time
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -171,3 +174,84 @@ class TestHealthHandlerRouting:
         with patch.dict("sys.modules", {"database": mock_db}):
             handler.do_GET()
         assert 503 in responses
+
+
+# ── Testes: watchdog @depth (OBI, P1-1) ────────────────────────────────────
+
+
+class TestReadyStreamDepth:
+    """/ready reporta o stream @depth (OBI) como informativo -- nunca gate
+    o status code, ao contrario do watchdog do stream @aggTrade."""
+
+    def _handler_capturando_corpo(self, path: str):
+        handler = health.HealthHandler.__new__(health.HealthHandler)
+        handler.path = path
+        handler.role = "worker"
+        responses = []
+        corpo = []
+
+        handler.send_response = lambda code: responses.append(code)
+        handler.send_header = lambda k, v: None
+        handler.end_headers = lambda: None
+        handler.wfile = MagicMock()
+        handler.wfile.write = lambda data: corpo.append(data)
+        return handler, responses, corpo
+
+    @pytest.fixture(autouse=True)
+    def _resetar_refs(self):
+        original_ws = health._ws_state_ref
+        original_depth = health._ws_state_depth_ref
+        yield
+        health._ws_state_ref = original_ws
+        health._ws_state_depth_ref = original_depth
+
+    def test_registrar_ws_state_depth_seta_a_referencia(self):
+        ref = {"connected": True, "last_message_time": 0.0}
+        health.registrar_ws_state_depth(ref)
+        assert health._ws_state_depth_ref is ref
+
+    def test_obi_stream_ok_true_quando_depth_fresco(self):
+        health.registrar_ws_state_depth({"connected": True, "last_message_time": time.time()})
+        mock_db = MagicMock()
+        mock_db.healthcheck.return_value = True
+        handler, responses, corpo = self._handler_capturando_corpo("/ready")
+        with patch.dict("sys.modules", {"database": mock_db}):
+            handler.do_GET()
+        payload = json.loads(corpo[0])
+        assert payload["obi_stream_ok"] is True
+        assert 200 in responses
+
+    def test_obi_stream_stale_nao_derruba_o_ready(self):
+        # depth stale (last_message_time bem antigo) NAO deve virar 503 --
+        # OBI e suplementar (8% do peso), stale so degrada o componente do
+        # score para neutro, nao o worker inteiro.
+        health.registrar_ws_state_depth(
+            {"connected": True, "last_message_time": time.time() - 1000}
+        )
+        mock_db = MagicMock()
+        mock_db.healthcheck.return_value = True
+        handler, responses, corpo = self._handler_capturando_corpo("/ready")
+        with patch.dict("sys.modules", {"database": mock_db}):
+            handler.do_GET()
+        payload = json.loads(corpo[0])
+        assert payload["obi_stream_ok"] is False
+        assert "ws_depth_stale" in (payload.get("error") or "")
+        assert 200 in responses  # NAO 503 -- so informativo
+
+    def test_sem_registrar_ws_state_depth_nao_quebra(self):
+        health._ws_state_depth_ref = None
+        mock_db = MagicMock()
+        mock_db.healthcheck.return_value = True
+        handler, responses, _ = self._handler_capturando_corpo("/ready")
+        with patch.dict("sys.modules", {"database": mock_db}):
+            handler.do_GET()
+        assert 200 in responses
+
+    def test_depth_stale_nao_afeta_health_simples(self):
+        # /health (liveness) nunca olha para nenhum ws_state -- so /ready faz.
+        health.registrar_ws_state_depth(
+            {"connected": False, "last_message_time": time.time() - 1000}
+        )
+        handler, responses, _ = self._handler_capturando_corpo("/health")
+        handler.do_GET()
+        assert 200 in responses
