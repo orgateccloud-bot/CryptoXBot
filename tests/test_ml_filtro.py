@@ -24,6 +24,7 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if RAIZ not in sys.path:
     sys.path.insert(0, RAIZ)
 
+import database  # noqa: E402
 import ml_filtro  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -267,3 +268,89 @@ def test_preparar_dataset_label_1_quando_alvo_atingido():
     # com tendência tão forte, todos os labels devem ser 1
     assert y.sum() == y.shape[0]
     assert y.shape[0] > 0
+
+
+# ---------------------------------------------------------------------------
+# verificar_drift_e_registrar (P1-4) — guard-rail leve de drift, sem MLflow
+# ---------------------------------------------------------------------------
+
+
+class TestVerificarDriftERegistrar:
+    def test_sem_drift_nao_dispara_bot_event_mas_registra_metrica(self, monkeypatch):
+        monkeypatch.setattr(database, "historico_cv_auc_modelo", lambda *a, **k: [0.6, 0.61, 0.6])
+        eventos = []
+        metricas = []
+        monkeypatch.setattr(database, "salvar_bot_event", lambda *a, **k: eventos.append((a, k)))
+        monkeypatch.setattr(
+            database, "salvar_metricas_modelo", lambda *a, **k: metricas.append((a, k))
+        )
+        ml_filtro.verificar_drift_e_registrar("BTCUSDT", "XGBOOST", 0.65, 0.60, 0.02)
+        assert eventos == []
+        assert metricas == [(("BTCUSDT", "XGBOOST", 0.65, 0.60, 0.02), {})]
+
+    def test_drift_dispara_bot_event_com_severidade_warning(self, monkeypatch):
+        monkeypatch.setattr(database, "historico_cv_auc_modelo", lambda *a, **k: [0.6, 0.61, 0.6])
+        eventos = []
+        monkeypatch.setattr(database, "salvar_bot_event", lambda *a, **k: eventos.append((a, k)))
+        monkeypatch.setattr(database, "salvar_metricas_modelo", lambda *a, **k: None)
+        # 0.40 esta abaixo do piso absoluto (0.52) -> drift garantido
+        ml_filtro.verificar_drift_e_registrar("BTCUSDT", "XGBOOST", 0.45, 0.40, 0.02)
+        assert len(eventos) == 1
+        args, kwargs = eventos[0]
+        assert args[0] == "model_drift"
+        assert kwargs["severity"] == "WARNING"
+        assert kwargs["symbol"] == "BTCUSDT"
+
+    def test_drift_ainda_assim_registra_a_metrica(self, monkeypatch):
+        # Alert-only: mesmo com drift, o retreino NAO e bloqueado -- a
+        # metrica do retreino atual sempre entra no historico.
+        monkeypatch.setattr(database, "historico_cv_auc_modelo", lambda *a, **k: [0.6, 0.61, 0.6])
+        monkeypatch.setattr(database, "salvar_bot_event", lambda *a, **k: None)
+        metricas = []
+        monkeypatch.setattr(
+            database, "salvar_metricas_modelo", lambda *a, **k: metricas.append((a, k))
+        )
+        ml_filtro.verificar_drift_e_registrar("BTCUSDT", "XGBOOST", 0.45, 0.40, 0.02)
+        assert len(metricas) == 1
+
+    def test_historico_consultado_com_symbol_e_modelo_tipo_corretos(self, monkeypatch):
+        chamadas = []
+        monkeypatch.setattr(
+            database,
+            "historico_cv_auc_modelo",
+            lambda symbol, modelo_tipo, **k: chamadas.append((symbol, modelo_tipo)) or [],
+        )
+        monkeypatch.setattr(database, "salvar_bot_event", lambda *a, **k: None)
+        monkeypatch.setattr(database, "salvar_metricas_modelo", lambda *a, **k: None)
+        ml_filtro.verificar_drift_e_registrar("ETHUSDT", "MLP", 0.6, 0.58, 0.02)
+        assert chamadas == [("ETHUSDT", "MLP")]
+
+    def test_falha_no_banco_nao_propaga_excecao(self, monkeypatch):
+        # Nunca pode derrubar o retreino/salvamento do modelo por causa de
+        # uma falha ao checar/registrar drift.
+        def _boom(*a, **k):
+            raise RuntimeError("banco indisponivel")
+
+        monkeypatch.setattr(database, "historico_cv_auc_modelo", _boom)
+        # nao deve lançar
+        ml_filtro.verificar_drift_e_registrar("BTCUSDT", "XGBOOST", 0.6, 0.58, 0.02)
+
+    def test_cv_mean_none_nao_dispara_drift_mas_ainda_registra(self, monkeypatch):
+        # purged CV sem dados suficientes (cv_mean=None) -- sem base para
+        # comparar, mas o retreino ainda registra sua metrica (auc=None
+        # tambem possivel, cv_auc_mean/std=None).
+        monkeypatch.setattr(database, "historico_cv_auc_modelo", lambda *a, **k: [0.6, 0.6, 0.6])
+        eventos = []
+        metricas = []
+        monkeypatch.setattr(database, "salvar_bot_event", lambda *a, **k: eventos.append((a, k)))
+        monkeypatch.setattr(
+            database, "salvar_metricas_modelo", lambda *a, **k: metricas.append((a, k))
+        )
+        ml_filtro.verificar_drift_e_registrar("BTCUSDT", "XGBOOST", 0.6, None, None)
+        assert eventos == []
+        assert len(metricas) == 1
+
+    def test_lstm_modelo_reusa_a_mesma_funcao_sem_duplicar(self):
+        import lstm_modelo
+
+        assert lstm_modelo.verificar_drift_e_registrar is ml_filtro.verificar_drift_e_registrar

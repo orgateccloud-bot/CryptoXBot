@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from validacao import purged_cv_auc, purged_kfold_indices, split_holdout_purgado
+from validacao import detectar_drift, purged_cv_auc, purged_kfold_indices, split_holdout_purgado
 
 # ── purged_kfold_indices ─────────────────────────────────────────────────────
 
@@ -111,3 +111,57 @@ def test_cv_auc_pula_folds_sem_as_duas_classes():
 
     aucs = purged_cv_auc(lambda: LogisticRegression(), X, y, n_splits=5, horizonte=4)
     assert aucs == []
+
+
+# ── detectar_drift (P1-4) ────────────────────────────────────────────────────
+
+
+def test_drift_cv_auc_none_nunca_alarma():
+    assert detectar_drift(None, [0.5, 0.6, 0.7]) == (False, None)
+    assert detectar_drift(None, []) == (False, None)
+
+
+def test_drift_sem_historico_suficiente_so_piso_absoluto_conta():
+    # historico vazio/curto -> teste RELATIVO nao roda, so o piso absoluto
+    assert detectar_drift(0.60, []) == (False, None)
+    assert detectar_drift(0.60, [0.55, 0.58]) == (False, None)  # 2 < min_historico=3
+
+
+def test_drift_piso_absoluto_dispara_mesmo_sem_historico():
+    houve, motivo = detectar_drift(0.40, [])
+    assert houve is True
+    assert "piso absoluto" in motivo
+
+
+def test_drift_piso_absoluto_e_exclusivo_na_borda():
+    # exatamente no piso (0.52) NAO conta como abaixo -- so < piso dispara
+    assert detectar_drift(0.52, [])[0] is False
+    assert detectar_drift(0.5199, [])[0] is True
+
+
+def test_drift_relativo_dispara_abaixo_do_limiar():
+    historico = [0.60, 0.61, 0.59, 0.60]  # media=0.60, std~0.0082 -> floor 0.01
+    # limiar = 0.60 - 2*0.01 = 0.58
+    houve, motivo = detectar_drift(0.579, historico)
+    assert houve is True
+    assert "limiar de drift" in motivo
+
+
+def test_drift_relativo_nao_dispara_acima_do_limiar():
+    historico = [0.60, 0.61, 0.59, 0.60]
+    assert detectar_drift(0.581, historico) == (False, None)
+
+
+def test_drift_std_minimo_evita_falso_positivo_com_historico_identico():
+    # historico com variancia ZERO -- sem o piso std_minimo, qualquer queda
+    # infinitesimal dispararia; com o piso (0.01), uma queda pequena nao deve.
+    historico = [0.60, 0.60, 0.60, 0.60]
+    assert detectar_drift(0.595, historico) == (False, None)  # dentro de 1 std_minimo
+    assert detectar_drift(0.579, historico)[0] is True  # abaixo de 0.60 - 2*0.01
+
+
+def test_drift_ignora_none_no_historico():
+    historico = [0.60, None, 0.61, None, 0.59, 0.60]
+    # deveria se comportar identico a [0.60, 0.61, 0.59, 0.60]
+    assert detectar_drift(0.579, historico)[0] is True
+    assert detectar_drift(0.581, historico) == (False, None)

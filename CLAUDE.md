@@ -185,6 +185,14 @@ Proteções de execução (`executor.py`, todas só em modo real):
   CVD (7%) e OBI (8%) — ver seção CVD/OBI/WebSocket abaixo — só têm dado real
   para BTCUSDT; demais pares operam com esses dois componentes neutros (50).
 - Retreino automático domingo 02h. `lgbm_modelo.py` (LightGBM) aposentado (órfão).
+- **Guard-rail de drift (P1-4, sem MLflow)**: cada retreino registra AUC/`cv_auc_mean`
+  em `model_metricas` (`database.salvar_metricas_modelo`) e compara contra o
+  histórico recente do mesmo symbol/modelo_tipo (`validacao.detectar_drift` —
+  piso absoluto de AUC ou queda de 2 desvios-padrão vs a média histórica).
+  Detectar drift só **alerta** (`bot_events`, severity=WARNING) — nunca
+  bloqueia o retreino automático, decisão explícita do usuário. Lógica
+  compartilhada via `ml_filtro.verificar_drift_e_registrar()`, reusada por
+  `lstm_modelo.py`.
 
 ## CVD / OBI / WebSocket
 

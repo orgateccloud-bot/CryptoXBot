@@ -136,6 +136,39 @@ def preparar_dataset(intervalo="1h", symbol="BTCUSDT"):
     return np.array(X), np.array(y)
 
 
+# ── Guard-rail de drift (P1-4, sem MLflow) ─────────────────────
+
+
+def verificar_drift_e_registrar(symbol, modelo_tipo, auc, cv_mean, cv_std):
+    """Compara o AUC honesto (purged CV) do retreino atual contra o
+    historico recente do MESMO symbol/modelo_tipo (validacao.detectar_drift)
+    e ALERTA (bot_events) se houver drift -- nunca bloqueia o retreino
+    automatico de domingo, decisao explicita do usuario (ver
+    PLANO_MODERNIZACAO.md P1-4). Sempre registra a metrica do retreino,
+    mesmo quando nao ha drift. Excecoes sao engolidas (falha ao
+    checar/registrar nao pode derrubar o retreino nem o salvamento do
+    modelo). Reusado por lstm_modelo.py (mesma logica p/ o MLP)."""
+    try:
+        import database
+        from validacao import detectar_drift
+
+        historico = database.historico_cv_auc_modelo(symbol, modelo_tipo)
+        houve_drift, motivo_drift = detectar_drift(cv_mean, historico)
+        if houve_drift:
+            print(f"[ML] AVISO DE DRIFT: {motivo_drift}")
+            database.salvar_bot_event(
+                "model_drift",
+                motivo_drift,
+                service="worker",
+                symbol=symbol,
+                severity="WARNING",
+                data={"modelo_tipo": modelo_tipo, "cv_auc_mean": cv_mean, "auc": auc},
+            )
+        database.salvar_metricas_modelo(symbol, modelo_tipo, auc, cv_mean, cv_std)
+    except Exception as e:
+        print(f"[ML] AVISO: falha ao checar/registrar drift: {e}")
+
+
 # ── Treinar modelo ────────────────────────────────────────────
 
 
@@ -216,6 +249,8 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
     for n, v in imp:
         bar = "#" * int(v * 40)
         print(f"     {n:15s} {v:.4f} {bar}")
+
+    verificar_drift_e_registrar(symbol, "XGBOOST", auc, cv_mean, cv_std)
 
     os.makedirs("data", exist_ok=True)
     path = _model_path(symbol)

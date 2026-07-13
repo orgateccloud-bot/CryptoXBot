@@ -1,5 +1,6 @@
 """
-Validação de ML — Purged & Embargoed Cross-Validation (P0-1)
+Validação de ML — Purged & Embargoed Cross-Validation (P0-1) +
+Guard-rail de drift no retreino automático (P1-4)
 =============================================================
 Baseado em López de Prado, *Advances in Financial Machine Learning* (cap. 7).
 
@@ -16,6 +17,8 @@ Funções puras (só índices) — testáveis sem treinar modelo.
 """
 
 from __future__ import annotations
+
+import statistics
 
 import numpy as np
 
@@ -85,3 +88,59 @@ def purged_cv_auc(build_model, X, y, n_splits=5, horizonte=1, embargo=None):
         prob = modelo.predict_proba(X[te])[:, 1]
         aucs.append(float(roc_auc_score(y[te], prob)))
     return aucs
+
+
+def detectar_drift(
+    cv_auc_novo,
+    historico_cv_auc,
+    min_historico=3,
+    desvios=2.0,
+    piso_absoluto=0.52,
+    std_minimo=0.01,
+):
+    """
+    Guard-rail LEVE de drift para o retreino automático de domingo (P1-4) --
+    sem MLflow: só compara o AUC honesto (purged CV) do retreino atual contra
+    o histórico recente de retreinos do MESMO modelo/symbol
+    (database.historico_cv_auc_modelo). Alerta (não bloqueia) via
+    database.salvar_bot_event nos chamadores (ml_filtro.py/lstm_modelo.py).
+
+    Retorna (houve_drift: bool, motivo: str | None).
+
+    - cv_auc_novo is None (purged CV sem dados suficientes p/ 5 folds nesse
+      retreino) -> nada a comparar, (False, None).
+    - cv_auc_novo abaixo de `piso_absoluto` -> drift, INDEPENDENTE de
+      histórico (modelo perto de aleatório é sempre um alarme, mesmo no
+      1º retreino já registrado).
+    - histórico com menos de `min_historico` entradas -> sem base estatística
+      para o teste RELATIVO, (False, None) (o teste absoluto acima já rodou).
+    - cv_auc_novo abaixo de (média do histórico - `desvios` * desvio-padrão do
+      histórico) -> drift. `std_minimo` evita falso-positivo quando o
+      histórico por acaso teve variância ~0 (poucos retreinos idênticos).
+    """
+    if cv_auc_novo is None:
+        return False, None
+
+    if cv_auc_novo < piso_absoluto:
+        return (
+            True,
+            f"AUC (purged CV) {cv_auc_novo:.4f} abaixo do piso absoluto "
+            f"{piso_absoluto:.2f} (proximo de aleatorio)",
+        )
+
+    historico = [v for v in historico_cv_auc if v is not None]
+    if len(historico) < min_historico:
+        return False, None
+
+    media = statistics.mean(historico)
+    desvio = max(statistics.stdev(historico) if len(historico) >= 2 else 0.0, std_minimo)
+    limiar = media - desvios * desvio
+    if cv_auc_novo < limiar:
+        return (
+            True,
+            f"AUC (purged CV) {cv_auc_novo:.4f} abaixo do limiar de drift "
+            f"{limiar:.4f} (media historica {media:.4f} +/- {desvio:.4f}, "
+            f"{len(historico)} retreinos)",
+        )
+
+    return False, None

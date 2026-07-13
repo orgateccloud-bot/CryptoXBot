@@ -368,3 +368,59 @@ def test_conectar_pg_seguro_mascara_erro():
     except RuntimeError as e:
         assert "segredo" not in str(e)
         assert "***" in str(e)
+
+
+# ── Testes: model_metricas (P1-4, guard-rail de drift) ────────────────────────
+
+
+class TestSalvarMetricasModelo:
+    def test_grava_uma_linha(self, sqlite_tmp):
+        database.salvar_metricas_modelo("BTCUSDT", "XGBOOST", 0.62, 0.58, 0.03)
+        conn = _raw(sqlite_tmp)
+        row = conn.execute(
+            "SELECT symbol, modelo_tipo, auc, cv_auc_mean, cv_auc_std FROM model_metricas"
+        ).fetchone()
+        conn.close()
+        assert row == ("BTCUSDT", "XGBOOST", 0.62, 0.58, 0.03)
+
+    def test_symbol_normalizado_para_maiusculo(self, sqlite_tmp):
+        database.salvar_metricas_modelo("btcusdt", "XGBOOST", 0.6, 0.55, 0.02)
+        conn = _raw(sqlite_tmp)
+        row = conn.execute("SELECT symbol FROM model_metricas").fetchone()
+        conn.close()
+        assert row[0] == "BTCUSDT"
+
+    def test_aceita_cv_auc_none(self, sqlite_tmp):
+        # ml_filtro/lstm_modelo passam cv_auc_mean=None quando o purged CV
+        # nao teve dados suficientes p/ 5 folds -- nao pode lançar.
+        database.salvar_metricas_modelo("BTCUSDT", "MLP", 0.6, None, None)
+        conn = _raw(sqlite_tmp)
+        row = conn.execute("SELECT cv_auc_mean, cv_auc_std FROM model_metricas").fetchone()
+        conn.close()
+        assert row == (None, None)
+
+
+class TestHistoricoCvAucModelo:
+    def test_retorna_vazio_sem_historico(self, sqlite_tmp):
+        assert database.historico_cv_auc_modelo("BTCUSDT", "XGBOOST") == []
+
+    def test_retorna_mais_recente_primeiro(self, sqlite_tmp):
+        database.salvar_metricas_modelo("BTCUSDT", "XGBOOST", 0.6, 0.55, 0.02)
+        database.salvar_metricas_modelo("BTCUSDT", "XGBOOST", 0.62, 0.60, 0.02)
+        assert database.historico_cv_auc_modelo("BTCUSDT", "XGBOOST") == [0.60, 0.55]
+
+    def test_filtra_por_symbol_e_modelo_tipo(self, sqlite_tmp):
+        database.salvar_metricas_modelo("BTCUSDT", "XGBOOST", 0.6, 0.55, 0.02)
+        database.salvar_metricas_modelo("ETHUSDT", "XGBOOST", 0.6, 0.70, 0.02)
+        database.salvar_metricas_modelo("BTCUSDT", "MLP", 0.6, 0.80, 0.02)
+        assert database.historico_cv_auc_modelo("BTCUSDT", "XGBOOST") == [0.55]
+
+    def test_exclui_entradas_com_cv_auc_none(self, sqlite_tmp):
+        database.salvar_metricas_modelo("BTCUSDT", "XGBOOST", 0.6, None, None)
+        database.salvar_metricas_modelo("BTCUSDT", "XGBOOST", 0.62, 0.58, 0.02)
+        assert database.historico_cv_auc_modelo("BTCUSDT", "XGBOOST") == [0.58]
+
+    def test_respeita_limit(self, sqlite_tmp):
+        for i in range(5):
+            database.salvar_metricas_modelo("BTCUSDT", "XGBOOST", 0.6, 0.5 + i * 0.01, 0.02)
+        assert len(database.historico_cv_auc_modelo("BTCUSDT", "XGBOOST", limit=3)) == 3

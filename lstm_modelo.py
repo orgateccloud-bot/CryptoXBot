@@ -29,7 +29,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import indicadores as ind
-from ml_filtro import extrair_features
+from ml_filtro import extrair_features, verificar_drift_e_registrar
 
 MODEL_PATH = "data/modelo_lstm.pkl"
 DB_PATH = "data/btc_data.db"
@@ -202,6 +202,11 @@ def treinar(intervalo="1h", max_iter=200):
         print(f"      AUC purged CV (honesto): {cv_mean:.4f} ± {cv_std:.4f}")
     print(f"      Iteracoes: {modelo.n_iter_}")
     print(classification_report(y_te, y_pred, target_names=["Nao Sobe", "Sobe"]))
+
+    # P1-4: guard-rail LEVE de drift (sem MLflow) -- reusa a mesma logica de
+    # ml_filtro.py (MLP e um unico modelo global, SYMBOL="BTCUSDT" fixo,
+    # nao por par).
+    verificar_drift_e_registrar(SYMBOL, "MLP", float(auc), cv_mean, cv_std)
 
     os.makedirs("data", exist_ok=True)
     with open(MODEL_PATH, "wb") as f:

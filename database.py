@@ -218,6 +218,21 @@ def _inicializar_sqlite() -> None:
         )
         """)
 
+    # P1-4: historico de AUC por retreino (guard-rail de drift, sem MLflow —
+    # ver validacao.detectar_drift) -- um lineage por symbol+modelo_tipo,
+    # populado a cada retreino semanal (ml_filtro.py/lstm_modelo.py).
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS model_metricas (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT NOT NULL,
+            symbol      TEXT NOT NULL,
+            modelo_tipo TEXT NOT NULL,
+            auc         REAL,
+            cv_auc_mean REAL,
+            cv_auc_std  REAL
+        )
+        """)
+
     _sqlite_add_column(conn, "trades", "symbol", "TEXT DEFAULT 'BTCUSDT'")
     _sqlite_add_column(conn, "trades", "trade_id", "INTEGER")
     _sqlite_add_column(conn, "snapshots_mercado", "symbol", "TEXT DEFAULT 'BTCUSDT'")
@@ -242,6 +257,10 @@ def _inicializar_sqlite() -> None:
     c.execute("CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp ON sinais(symbol, timestamp)")
     c.execute(
         "CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp ON cvd_historico(symbol, timestamp)"
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_metricas_symbol_tipo "
+        "ON model_metricas(symbol, modelo_tipo, timestamp)"
     )
 
     conn.commit()
@@ -331,6 +350,17 @@ def _inicializar_postgres() -> None:
                 data       JSONB
             )
             """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_metricas (
+                id          BIGSERIAL PRIMARY KEY,
+                timestamp   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                symbol      TEXT NOT NULL,
+                modelo_tipo TEXT NOT NULL,
+                auc         DOUBLE PRECISION,
+                cv_auc_mean DOUBLE PRECISION,
+                cv_auc_std  DOUBLE PRECISION
+            )
+            """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp DESC)"
         )
@@ -345,6 +375,10 @@ def _inicializar_postgres() -> None:
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON bot_events(timestamp DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_model_metricas_symbol_tipo "
+            "ON model_metricas(symbol, modelo_tipo, timestamp DESC)"
         )
         conn.commit()
 
@@ -898,6 +932,74 @@ def salvar_bot_event(
     )
     conn.commit()
     conn.close()
+
+
+def salvar_metricas_modelo(
+    symbol: str,
+    modelo_tipo: str,
+    auc: float | None,
+    cv_auc_mean: float | None,
+    cv_auc_std: float | None,
+) -> None:
+    """P1-4: registra o resultado de UM retreino (auc holdout + purged CV) --
+    historico usado por validacao.detectar_drift() para alertar (nao
+    bloquear) quando um retreino semanal produz um modelo pior que o
+    histórico recente. Chamado por ml_filtro.py/lstm_modelo.py apos cada
+    treinar(), independente de ter detectado drift ou nao."""
+    sym = symbol.upper()
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO model_metricas (timestamp, symbol, modelo_tipo, auc, cv_auc_mean, cv_auc_std)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (_utcnow(), sym, modelo_tipo, auc, cv_auc_mean, cv_auc_std),
+            )
+            conn.commit()
+        return
+
+    conn = conectar()
+    conn.execute(
+        """
+        INSERT INTO model_metricas (timestamp, symbol, modelo_tipo, auc, cv_auc_mean, cv_auc_std)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (datetime.now().isoformat(), sym, modelo_tipo, auc, cv_auc_mean, cv_auc_std),
+    )
+    conn.commit()
+    conn.close()
+
+
+def historico_cv_auc_modelo(symbol: str, modelo_tipo: str, limit: int = 20) -> list[float]:
+    """P1-4: lista de cv_auc_mean dos ULTIMOS retreinos (mais recente
+    primeiro), para validacao.detectar_drift() comparar contra o retreino
+    atual. Exclui entradas com cv_auc_mean NULL (CV sem dados suficientes
+    naquele retreino, ver ml_filtro.py/lstm_modelo.py)."""
+    sym = symbol.upper()
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT cv_auc_mean FROM model_metricas
+                WHERE symbol = %s AND modelo_tipo = %s AND cv_auc_mean IS NOT NULL
+                ORDER BY id DESC LIMIT %s
+                """,
+                (sym, modelo_tipo, limit),
+            ).fetchall()
+            return [row[0] for row in rows]
+
+    conn = conectar()
+    rows = conn.execute(
+        """
+        SELECT cv_auc_mean FROM model_metricas
+        WHERE symbol = ? AND modelo_tipo = ? AND cv_auc_mean IS NOT NULL
+        ORDER BY id DESC LIMIT ?
+        """,
+        (sym, modelo_tipo, limit),
+    ).fetchall()
+    conn.close()
+    return [row[0] for row in rows]
 
 
 def fechar_pool() -> None:
