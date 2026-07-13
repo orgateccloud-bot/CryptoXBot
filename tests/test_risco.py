@@ -511,13 +511,16 @@ class TestKellyDoBanco:
         assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
 
     def test_calcula_kelly_a_partir_do_winrate(self, monkeypatch):
-        # 12 rows, 6 COMPRA -> wr = 0.5 -> kelly(0.5, 2.0)
-        rows = [{"tipo": "COMPRA"}] * 6 + [{"tipo": "VENDA"}] * 6
+        # P1-3: win-rate real via pnl_usdt (trades fechados) -- 12 rows, 6
+        # com pnl_usdt>0 -> wr = 0.5 -> kelly(0.5, 2.0)
+        rows = [{"tipo": "COMPRA", "pnl_usdt": 50.0}] * 6 + [
+            {"tipo": "COMPRA", "pnl_usdt": -30.0}
+        ] * 6
         monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
         assert risco.kelly_do_banco() == pytest.approx(risco.kelly(0.5, 2.0))
 
-    def test_todos_compra_winrate_um(self, monkeypatch):
-        rows = [{"tipo": "COMPRA"}] * 20
+    def test_todos_ganhos_winrate_um(self, monkeypatch):
+        rows = [{"tipo": "COMPRA", "pnl_usdt": 25.0}] * 20
         monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
         # wr = 1.0 -> kelly(1.0, 2.0) = (1 - 0)*0.25 = 0.25
         assert risco.kelly_do_banco() == pytest.approx(risco.kelly(1.0, 2.0))
@@ -529,12 +532,25 @@ class TestKellyDoBanco:
         monkeypatch.setattr(risco.database, "sinais_executados", _boom)
         assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
 
-    def test_rows_sem_chave_tipo_contam_como_nao_compra(self, monkeypatch):
-        # s.get("tipo") ausente -> None != "COMPRA" -> não conta
-        rows = [{}] * 10
+    def test_rows_sem_chave_pnl_usdt_contam_como_perda(self, monkeypatch):
+        # s.get("pnl_usdt") ausente -> None -> (None or 0) = 0 -> nao conta como ganho
+        rows = [{"tipo": "COMPRA"}] * 10
         monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
         # wr = 0 -> kelly(0.0, ...) -> guard win_rate<=0 -> MAX_RISCO_POR_TRADE
         assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
+
+    def test_pnl_usdt_zero_nao_conta_como_ganho(self, monkeypatch):
+        # empate exato (pnl_usdt==0, ex: fees zeraram um trade neutro) nao
+        # deve contar como vitoria -- so pnl_usdt>0 conta.
+        rows = [{"pnl_usdt": 0.0}] * 10
+        monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
+        assert risco.kelly_do_banco() == risco.MAX_RISCO_POR_TRADE
+
+    def test_pnl_usdt_negativo_nao_conta_como_ganho(self, monkeypatch):
+        rows = [{"pnl_usdt": 50.0}] * 3 + [{"pnl_usdt": -10.0}] * 7
+        monkeypatch.setattr(risco.database, "sinais_executados", lambda *a, **k: rows)
+        # wr = 3/10 = 0.3 -> kelly(0.3, 2.0)
+        assert risco.kelly_do_banco() == pytest.approx(risco.kelly(0.3, 2.0))
 
 
 # ══════════════════════════════════════════════════════════════

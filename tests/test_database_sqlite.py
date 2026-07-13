@@ -121,6 +121,128 @@ class TestSalvarSinal:
         conn.close()
         assert row[0] == 1
 
+    def test_retorna_id_da_linha_inserida(self, sqlite_tmp):
+        sinal_id = database.salvar_sinal("COMPRA", 64000.0, "primeiro")
+        assert isinstance(sinal_id, int)
+        conn = _raw(sqlite_tmp)
+        row = conn.execute("SELECT tipo FROM sinais WHERE id = ?", (sinal_id,)).fetchone()
+        conn.close()
+        assert row[0] == "COMPRA"
+
+    def test_ids_sequenciais_e_distintos(self, sqlite_tmp):
+        id1 = database.salvar_sinal("COMPRA", 64000.0, "um")
+        id2 = database.salvar_sinal("VENDA", 65000.0, "dois")
+        assert id1 != id2
+        assert id2 > id1
+
+    def test_colunas_de_resultado_nulas_por_padrao(self, sqlite_tmp):
+        # P1-3: preco_saida/pnl_usdt/pnl_pct/barreira_tocada so sao
+        # preenchidas por atualizar_sinal_fechamento, no fechamento do trade
+        # -- na criacao (entrada) devem vir NULL.
+        database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        conn = _raw(sqlite_tmp)
+        row = conn.execute(
+            "SELECT preco_saida, pnl_usdt, pnl_pct, barreira_tocada FROM sinais"
+        ).fetchone()
+        conn.close()
+        assert row == (None, None, None, None)
+
+
+# ── Testes: marcar_sinal_executado / atualizar_sinal_fechamento (P1-3) ────────
+
+
+class TestMarcarSinalExecutado:
+    def test_marca_executado_e_grava_timestamp(self, sqlite_tmp):
+        sinal_id = database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        database.marcar_sinal_executado(sinal_id)
+        conn = _raw(sqlite_tmp)
+        row = conn.execute(
+            "SELECT executado, executado_em FROM sinais WHERE id = ?", (sinal_id,)
+        ).fetchone()
+        conn.close()
+        assert row[0] == 1
+        assert row[1] is not None
+
+    def test_sinal_id_none_e_no_op(self, sqlite_tmp):
+        database.salvar_sinal("COMPRA", 64000.0, "outro")  # linha nao tocada
+        database.marcar_sinal_executado(None)  # nao deve lancar nem afetar nada
+        conn = _raw(sqlite_tmp)
+        row = conn.execute("SELECT executado FROM sinais").fetchone()
+        conn.close()
+        assert row[0] == 0
+
+    def test_so_afeta_a_linha_referenciada(self, sqlite_tmp):
+        id1 = database.salvar_sinal("COMPRA", 64000.0, "um")
+        id2 = database.salvar_sinal("COMPRA", 65000.0, "dois")
+        database.marcar_sinal_executado(id1)
+        conn = _raw(sqlite_tmp)
+        rows = {r[0]: r[1] for r in conn.execute("SELECT id, executado FROM sinais").fetchall()}
+        conn.close()
+        assert rows[id1] == 1
+        assert rows[id2] == 0
+
+
+class TestAtualizarSinalFechamento:
+    def test_grava_resultado_do_trade(self, sqlite_tmp):
+        sinal_id = database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        database.atualizar_sinal_fechamento(sinal_id, 65000.0, 100.0, 1.56, "TARGET")
+        conn = _raw(sqlite_tmp)
+        row = conn.execute(
+            "SELECT preco_saida, pnl_usdt, pnl_pct, barreira_tocada FROM sinais WHERE id = ?",
+            (sinal_id,),
+        ).fetchone()
+        conn.close()
+        assert row == (65000.0, 100.0, 1.56, "TARGET")
+
+    def test_sinal_id_none_e_no_op(self, sqlite_tmp):
+        database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        database.atualizar_sinal_fechamento(None, 65000.0, 100.0, 1.56, "TARGET")  # nao lanca
+        conn = _raw(sqlite_tmp)
+        row = conn.execute("SELECT preco_saida FROM sinais").fetchone()
+        conn.close()
+        assert row[0] is None
+
+    def test_nao_afeta_executado(self, sqlite_tmp):
+        # atualizar_sinal_fechamento so grava o resultado -- executado/
+        # executado_em sao responsabilidade exclusiva de marcar_sinal_executado.
+        sinal_id = database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        database.marcar_sinal_executado(sinal_id)
+        database.atualizar_sinal_fechamento(sinal_id, 65000.0, 100.0, 1.56, "TARGET")
+        conn = _raw(sqlite_tmp)
+        row = conn.execute("SELECT executado FROM sinais WHERE id = ?", (sinal_id,)).fetchone()
+        conn.close()
+        assert row[0] == 1  # preservado, nao resetado pela segunda chamada
+
+
+# ── Testes: sinais_executados (P1-3) ──────────────────────────────────────────
+
+
+class TestSinaisExecutados:
+    def test_so_retorna_trades_realmente_fechados(self, sqlite_tmp):
+        # entrada executada mas AINDA ABERTA (pnl_usdt continua NULL) --
+        # nao pode aparecer aqui, senao kelly_do_banco() a contaria como
+        # se ja tivesse um resultado conhecido.
+        sinal_id = database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        database.marcar_sinal_executado(sinal_id)
+        assert database.sinais_executados() == []
+
+    def test_retorna_apos_fechamento(self, sqlite_tmp):
+        sinal_id = database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        database.marcar_sinal_executado(sinal_id)
+        database.atualizar_sinal_fechamento(sinal_id, 65000.0, 100.0, 1.56, "TARGET")
+        rows = database.sinais_executados()
+        assert len(rows) == 1
+        assert rows[0]["pnl_usdt"] == pytest.approx(100.0)
+        assert rows[0]["barreira_tocada"] == "TARGET"
+
+    def test_nao_executado_nunca_aparece_mesmo_fechado(self, sqlite_tmp):
+        # atualizar_sinal_fechamento sem marcar_sinal_executado antes (nao
+        # deveria acontecer no fluxo real, mas o guard e por executado E
+        # pnl_usdt, entao confirma que ambos sao exigidos).
+        sinal_id = database.salvar_sinal("COMPRA", 64000.0, "entrada")
+        database.atualizar_sinal_fechamento(sinal_id, 65000.0, 100.0, 1.56, "TARGET")
+        assert database.sinais_executados() == []
+
 
 # ── Testes: salvar_snapshot ───────────────────────────────────────────────────
 

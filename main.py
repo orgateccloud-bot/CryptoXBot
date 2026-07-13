@@ -768,7 +768,14 @@ def loop_par(par, intervalo_min, simulacao):
                     except Exception:
                         pass
 
-                    exec_par.abrir_long(preco, parcela, stop, target, atr_relativo=atr_relativo)
+                    exec_par.abrir_long(
+                        preco,
+                        parcela,
+                        stop,
+                        target,
+                        atr_relativo=atr_relativo,
+                        sinal_id=resultado.get("sinal_id"),
+                    )
                 else:
                     print(f"\033[91m[{par}][RISCO] Trade bloqueado: {validacao['motivo']}\033[0m")
 

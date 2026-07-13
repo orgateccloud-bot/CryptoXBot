@@ -50,6 +50,22 @@ _PRECISAO_DEFAULT = {"qty_step": 0.001, "min_qty": 0.001, "price_prec": 2, "tick
 
 _precisao_cache: dict[str, dict] = {}
 
+# P1-3: mapeia o `motivo` EXATO ja usado por avaliar_tick_monitor() (linha
+# 117 do docstring: "Stop Loss" | "Take Profit Final") para a barreira
+# efetivamente tocada -- classificacao correta em vez de inferir pelo sinal
+# do PnL (bug anterior: um trailing-stop que fecha em lucro era rotulado
+# igual a um target real; um stop atingido por slippage a lucro minimo
+# seria mal-classificado do mesmo jeito). Motivo fora deste mapa -> MANUAL.
+_BARREIRA_POR_MOTIVO = {
+    "Stop Loss": "STOP",
+    "Take Profit Final": "TARGET",
+    "Take Profit Parcial (50%)": "TARGET_PARCIAL",
+}
+
+
+def _classificar_barreira(motivo: str) -> str:
+    return _BARREIRA_POR_MOTIVO.get(motivo, "MANUAL")
+
 
 def _decimais(valor_str: str) -> int:
     """Nº de casas decimais de um passo tipo '0.01' -> 2, '1' -> 0."""
@@ -489,7 +505,16 @@ class Executor:
 
     # ── Abrir posição LONG ─────────────────────────────────────
 
-    def abrir_long(self, preco_entrada, tamanho_btc, stop_loss, take_profit, *, atr_relativo=None):
+    def abrir_long(
+        self,
+        preco_entrada,
+        tamanho_btc,
+        stop_loss,
+        take_profit,
+        *,
+        atr_relativo=None,
+        sinal_id=None,
+    ):
         if self.posicao:
             print("[EXEC] Ja existe posicao aberta. Aguardar fechamento.")
             return False
@@ -534,6 +559,9 @@ class Executor:
                 "tipo": "LONG",
                 "entrada": preco_exec,
                 "tamanho_btc": tamanho_btc,
+                "tamanho_btc_original": tamanho_btc,  # P1-3: preservado p/ pnl_pct
+                # do trade inteiro no fechamento final (tamanho_btc muda em
+                # fechamentos parciais, este campo nunca e mutado depois)
                 "stop_inicial": stop_loss,
                 "stop_atual": stop_loss,
                 "target1": take_profit,
@@ -542,6 +570,8 @@ class Executor:
                 "abertura": datetime.now().isoformat(),
                 "order_id": resp.get("orderId"),
                 "stop_order_id": stop_order_id,
+                "sinal_id": sinal_id,  # P1-3: liga esta posicao ao sinal que a originou
+                "pnl_usdt_parcial_acumulado": 0.0,  # P1-3: soma de fechamentos parciais
             }
 
         # P0-3: posicao persistida — sobrevive a restart (reconciliada no boot)
@@ -549,6 +579,13 @@ class Executor:
             database.salvar_posicao_aberta(self.symbol, self.posicao)
         except Exception as e:
             print(f"[EXEC] AVISO: falha ao persistir posicao: {e}")
+
+        # P1-3: liga a entrada de fato executada ao sinal que a originou --
+        # so agora (ordem preenchida), nao na hora do sinal ser gerado.
+        try:
+            database.marcar_sinal_executado(sinal_id)
+        except Exception as e:
+            print(f"[EXEC] AVISO: falha ao marcar sinal executado: {e}")
 
         gestao_risco.incrementar_posicoes_abertas()
         gestao_risco.persistir_estado()
@@ -634,7 +671,37 @@ class Executor:
             executado=True,
         )
 
-        if not parcial:
+        if parcial:
+            # P1-3: acumula o PnL desta perna parcial -- o fechamento FINAL
+            # soma isso ao PnL da propria perna final para o resultado do
+            # trade inteiro bater certo em atualizar_sinal_fechamento.
+            self.posicao["pnl_usdt_parcial_acumulado"] = (
+                self.posicao.get("pnl_usdt_parcial_acumulado", 0.0) + pnl_usdt
+            )
+        else:
+            # P1-3: fechamento FINAL -- liga o resultado COMPLETO do trade
+            # (parciais anteriores + esta perna) de volta ao sinal de
+            # entrada, classificando a barreira pelo MOTIVO exato (nao pelo
+            # sinal do PnL, que conflava um trailing-stop em lucro com um
+            # target real atingido).
+            pnl_usdt_total = self.posicao.get("pnl_usdt_parcial_acumulado", 0.0) + pnl_usdt
+            tamanho_original = self.posicao.get("tamanho_btc_original") or qty
+            pnl_pct_total = (
+                pnl_usdt_total / (tamanho_original * self.posicao["entrada"]) * 100
+                if tamanho_original > 0
+                else pnl_pct
+            )
+            try:
+                database.atualizar_sinal_fechamento(
+                    self.posicao.get("sinal_id"),
+                    preco,
+                    round(pnl_usdt_total, 2),
+                    round(pnl_pct_total, 4),
+                    _classificar_barreira(motivo),
+                )
+            except Exception as e:
+                print(f"[EXEC] AVISO: falha ao atualizar sinal de fechamento: {e}")
+
             with self._lock:
                 self.posicao = None
                 self._ativo = False

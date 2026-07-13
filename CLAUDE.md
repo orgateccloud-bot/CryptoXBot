@@ -78,6 +78,8 @@ journalctl -u bxbot-worker -f
 
 ```bash
 # Aplicar schema uma única vez: Supabase → SQL Editor → supabase/migrations/001_initial_schema.sql
+# Se o banco já existia antes de 2026-07-13, rodar também (idempotente):
+#   supabase/migrations/002_meta_labeling_columns.sql
 # Depois no .env: DATABASE_BACKEND=postgres + DATABASE_URL=postgresql://...pooler.supabase.com:6543/postgres
 ```
 

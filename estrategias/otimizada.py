@@ -271,6 +271,7 @@ def analisar(
     }
 
     resultado["symbol"] = symbol
+    resultado["sinal_id"] = None  # P1-3: id da linha em `sinais`, se de fato salva abaixo
 
     if sinal != "AGUARDAR":
         motivo = (
@@ -278,7 +279,11 @@ def analisar(
             f"RSI:{rsi14:.1f} | ATR:{atr_atual:.0f} | "
             f"VolRel:{vol_rel:.2f}x | FG:{fear_info['valor']}"
         )
-        database.salvar_sinal(
+        # P1-3: guarda o id retornado -- se este sinal virar uma entrada real
+        # (main.py chama exec_par.abrir_long), o id e repassado ate
+        # executor.py para ligar entrada e resultado do mesmo trade
+        # (marcar_sinal_executado / atualizar_sinal_fechamento).
+        resultado["sinal_id"] = database.salvar_sinal(
             sinal,
             preco,
             motivo,

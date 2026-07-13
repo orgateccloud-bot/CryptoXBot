@@ -121,14 +121,24 @@ def kelly(win_rate, ratio_rr=2.0):
 
 
 def kelly_do_banco():
-    """Calcula Kelly com base no histórico de trades no banco."""
+    """Calcula Kelly com base no histórico de trades no banco.
+
+    P1-3: win-rate real via pnl_usdt (sinais_executados() já filtra por
+    trades FECHADOS, pnl_usdt IS NOT NULL). Antes desta correção, "ganhos"
+    era contado por `tipo == "COMPRA"` — um proxy sem sentido: as linhas
+    retornadas eram sempre eventos de FECHAMENTO (tipo FECHAR_LONG/STOP),
+    nunca "COMPRA", então o win-rate calculado aqui já era sempre 0% antes
+    da instrumentação de meta-labeling (P1-3) religar essas linhas às
+    entradas — e ficaria 100% depois (linhas voltam a ser sempre
+    COMPRA/VENDA de entrada), igualmente sem relação com o resultado real.
+    """
     try:
         sinais_rows = database.sinais_executados(limit=1000)
 
         if len(sinais_rows) < 10:
             return MAX_RISCO_POR_TRADE  # sem histórico suficiente
 
-        ganhos = sum(1 for s in sinais_rows if s.get("tipo") == "COMPRA")
+        ganhos = sum(1 for s in sinais_rows if (s.get("pnl_usdt") or 0) > 0)
         wr = ganhos / len(sinais_rows)
         return kelly(wr, 2.0)
     except Exception:

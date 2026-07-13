@@ -107,14 +107,24 @@ def gestao_risco_mock(monkeypatch):
 
 @pytest.fixture
 def database_mock(monkeypatch):
-    """Mocka database.salvar_sinal capturando as chamadas."""
+    """Mocka database.salvar_sinal/marcar_sinal_executado/
+    atualizar_sinal_fechamento (P1-3) capturando as chamadas."""
 
     class _DBFake:
         def __init__(self):
             self.chamadas = []
+            self.chamadas_marcar_executado = []
+            self.chamadas_atualizar_fechamento = []
 
         def salvar_sinal(self, *args, **kwargs):
             self.chamadas.append((args, kwargs))
+            return 1  # id sintetico -- suficiente p/ os testes que nao checam o valor
+
+        def marcar_sinal_executado(self, *args, **kwargs):
+            self.chamadas_marcar_executado.append((args, kwargs))
+
+        def atualizar_sinal_fechamento(self, *args, **kwargs):
+            self.chamadas_atualizar_fechamento.append((args, kwargs))
 
     fake = _DBFake()
     monkeypatch.setattr(executor_mod, "database", fake)
@@ -685,3 +695,90 @@ def test_get_preco_excecao_retorna_zero(gestao_risco_mock, database_mock, monkey
 
     monkeypatch.setattr(executor_mod, "requests", _ReqFake())
     assert ex.get_preco() == 0.0
+
+
+# ══════════════════════════════════════════════════════════════
+# P1-3 — instrumentação de meta-labeling (sinal_id, barreira, PnL)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_abrir_long_guarda_sinal_id_e_marca_executado(ex_sim, database_mock):
+    ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0, sinal_id=42)
+    assert ex_sim.posicao["sinal_id"] == 42
+    assert ex_sim.posicao["tamanho_btc_original"] == pytest.approx(0.001)
+    assert ex_sim.posicao["pnl_usdt_parcial_acumulado"] == 0.0
+    args, kwargs = database_mock.chamadas_marcar_executado[0]
+    assert args[0] == 42
+
+
+def test_abrir_long_sem_sinal_id_nao_quebra(ex_sim, database_mock):
+    ok = ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
+    assert ok is True
+    assert ex_sim.posicao["sinal_id"] is None
+    args, kwargs = database_mock.chamadas_marcar_executado[0]
+    assert args[0] is None
+
+
+def test_fechar_total_classifica_barreira_stop(ex_sim, database_mock):
+    ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0, sinal_id=7)
+    ex_sim.fechar_posicao(49000.0, "Stop Loss", parcial=False)
+    args, kwargs = database_mock.chamadas_atualizar_fechamento[0]
+    sinal_id, preco_saida, pnl_usdt, pnl_pct, barreira = args
+    assert sinal_id == 7
+    assert barreira == "STOP"
+    assert preco_saida == 49000.0
+
+
+def test_fechar_total_classifica_barreira_target(ex_sim, database_mock):
+    ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0, sinal_id=7)
+    ex_sim.fechar_posicao(51000.0, "Take Profit Final", parcial=False)
+    args, kwargs = database_mock.chamadas_atualizar_fechamento[0]
+    assert args[4] == "TARGET"
+
+
+def test_fechar_total_motivo_desconhecido_classifica_manual(ex_sim, database_mock):
+    ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0, sinal_id=7)
+    ex_sim.fechar_posicao(52000.0, "Fechamento manual via comando externo", parcial=False)
+    args, kwargs = database_mock.chamadas_atualizar_fechamento[0]
+    assert args[4] == "MANUAL"
+
+
+def test_fechar_parcial_nao_chama_atualizar_fechamento(ex_sim, database_mock):
+    # so o fechamento FINAL liga o resultado de volta ao sinal -- o parcial
+    # so acumula, nao fecha o ciclo de vida do trade.
+    ex_sim.abrir_long(50000.0, 0.002, 49000.0, 51000.0, sinal_id=9)
+    ex_sim.fechar_posicao(55000.0, "Take Profit Parcial (50%)", parcial=True)
+    assert database_mock.chamadas_atualizar_fechamento == []
+
+
+def test_fechar_final_soma_pnl_parcial_acumulado(ex_sim, database_mock):
+    # Trade com uma perna parcial (lucro) + perna final (lucro) -- o PnL
+    # total ligado ao sinal deve ser a SOMA das duas pernas, nao so a final.
+    ex_sim.abrir_long(50000.0, 0.002, 49000.0, 51000.0, sinal_id=9)
+    entrada = ex_sim.posicao["entrada"]
+    ex_sim.fechar_posicao(55000.0, "Take Profit Parcial (50%)", parcial=True)
+    pnl_parcial_esperado = 0.001 * (55000.0 - entrada)
+    assert ex_sim.posicao["pnl_usdt_parcial_acumulado"] == pytest.approx(pnl_parcial_esperado)
+
+    ex_sim.fechar_posicao(56000.0, "Take Profit Final", parcial=False)
+    pnl_final_esperado = 0.001 * (56000.0 - entrada)
+    pnl_total_esperado = pnl_parcial_esperado + pnl_final_esperado
+
+    args, kwargs = database_mock.chamadas_atualizar_fechamento[0]
+    _, preco_saida, pnl_usdt_total, pnl_pct_total, barreira = args
+    assert pnl_usdt_total == pytest.approx(round(pnl_total_esperado, 2))
+    # pnl_pct sobre o tamanho ORIGINAL do trade (0.002 BTC), nao so a metade final
+    pnl_pct_esperado = pnl_total_esperado / (0.002 * entrada) * 100
+    assert pnl_pct_total == pytest.approx(round(pnl_pct_esperado, 4))
+    assert barreira == "TARGET"
+
+
+def test_fechar_sem_sinal_id_nao_chama_atualizar_fechamento_com_erro(ex_sim, database_mock):
+    # sinal_id=None (posicao aberta sem linkagem, ex: recuperada de crash
+    # antes desta feature existir) -- atualizar_sinal_fechamento ainda e
+    # chamada (com sinal_id=None), e o proprio database.py trata isso como
+    # no-op; aqui so confirmamos que o executor nao lanca nem pula a chamada.
+    ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)  # sem sinal_id
+    ex_sim.fechar_posicao(51000.0, "Take Profit Final", parcial=False)
+    args, kwargs = database_mock.chamadas_atualizar_fechamento[0]
+    assert args[0] is None

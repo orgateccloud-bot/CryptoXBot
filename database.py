@@ -226,6 +226,14 @@ def _inicializar_sqlite() -> None:
     _sqlite_add_column(conn, "sinais", "score", "REAL")
     _sqlite_add_column(conn, "sinais", "source", "TEXT")
     _sqlite_add_column(conn, "sinais", "executado_em", "TEXT")
+    # P1-3: meta-labeling — liga a linha de ENTRADA ao resultado do trade
+    # (preenchido por executor.fechar_posicao no fechamento final), dando
+    # a `sinais_executados()`/kelly_do_banco() e a um futuro dataset de
+    # meta-labeling um PnL real e a barreira efetivamente tocada.
+    _sqlite_add_column(conn, "sinais", "preco_saida", "REAL")
+    _sqlite_add_column(conn, "sinais", "pnl_usdt", "REAL")
+    _sqlite_add_column(conn, "sinais", "pnl_pct", "REAL")
+    _sqlite_add_column(conn, "sinais", "barreira_tocada", "TEXT")
 
     c.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp)")
     c.execute(
@@ -297,7 +305,11 @@ def _inicializar_postgres() -> None:
                 score       DOUBLE PRECISION,
                 source      TEXT,
                 executado   BOOLEAN DEFAULT false,
-                executado_em TIMESTAMPTZ
+                executado_em TIMESTAMPTZ,
+                preco_saida     DOUBLE PRECISION,
+                pnl_usdt        DOUBLE PRECISION,
+                pnl_pct         DOUBLE PRECISION,
+                barreira_tocada TEXT
             )
             """)
         conn.execute("""
@@ -504,15 +516,20 @@ def salvar_sinal(
     score: float | None = None,
     source: str | None = None,
     executado: bool = False,
-) -> None:
+) -> int | None:
+    """Retorna o id da linha inserida (P1-3: meta-labeling) -- permite ao
+    chamador (estrategias/otimizada.py) guardar essa referencia e, se a
+    entrada de fato executar, repassa-la a executor.abrir_long para ligar
+    entrada e fechamento do mesmo trade. None se a insercao falhar."""
     sym = _symbol(symbol)
     if _backend() == "postgres":
         with _pg_connection() as conn:
-            conn.execute(
+            row = conn.execute(
                 """
                 INSERT INTO sinais
                 (timestamp, symbol, tipo, preco, motivo, score, source, executado, executado_em)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
                 """,
                 (
                     _utcnow(),
@@ -525,11 +542,12 @@ def salvar_sinal(
                     executado,
                     _utcnow() if executado else None,
                 ),
-            )
+            ).fetchone()
             conn.commit()
+            sinal_id = row[0] if row else None
     else:
         conn = conectar()
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO sinais
             (timestamp, symbol, tipo, preco, motivo, score, source, executado, executado_em)
@@ -548,9 +566,77 @@ def salvar_sinal(
             ),
         )
         conn.commit()
+        sinal_id = cursor.lastrowid
         conn.close()
 
     print(f"[DB] Sinal salvo: {sym} {tipo} @ ${preco:,.2f} - {motivo}")
+    return sinal_id
+
+
+def marcar_sinal_executado(sinal_id: int | None) -> None:
+    """P1-3: marca a linha de ENTRADA (criada por salvar_sinal) como
+    realmente executada -- chamado por executor.abrir_long quando a ordem
+    de fato preenche. sinal_id=None (nenhum call site real passou o id, ou
+    a insercao original falhou) e um no-op silencioso."""
+    if sinal_id is None:
+        return
+    agora = _utcnow() if _backend() == "postgres" else datetime.now().isoformat()
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            conn.execute(
+                "UPDATE sinais SET executado = true, executado_em = %s WHERE id = %s",
+                (agora, sinal_id),
+            )
+            conn.commit()
+    else:
+        conn = conectar()
+        conn.execute(
+            "UPDATE sinais SET executado = 1, executado_em = ? WHERE id = ?",
+            (agora, sinal_id),
+        )
+        conn.commit()
+        conn.close()
+
+
+def atualizar_sinal_fechamento(
+    sinal_id: int | None,
+    preco_saida: float,
+    pnl_usdt: float,
+    pnl_pct: float,
+    barreira_tocada: str,
+) -> None:
+    """P1-3: liga o resultado do trade (fechamento FINAL, nao parcial) de
+    volta a linha de ENTRADA -- da a sinais_executados()/kelly_do_banco() e
+    a um futuro dataset de meta-labeling o PnL real e a barreira
+    efetivamente tocada (STOP/TARGET/TARGET_PARCIAL/MANUAL), em vez de
+    inferir "ganho/perda" pelo sinal do PnL. sinal_id=None e um no-op
+    silencioso (trade sem entrada linkada -- ex: recuperado de crash antes
+    desta mudanca, ou aberto por um caminho que nao passou sinal_id)."""
+    if sinal_id is None:
+        return
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            conn.execute(
+                """
+                UPDATE sinais
+                SET preco_saida = %s, pnl_usdt = %s, pnl_pct = %s, barreira_tocada = %s
+                WHERE id = %s
+                """,
+                (preco_saida, pnl_usdt, pnl_pct, barreira_tocada, sinal_id),
+            )
+            conn.commit()
+    else:
+        conn = conectar()
+        conn.execute(
+            """
+            UPDATE sinais
+            SET preco_saida = ?, pnl_usdt = ?, pnl_pct = ?, barreira_tocada = ?
+            WHERE id = ?
+            """,
+            (preco_saida, pnl_usdt, pnl_pct, barreira_tocada, sinal_id),
+        )
+        conn.commit()
+        conn.close()
 
 
 def ultimos_snapshots(n: int = 10, symbol: str | None = None) -> list[dict[str, Any]]:
@@ -605,17 +691,33 @@ def buscar_sinais(limit: int = 30, symbol: str | None = None) -> list[dict[str, 
 
 
 def sinais_executados(limit: int = 1000) -> list[dict[str, Any]]:
+    """Entradas EXECUTADAS com resultado JA CONHECIDO (trade fechado) --
+    P1-3: filtra por pnl_usdt IS NOT NULL, nao so executado=true, porque
+    uma posicao ainda ABERTA tem executado=true (marcado no abrir_long) mas
+    pnl_usdt continua NULL ate o fechamento final (atualizar_sinal_fechamento).
+    Sem esse filtro, risco.kelly_do_banco() contaria posicoes em aberto como
+    se ja tivessem um resultado."""
     if _backend() == "postgres":
         with _pg_connection() as conn:
             rows = conn.execute(
-                "SELECT tipo, symbol, preco, score FROM sinais WHERE executado = true ORDER BY id DESC LIMIT %s",
+                """
+                SELECT tipo, symbol, preco, score, pnl_usdt, pnl_pct, barreira_tocada
+                FROM sinais
+                WHERE executado = true AND pnl_usdt IS NOT NULL
+                ORDER BY id DESC LIMIT %s
+                """,
                 (limit,),
             ).fetchall()
             return [dict(row) for row in rows]
 
     conn = conectar()
     rows = conn.execute(
-        "SELECT tipo, symbol, preco, score FROM sinais WHERE executado = 1 ORDER BY id DESC LIMIT ?",
+        """
+        SELECT tipo, symbol, preco, score, pnl_usdt, pnl_pct, barreira_tocada
+        FROM sinais
+        WHERE executado = 1 AND pnl_usdt IS NOT NULL
+        ORDER BY id DESC LIMIT ?
+        """,
         (limit,),
     ).fetchall()
     conn.close()
