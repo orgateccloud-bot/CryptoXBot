@@ -447,49 +447,64 @@ class TestGetSaldoBtc:
 
 
 class TestVerificarVolatilidade:
+    # P1-5: verificar_volatilidade delega para data.klines.obter_klines
+    # (via risco.obter_klines) -- mockar isso diretamente, não mais
+    # risco.requests.get (que não é chamado por este caminho desde a
+    # migração: o fetch real agora vive em data/klines.py).
 
     def test_calcula_variacao_percentual(self, monkeypatch):
-        # abertura = k[-2][1] = 100, fechamento = k[-1][4] = 108
+        # abertura = dados["abertura"][-2] = 100, fechamento = dados["fechamento"][-1] = 108
         # |108 - 100| / 100 = 0.08
-        klines = [
-            ["t", "100", "h", "l", "105", "v"],  # k[-2]: abertura=100
-            ["t", "104", "h", "l", "108", "v"],  # k[-1]: fechamento=108
-        ]
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(klines))
+        dados = {"abertura": [100.0, 104.0], "fechamento": [105.0, 108.0]}
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: dados)
         assert risco.verificar_volatilidade() == pytest.approx(0.08)
 
     def test_usa_valor_absoluto_em_queda(self, monkeypatch):
         # fechamento < abertura -> abs garante valor positivo
-        klines = [
-            ["t", "100", "h", "l", "105", "v"],
-            ["t", "104", "h", "l", "90", "v"],  # fechamento=90 -> |90-100|/100 = 0.10
-        ]
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(klines))
+        dados = {"abertura": [100.0, 104.0], "fechamento": [105.0, 90.0]}
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: dados)
         assert risco.verificar_volatilidade() == pytest.approx(0.10)
 
     def test_klines_insuficientes_retorna_zero(self, monkeypatch):
-        # len(k) < 2 -> 0.0
-        monkeypatch.setattr(
-            risco.requests, "get", lambda *a, **k: _FakeResp([["t", "100", "h", "l", "105", "v"]])
-        )
+        # len(fechamento) < 2 -> 0.0
+        dados = {"abertura": [100.0], "fechamento": [105.0]}
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: dados)
         assert risco.verificar_volatilidade() == 0.0
 
     def test_klines_vazio_retorna_zero(self, monkeypatch):
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp([]))
+        dados = {"abertura": [], "fechamento": []}
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: dados)
+        assert risco.verificar_volatilidade() == 0.0
+
+    def test_sem_dados_retorna_zero(self, monkeypatch):
+        # obter_klines() retorna None (falha total, sem cache anterior)
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: None)
         assert risco.verificar_volatilidade() == 0.0
 
     def test_erro_de_rede_retorna_zero(self, monkeypatch):
         def _boom(*a, **k):
             raise ConnectionError("sem rede")
 
-        monkeypatch.setattr(risco.requests, "get", _boom)
+        monkeypatch.setattr(risco, "obter_klines", _boom)
         assert risco.verificar_volatilidade() == 0.0
 
-    def test_payload_malformado_retorna_zero(self, monkeypatch):
-        # k[-2][1] não conversível -> float() lança -> except -> 0.0
-        klines = [["t", "abc"], ["t", "def", "x", "y", "ghi"]]
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(klines))
+    def test_abertura_zero_retorna_zero_sem_lancar(self, monkeypatch):
+        # divisão por abertura=0 lançaria ZeroDivisionError -- o except
+        # geral cobre esse caso tal como cobria o payload malformado antes.
+        dados = {"abertura": [0.0, 0.0], "fechamento": [0.0, 0.0]}
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: dados)
         assert risco.verificar_volatilidade() == 0.0
+
+    def test_repassa_symbol_intervalo_e_limite_corretos(self, monkeypatch):
+        capturado = {}
+
+        def _fake(symbol, intervalo, limit):
+            capturado["args"] = (symbol, intervalo, limit)
+            return {"abertura": [100.0, 100.0], "fechamento": [100.0, 100.0]}
+
+        monkeypatch.setattr(risco, "obter_klines", _fake)
+        risco.verificar_volatilidade("ETHUSDT")
+        assert capturado["args"] == ("ETHUSDT", "1h", 2)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1130,13 +1145,15 @@ class TestObterMatrizCorrelacaoCache:
         risco._cache_correlacao.update(original)
 
     def _klines_fake(self, precos):
-        return _FakeResp([["t", "o", "h", "l", str(p), "v"] for p in precos])
+        # P1-5: _obter_precos_klines agora delega para risco.obter_klines
+        # (data/klines.py), que devolve um dict, não a resposta HTTP crua.
+        return {"fechamento": list(precos)}
 
     def test_busca_e_cacheia_matriz(self, monkeypatch):
         risco._cache_correlacao["matriz"] = {}
         risco._cache_correlacao["timestamp"] = 0.0
         monkeypatch.setattr(
-            risco.requests, "get", lambda *a, **k: self._klines_fake([1.0, 2.0, 3.0, 4.0])
+            risco, "obter_klines", lambda *a, **k: self._klines_fake([1.0, 2.0, 3.0, 4.0])
         )
         m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
         assert m  # populada
@@ -1147,7 +1164,7 @@ class TestObterMatrizCorrelacaoCache:
         risco._cache_correlacao["matriz"] = {"BTCUSDT": {"BTCUSDT": 1.0}}
         risco._cache_correlacao["timestamp"] = risco.time.time()
         chamou = []
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: chamou.append(1))
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: chamou.append(1))
         m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
         assert m == {"BTCUSDT": {"BTCUSDT": 1.0}}
         assert chamou == []  # nao bateu rede -- veio do cache
@@ -1156,7 +1173,7 @@ class TestObterMatrizCorrelacaoCache:
         risco._cache_correlacao["matriz"] = {"BTCUSDT": {"BTCUSDT": 1.0}}
         risco._cache_correlacao["timestamp"] = risco.time.time() - 1000  # bem antigo
         monkeypatch.setattr(
-            risco.requests, "get", lambda *a, **k: self._klines_fake([1.0, 2.0, 3.0, 4.0])
+            risco, "obter_klines", lambda *a, **k: self._klines_fake([1.0, 2.0, 3.0, 4.0])
         )
         m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
         assert "BTCUSDT" in m
@@ -1171,10 +1188,7 @@ class TestObterMatrizCorrelacaoCache:
         risco._cache_correlacao["matriz"] = antiga
         risco._cache_correlacao["timestamp"] = risco.time.time() - 1000  # expirado
 
-        def _boom(*a, **k):
-            raise ConnectionError("sem rede")
-
-        monkeypatch.setattr(risco.requests, "get", _boom)
+        monkeypatch.setattr(risco, "obter_klines", lambda *a, **k: None)
         m = risco.obter_matriz_correlacao_cache(ttl_segundos=900)
         assert m == antiga  # nao sobrescreveu com {} por causa da falha
 

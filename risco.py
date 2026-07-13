@@ -21,6 +21,7 @@ import requests
 import database
 from config.params_pares import PARAMS_PARES
 from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
+from data.klines import obter_klines
 
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 
@@ -256,19 +257,11 @@ def matriz_correlacao(precos_por_symbol: dict[str, list[float]]) -> dict[str, di
 
 
 def _obter_precos_klines(symbol: str, intervalo: str = "1h", limit: int = 100) -> list[float]:
-    """Fetch de closes via klines, mesmo padrao de verificar_volatilidade mas
-    usando BASE_URL (config) em vez do hardcode. Falha de rede -> [] (lista
-    vazia, nao propaga excecao)."""
-    try:
-        r = requests.get(
-            f"{BASE_URL}/api/v3/klines",
-            params={"symbol": symbol, "interval": intervalo, "limit": limit},
-            timeout=5,
-        )
-        k = r.json()
-        return [float(c[4]) for c in k]
-    except Exception:
-        return []
+    """P1-5: delega para data.klines (cache TTL + REST_BASE_URL). Mesmo
+    contrato de antes: falha de rede -> [] (lista vazia, nao propaga
+    excecao)."""
+    dados = obter_klines(symbol, intervalo, limit)
+    return dados["fechamento"] if dados is not None else []
 
 
 def obter_matriz_correlacao_cache(ttl_segundos: int = 900) -> dict[str, dict[str, float]]:
@@ -404,18 +397,20 @@ def calcular_tamanho(
 
 
 def verificar_volatilidade(symbol="BTCUSDT"):
-    """Retorna variação % da última hora. Se > 8%, mercado extremo."""
+    """Retorna variação % da última hora. Se > 8%, mercado extremo.
+
+    P1-5: delega para data.klines (cache TTL) -- antes hardcoded para
+    https://api.binance.com, ignorando BASE_URL/REST_BASE_URL (bug real
+    corrigido de brinde; _obter_precos_klines, logo acima, já usava o
+    config corretamente). Preserva EXATAMENTE a semântica original:
+    abertura da penúltima vela (k[-2]) até o fechamento da última (k[-1]),
+    não só a variação intra-vela da última candle sozinha."""
     try:
-        r = requests.get(
-            "https://api.binance.com/api/v3/klines",
-            params={"symbol": symbol, "interval": "1h", "limit": 2},
-            timeout=5,
-        )
-        k = r.json()
-        if len(k) < 2:
+        dados = obter_klines(symbol, "1h", 2)
+        if dados is None or len(dados["fechamento"]) < 2:
             return 0.0
-        abertura = float(k[-2][1])
-        fechamento = float(k[-1][4])
+        abertura = dados["abertura"][-2]
+        fechamento = dados["fechamento"][-1]
         return abs(fechamento - abertura) / abertura
     except Exception:
         return 0.0

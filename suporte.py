@@ -23,11 +23,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import requests
-
 import indicadores as ind
+from data.klines import obter_klines
 
-BASE_URL = "https://api.binance.com"
 SYMBOL = "BTCUSDT"
 
 # Tolerancia para considerar "proximo" ao suporte (% do preco)
@@ -40,22 +38,10 @@ PARCELA_3 = 0.20  # 20% na confirmacao
 
 
 def _klines(intervalo, limite=100):
-    try:
-        r = requests.get(
-            f"{BASE_URL}/api/v3/klines",
-            params={"symbol": SYMBOL, "interval": intervalo, "limit": limite},
-            timeout=8,
-        )
-        k = r.json()
-        return {
-            "abertura": [float(x[1]) for x in k],
-            "maxima": [float(x[2]) for x in k],
-            "minima": [float(x[3]) for x in k],
-            "fechamento": [float(x[4]) for x in k],
-            "volume": [float(x[5]) for x in k],
-        }
-    except Exception:
-        return None
+    """P1-5: delega para data.klines (cache TTL + REST_BASE_URL do config --
+    antes hardcoded para https://api.binance.com, bug real corrigido de
+    brinde). Mesmo contrato de antes (None em falha)."""
+    return obter_klines(SYMBOL, intervalo, limite)
 
 
 def _pivot_points(maximas, minimas, fechamentos, periodo=5):

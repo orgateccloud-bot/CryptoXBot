@@ -27,7 +27,7 @@ histórico git) — zero acoplamento no código.
 ai/                # Cliente Ollama (análise qualitativa opcional)
 backtesting/       # Backtesting de estratégias
 config/            # runtime_settings (env > local > default) + params por par
-data/              # cvd_calculator (fonte) — artefatos (*.db/*.pkl) gitignored
+data/              # cvd_calculator + klines (fetch consolidado, cache TTL) — artefatos (*.db/*.pkl) gitignored
 deploy/            # systemd units, Caddyfile, setup.sh
 estrategias/       # Estratégias de trading (otimizada)
 scripts/           # migrate_sqlite_to_supabase.py

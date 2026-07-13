@@ -18,8 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime
 
-import requests
-
 import database
 import ensemble as ens
 import fear_greed as fg
@@ -28,9 +26,7 @@ import regime as reg
 import score as sc
 import suporte as sup
 from config.params_pares import get_params
-from config.runtime_settings import REST_BASE_URL
-
-BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
+from data.klines import obter_klines
 
 # Filtros estruturais (iguais para todos os pares)
 ATR_MIN_RATIO = 0.6
@@ -40,19 +36,13 @@ MTF_FILTER = True
 
 
 def _klines(intervalo, limite=100, symbol="BTCUSDT"):
-    r = requests.get(
-        f"{BASE_URL}/api/v3/klines",
-        params={"symbol": symbol, "interval": intervalo, "limit": limite},
-        timeout=8,
-    )
-    k = r.json()
-    return {
-        "abertura": [float(x[1]) for x in k],
-        "maxima": [float(x[2]) for x in k],
-        "minima": [float(x[3]) for x in k],
-        "fechamento": [float(x[4]) for x in k],
-        "volume": [float(x[5]) for x in k],
-    }
+    """P1-5: delega para data.klines (cache TTL + REST_BASE_URL). Mesmo
+    contrato de antes (lança em falha -- este arquivo nunca engolia
+    exceção de rede, e o try/except de main.py:loop_par já cobre isso)."""
+    dados = obter_klines(symbol, intervalo, limite)
+    if dados is None:
+        raise RuntimeError(f"Falha ao obter klines de {symbol}/{intervalo}")
+    return dados
 
 
 def analisar(

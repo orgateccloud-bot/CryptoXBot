@@ -556,54 +556,26 @@ class TestDetectarRamos:
 
 
 class TestKlines:
+    # P1-5: o fetch/parse/cache real agora vive em data/klines.py (com sua
+    # própria suíte, tests/test_klines.py) — aqui só travamos que
+    # regime._klines() delega para lá com os args corretos e repassa o
+    # retorno (incl. None) sem alterar.
 
-    def test_excecao_de_rede_retorna_none(self, monkeypatch):
-        class _Boom:
-            def get(self, *a, **k):
-                raise RuntimeError("rede indisponivel")
-
-        monkeypatch.setattr(regime, "requests", _Boom())
-        assert regime._klines("1h", 60) is None
-
-    def test_json_invalido_retorna_none(self, monkeypatch):
-        # Falha ao decodificar JSON também cai no except -> None.
-        class _Resp:
-            def json(self):
-                raise ValueError("json invalido")
-
-        class _Cli:
-            def get(self, *a, **k):
-                return _Resp()
-
-        monkeypatch.setattr(regime, "requests", _Cli())
-        assert regime._klines("4h", 60) is None
-
-    def test_parse_de_klines_validos(self, monkeypatch):
-        # Resposta sintética no formato Binance -> dict com as 5 séries.
-        filas = [[0, "1.0", "2.0", "0.5", "1.5", "100.0"] for _ in range(4)]
-
-        class _Resp:
-            def json(self):
-                return filas
-
+    def test_delega_para_data_klines_com_symbol_e_args_corretos(self, monkeypatch):
         capturado = {}
 
-        class _Cli:
-            def get(self, url, params=None, timeout=None):
-                capturado["params"] = params
-                return _Resp()
+        def _fake_obter_klines(symbol, intervalo, limite):
+            capturado["args"] = (symbol, intervalo, limite)
+            return {"fechamento": [1.0, 2.0]}
 
-        monkeypatch.setattr(regime, "requests", _Cli())
+        monkeypatch.setattr(regime, "obter_klines", _fake_obter_klines)
         d = regime._klines("1d", 4)
-        assert set(d.keys()) == {"abertura", "maxima", "minima", "fechamento", "volume"}
-        assert d["abertura"] == [1.0] * 4
-        assert d["maxima"] == [2.0] * 4
-        assert d["minima"] == [0.5] * 4
-        assert d["fechamento"] == [1.5] * 4
-        assert d["volume"] == [100.0] * 4
-        # Confirma que o intervalo e o símbolo corretos foram enviados.
-        assert capturado["params"]["interval"] == "1d"
-        assert capturado["params"]["symbol"] == regime.SYMBOL
+        assert capturado["args"] == (regime.SYMBOL, "1d", 4)
+        assert d == {"fechamento": [1.0, 2.0]}
+
+    def test_repassa_none_sem_alterar(self, monkeypatch):
+        monkeypatch.setattr(regime, "obter_klines", lambda *a, **k: None)
+        assert regime._klines("1h", 60) is None
 
 
 # ===========================================================================

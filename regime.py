@@ -17,13 +17,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import requests
-
 import indicadores as ind
+from data.klines import obter_klines
 
-from config.runtime_settings import REST_BASE_URL
-
-BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 SYMBOL = "BTCUSDT"
 
 # Limiares
@@ -34,22 +30,9 @@ ATR_LATERAL = 0.5  # ATR < 0.5x media = mercado parado demais
 
 
 def _klines(intervalo, limite=60):
-    try:
-        r = requests.get(
-            f"{BASE_URL}/api/v3/klines",
-            params={"symbol": SYMBOL, "interval": intervalo, "limit": limite},
-            timeout=8,
-        )
-        k = r.json()
-        return {
-            "abertura": [float(x[1]) for x in k],
-            "maxima": [float(x[2]) for x in k],
-            "minima": [float(x[3]) for x in k],
-            "fechamento": [float(x[4]) for x in k],
-            "volume": [float(x[5]) for x in k],
-        }
-    except Exception:
-        return None
+    """P1-5: delega para data.klines (cache TTL + REST_BASE_URL), mesmo
+    contrato de antes (None em falha, sem propagar exceção)."""
+    return obter_klines(SYMBOL, intervalo, limite)
 
 
 def _adx(maximas, minimas, fechamentos, periodo=14):
