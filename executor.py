@@ -32,6 +32,8 @@ from config.runtime_settings import (
     MAKER_FIRST,
     MAKER_MAX_REQUOTES,
     MAKER_TIMEOUT_S,
+    OCO_BRACKET,
+    OCO_TRAILING_DELTA_BIPS,
     REST_BASE_URL,
 )
 
@@ -105,6 +107,11 @@ def _carregar_precisao(symbol: str) -> dict:
 
 # Estados terminais de uma ordem na Binance (nao muda mais sozinha)
 _STATUS_TERMINAL = {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
+
+# P2-1: sentinela devolvida por _mover_protecao quando o stop NAO deve ser mexido
+# aqui (trailing server-side de um OCO — a exchange ja trilha via belowTrailingDelta,
+# mexer local brigaria com o servidor). Diferente de None (que significa "sem stop").
+_PROTECAO_NAO_MOVIDA = object()
 
 TRAILING_ATIVACAO = 0.01  # ativa trailing após 1% de ganho
 TRAILING_DISTANCIA = 0.008  # stop segue 0.8% abaixo do pico
@@ -197,6 +204,10 @@ class Executor:
         self._maker_timeout_s = MAKER_TIMEOUT_S
         self._maker_max_requotes = MAKER_MAX_REQUOTES
         self._maker_poll_s = 2.0
+        # P2-1: bracket OCO nativo (stop+alvo atomicos na exchange) + trailing
+        # server-side opcional. Instancia p/ serem ajustaveis em teste.
+        self._oco_bracket = OCO_BRACKET
+        self._oco_trailing_bips = OCO_TRAILING_DELTA_BIPS
         if not simulacao:
             self._sincronizar_relogio()  # P0-4: evita -1021 por clock drift
         modo = "SIMULACAO (Paper Trading)" if simulacao else "REAL (Capital Real)"
@@ -427,6 +438,153 @@ class Executor:
             novo_id = self._colocar_stop_exchange(qty, stop_antigo)
         return novo_id
 
+    # ── Bracket OCO nativo (P2-1) ──────────────────────────────
+    # Um OCO (one-cancels-the-other) amarra stop + alvo numa unica lista atomica
+    # na exchange: quando uma perna preenche, a outra e cancelada automaticamente.
+    # Ganho vs. o STOP_LOSS_LIMIT puro: o ALVO tambem passa a viver na exchange
+    # (sobrevive a crash do bot). Endpoint novo POST /api/v3/orderList/oco (o
+    # legado /order/oco esta deprecado). Para fechar um LONG a lista e SELL:
+    #   perna ACIMA do mercado = take-profit (LIMIT_MAKER @ alvo)
+    #   perna ABAIXO do mercado = stop-loss  (STOP_LOSS_LIMIT @ stop, opcional
+    #                                          trailing server-side via trailingDelta)
+
+    def _colocar_oco_exchange(self, qty, stop_price, target_price, trailing_bips=0):
+        """Coloca um OCO SELL (stop + alvo) na exchange. Retorna
+        {"oco_list_id", "stop_order_id", "target_order_id"} ou None se falhar.
+
+        trailing_bips>0 anexa belowTrailingDelta (trailing server-side, em bips)
+        a perna de stop — a exchange trilha o stop sozinha."""
+        if self.simulacao:
+            return None
+        qty = self._arredondar_qty(qty)
+        if qty < self._min_qty:
+            print(f"[EXEC] OCO nao colocado: qty {qty} < min {self._min_qty}")
+            return None
+        stop = self._arredondar_preco(stop_price)
+        alvo = self._arredondar_preco(target_price)
+        params = {
+            "symbol": self.symbol,
+            "side": "SELL",
+            "quantity": qty,
+            # Perna de take-profit (acima do mercado)
+            "aboveType": "LIMIT_MAKER",
+            "abovePrice": alvo,
+            "aboveClientOrderId": f"bxtp-{uuid.uuid4().hex[:14]}",
+            # Perna de stop-loss (abaixo do mercado)
+            "belowType": "STOP_LOSS_LIMIT",
+            "belowStopPrice": stop,
+            # price um pouco abaixo do stopPrice p/ garantir fill do limit
+            "belowPrice": self._arredondar_preco(stop * 0.997),
+            "belowTimeInForce": "GTC",
+            "belowClientOrderId": f"bxsl-{uuid.uuid4().hex[:14]}",
+            "listClientOrderId": f"bxoco-{uuid.uuid4().hex[:13]}",
+        }
+        if trailing_bips and trailing_bips > 0:
+            params["belowTrailingDelta"] = int(trailing_bips)
+        data = self._request_assinado("POST", "/api/v3/orderList/oco", params)
+        if isinstance(data, dict) and data.get("orderListId") is not None:
+            handle = self._extrair_pernas_oco(data)
+            print(
+                f"[EXEC] OCO na exchange: stop @ ${stop:,.2f} / alvo @ ${alvo:,.2f}"
+                f" (listId={handle['oco_list_id']}"
+                f"{f', trailing {trailing_bips}bips' if trailing_bips else ''})"
+            )
+            return handle
+        print(f"[EXEC] AVISO: falha ao colocar OCO na exchange: {data}")
+        return None
+
+    @staticmethod
+    def _extrair_pernas_oco(data: dict) -> dict:
+        """Mapeia a resposta do orderList para os orderIds das pernas stop/alvo.
+        A resposta traz `orders` (lista) e `orderReports` (com type por perna)."""
+        stop_id = target_id = None
+        relatorios = {o.get("orderId"): o for o in data.get("orderReports", [])}
+        for o in data.get("orders", []):
+            oid = o.get("orderId")
+            tipo = (relatorios.get(oid, {}) or {}).get("type", "")
+            if tipo == "LIMIT_MAKER":
+                target_id = oid
+            elif tipo in ("STOP_LOSS_LIMIT", "STOP_LOSS"):
+                stop_id = oid
+        return {
+            "oco_list_id": data.get("orderListId"),
+            "stop_order_id": stop_id,
+            "target_order_id": target_id,
+        }
+
+    def _cancelar_oco_exchange(self, oco_list_id):
+        """Cancela a lista OCO inteira (ambas as pernas). True se cancelou (ou ja
+        nao existia)."""
+        if self.simulacao or oco_list_id is None:
+            return True
+        data = self._request_assinado(
+            "DELETE", "/api/v3/orderList", {"symbol": self.symbol, "orderListId": oco_list_id}
+        )
+        if isinstance(data, dict) and ("orderListId" in data or data.get("code") == -2011):
+            return True  # -2011 = ja nao existe (perna executou / lista cancelada)
+        print(f"[EXEC] AVISO: falha ao cancelar OCO {oco_list_id}: {data}")
+        return False
+
+    # ── Protecao pos-entrada: OCO (P2-1) ou stop puro (P0-2) ───
+    # Abstracao unica usada por abrir_long/fechar_posicao/_monitorar: quando
+    # _oco_bracket esta ligado, a protecao e um bracket atomico stop+alvo; senao
+    # cai no STOP_LOSS_LIMIT puro (comportamento P0-2, byte a byte).
+
+    def _abrir_protecao(self, qty, stop_price, target_price):
+        """Coloca a protecao pos-entrada e devolve {"stop_order_id","oco_list_id"}.
+        Em simulacao ambos sao None. Se o OCO falhar, cai no stop puro — nunca
+        deixa a posicao sem protecao."""
+        if not self.simulacao and self._oco_bracket and target_price:
+            oco = self._colocar_oco_exchange(qty, stop_price, target_price, self._oco_trailing_bips)
+            if oco:
+                return {"stop_order_id": oco["stop_order_id"], "oco_list_id": oco["oco_list_id"]}
+            print("[EXEC] OCO falhou — caindo no stop puro (protecao garantida)")
+        return {"stop_order_id": self._colocar_stop_exchange(qty, stop_price), "oco_list_id": None}
+
+    def _liberar_protecao(self):
+        """Cancela a protecao atual (lista OCO ou stop puro) e zera os ids no
+        estado. Idempotente / no-op em simulacao."""
+        if self.simulacao or not self.posicao:
+            return
+        oco_id = self.posicao.get("oco_list_id")
+        if oco_id is not None:
+            self._cancelar_oco_exchange(oco_id)
+        else:
+            stop_id = self.posicao.get("stop_order_id")
+            if stop_id:
+                self._cancelar_ordem_exchange(stop_id)
+        self.posicao["oco_list_id"] = None
+        self.posicao["stop_order_id"] = None
+
+    def _mover_protecao(self, novo_stop):
+        """Move a protecao para novo_stop (trailing/breakeven). Atualiza
+        oco_list_id no estado e devolve o novo stop_order_id.
+
+        - OCO com trailing server-side (trailingDelta): devolve _PROTECAO_NAO_MOVIDA
+          — a exchange ja trilha o stop, mexer aqui brigaria com o servidor.
+        - OCO sem trailing server-side: cancel-then-replace do OCO no novo stop
+          (mesmo alvo); restaura o OCO antigo se o novo falhar.
+        - stop puro: delega a _mover_stop_exchange (comportamento P0-2 preservado)."""
+        if self.simulacao or not self.posicao:
+            return None
+        oco_antigo = self.posicao.get("oco_list_id")
+        if oco_antigo is None:
+            return self._mover_stop_exchange(novo_stop)
+        if self._oco_trailing_bips > 0:
+            return _PROTECAO_NAO_MOVIDA  # servidor trilha sozinho
+        qty = self.posicao["tamanho_btc"]
+        alvo = self.posicao.get("target2")
+        stop_antigo = self.posicao.get("stop_atual")
+        if not self._cancelar_oco_exchange(oco_antigo):
+            return _PROTECAO_NAO_MOVIDA  # nao cancelou: OCO antigo segue vivo
+        self.posicao["oco_list_id"] = None
+        prot = self._abrir_protecao(qty, novo_stop, alvo)
+        if prot["stop_order_id"] is None and prot["oco_list_id"] is None and stop_antigo:
+            print("[EXEC] Replace do OCO falhou — restaurando protecao no nivel antigo")
+            prot = self._abrir_protecao(qty, stop_antigo, alvo)
+        self.posicao["oco_list_id"] = prot["oco_list_id"]
+        return prot["stop_order_id"]
+
     # ── Entrada maker-first / post-only (P0-2) ─────────────────
     # Em vez de cruzar o spread (LIMIT acima do ask = taker), coloca LIMIT_MAKER
     # no melhor bid: descansa no book, sempre paga fee de MAKER e nao sofre
@@ -551,8 +709,15 @@ class Executor:
             if exec_qty > 0:
                 tamanho_btc = exec_qty
 
-        # P0-2: protecao primaria NA EXCHANGE (sobrevive a crash do bot)
-        stop_order_id = self._colocar_stop_exchange(tamanho_btc, stop_loss)
+        target2 = preco_exec * 1.05  # alvo 2: 5%
+
+        # P0-2/P2-1: protecao primaria NA EXCHANGE (sobrevive a crash do bot).
+        # Com OCO_BRACKET, stop + alvo final (target2) viram um par atomico; o
+        # take-profit parcial (target1) segue no monitor local. Sem OCO, e o
+        # STOP_LOSS_LIMIT puro. O alvo do bracket e target2 (o runner), nao
+        # target1: o parcial de 50% e cancel-vende-recoloca, orquestrado pelo
+        # monitor — um OCO nao expressa "50% aqui + 50% ali".
+        prot = self._abrir_protecao(tamanho_btc, stop_loss, target2)
 
         with self._lock:
             self.posicao = {
@@ -565,11 +730,12 @@ class Executor:
                 "stop_inicial": stop_loss,
                 "stop_atual": stop_loss,
                 "target1": take_profit,
-                "target2": preco_exec * 1.05,  # alvo 2: 5%
+                "target2": target2,
                 "parcial_feita": False,
                 "abertura": datetime.now().isoformat(),
                 "order_id": resp.get("orderId"),
-                "stop_order_id": stop_order_id,
+                "stop_order_id": prot["stop_order_id"],
+                "oco_list_id": prot["oco_list_id"],  # P2-1: None se OCO desligado
                 "sinal_id": sinal_id,  # P1-3: liga esta posicao ao sinal que a originou
                 "pnl_usdt_parcial_acumulado": 0.0,  # P1-3: soma de fechamentos parciais
             }
@@ -616,11 +782,9 @@ class Executor:
         if not self.posicao:
             return
 
-        # P0-2: liberar o saldo travado pelo stop na exchange antes do SELL
-        stop_id = self.posicao.get("stop_order_id")
-        if stop_id:
-            self._cancelar_ordem_exchange(stop_id)
-            self.posicao["stop_order_id"] = None
+        # P0-2/P2-1: liberar o saldo travado pela protecao (OCO ou stop puro)
+        # na exchange antes do SELL
+        self._liberar_protecao()
 
         qty = self.posicao["tamanho_btc"]
         if parcial:
@@ -635,10 +799,14 @@ class Executor:
                 f"[EXEC] FALHA ao fechar posicao (ordem nao preenchida): {resp}. "
                 f"Posicao MANTIDA — nova tentativa no proximo ciclo."
             )
-            # P0-2: SELL falhou e o stop foi cancelado — RECOLOCA a protecao
-            self.posicao["stop_order_id"] = self._colocar_stop_exchange(
-                self.posicao["tamanho_btc"], self.posicao["stop_atual"]
+            # P0-2/P2-1: SELL falhou e a protecao foi cancelada — RECOLOCA
+            prot = self._abrir_protecao(
+                self.posicao["tamanho_btc"],
+                self.posicao["stop_atual"],
+                self.posicao.get("target2"),
             )
+            self.posicao["stop_order_id"] = prot["stop_order_id"]
+            self.posicao["oco_list_id"] = prot["oco_list_id"]
             self._persistir_posicao()
             return
 
@@ -646,10 +814,13 @@ class Executor:
         if parcial:
             self.posicao["parcial_feita"] = True
             self.posicao["tamanho_btc"] = qty  # restante
-            # P0-2: recoloca stop para a metade restante (o antigo foi cancelado)
-            self.posicao["stop_order_id"] = self._colocar_stop_exchange(
-                qty, self.posicao["stop_atual"]
+            # P0-2/P2-1: recoloca a protecao para a metade restante (a antiga foi
+            # cancelada). Com OCO, o novo bracket cobre o runner (stop + target2).
+            prot = self._abrir_protecao(
+                qty, self.posicao["stop_atual"], self.posicao.get("target2")
             )
+            self.posicao["stop_order_id"] = prot["stop_order_id"]
+            self.posicao["oco_list_id"] = prot["oco_list_id"]
             self._persistir_posicao()
 
         pnl_pct = (preco - self.posicao["entrada"]) / self.posicao["entrada"] * 100
@@ -709,6 +880,24 @@ class Executor:
             gestao_risco.decrementar_posicoes_abertas()
             gestao_risco.persistir_estado()
 
+    # ── Ajuste de stop (trailing / breakeven) ──────────────────
+
+    def _aplicar_novo_stop(self, novo_stop, msg_template):
+        """Move a protecao para novo_stop e, se o move de fato ocorreu, atualiza
+        stop_atual/persiste/loga. Se o trailing e server-side (OCO com
+        trailingDelta), _mover_protecao devolve a sentinela — a exchange ja
+        trilha o stop, entao aqui NAO se toca em stop_atual (o floor local segue
+        sendo um backstop seguro) nem se persiste."""
+        if not self.posicao:
+            return
+        res = self._mover_protecao(novo_stop)
+        if res is _PROTECAO_NAO_MOVIDA:
+            return  # trailing server-side: exchange dona do stop
+        self.posicao["stop_order_id"] = res
+        self.posicao["stop_atual"] = novo_stop
+        self._persistir_posicao()
+        print(f"[EXEC] {msg_template.format(v=novo_stop)}")
+
     # ── Monitor de trailing stop ───────────────────────────────
 
     def _monitorar(self):
@@ -753,24 +942,15 @@ class Executor:
                 if d["fechar_parcial"]:
                     self.fechar_posicao(preco, "Take Profit Parcial (50%)", parcial=True)
                     if self.posicao:
-                        self.posicao["stop_order_id"] = self._mover_stop_exchange(
-                            d["stop_breakeven"]
-                        )
-                        self.posicao["stop_atual"] = d["stop_breakeven"]
-                        self._persistir_posicao()
-                        print(
-                            f"[EXEC] Stop movido para breakeven: ${self.posicao['stop_atual']:,.2f}"
+                        self._aplicar_novo_stop(
+                            d["stop_breakeven"], "Stop movido para breakeven: ${v:,.2f}"
                         )
 
                 # Trailing stop (pode coexistir com o parcial no mesmo tick)
                 if d["novo_stop_trailing"] is not None and self.posicao:
-                    self.posicao["stop_order_id"] = self._mover_stop_exchange(
-                        d["novo_stop_trailing"]
-                    )
-                    self.posicao["stop_atual"] = d["novo_stop_trailing"]
-                    self._persistir_posicao()
-                    print(
-                        f"[EXEC] Trailing Stop: ${d['novo_stop_trailing']:,.2f} (pico: ${preco_pico:,.2f})"
+                    self._aplicar_novo_stop(
+                        d["novo_stop_trailing"],
+                        f"Trailing Stop: ${{v:,.2f}} (pico: ${preco_pico:,.2f})",
                     )
 
             except Exception as e:
