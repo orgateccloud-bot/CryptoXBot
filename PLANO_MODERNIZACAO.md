@@ -1,15 +1,30 @@
 # Plano de Modernização — CryptoXbot (BinanceXBot)
 
-> Gerado 2026-07-09 a partir de: mapeamento estrutural + auditoria de docs +
-> pesquisa de mercado (2024–2026). Estado base: bot spot, ensemble XGBoost+MLP,
-> 723 testes verdes, serviço 24/7 (NSSM) em simulação. Fontes de mercado citadas
-> ao final. Prioridade por ROI/esforço: **P0 = alto impacto, baixo esforço**.
+> Rodada 1: gerado 2026-07-09 (mapeamento + docs + pesquisa de mercado
+> 2024-2026). Rodada 2: **atualizado 2026-07-17** (auditoria geral pós-P0/P1 +
+> nova pesquisa de mercado 2025-2026, 3 agentes em paralelo — ver seção
+> "Auditoria Geral — Rodada 2" e "Fontes de mercado (Rodada 2)"). Estado atual:
+> bot spot, ensemble XGBoost+MLP, **908 testes verdes** (não 723 — contagem da
+> Rodada 1 estava desatualizada), serviço 24/7 (NSSM) em simulação. Prioridade
+> por ROI/esforço: **P0 = alto impacto, baixo esforço**.
 
 ## Diagnóstico em uma frase
 
-As fundações estão certas (CVD, stop na exchange, crash-recovery, regime, paper
-24/7). As lacunas de estado-da-arte são três: **validação de ML** (risco de edge
-fantasma), **execução maker-first** (custo direto), e **sizing por volatilidade**.
+**Rodada 1** (2026-07-09): as fundações estavam certas (CVD, stop na exchange,
+crash-recovery, regime, paper 24/7); as 3 lacunas de estado-da-arte eram
+validação de ML, execução maker-first e sizing por volatilidade — **todo o P0
+fechou essas 3, e o P1 foi além** (OBI, guard-rail de drift, consolidação de
+klines, base de meta-labeling).
+
+**Rodada 2** (2026-07-17): com P0+P1 fechados, as fundações de execução/risco/ML
+estão sólidas e validadas contra pesquisa de mercado 2025-2026 (nada do P2/P3
+original ficou obsoleto — ver Auditoria Geral abaixo). A lacuna agora é
+**operacional/observabilidade**: um bug real de crash-loop no boot foi
+encontrado e corrigido nesta rodada (`analise_mercado.py`/Futures sem
+try/except), a superfície de rede do dashboard tem uma brecha real (CORS
+wildcard + token opcional), e a documentação (`docs/` vault, scorecard) está
+inteiramente anterior ao P0/P1 — o código evoluiu mais rápido que os docs e o
+monitoramento.
 
 ---
 
@@ -32,13 +47,49 @@ fantasma), **execução maker-first** (custo direto), e **sizing por volatilidad
 | ✅ P1-4 | ~~**MLflow** para versionar XGBoost+MLP + alertar drift~~ **FEITO** (2026-07-13), sem MLflow (guard-rail leve) | `database.py` (tabela `model_metricas`), `validacao.detectar_drift`, `ml_filtro.verificar_drift_e_registrar` (reusado por `lstm_modelo.py`) | Investigação mostrou que um servidor MLflow completo era desproporcional: só 4 linhagens de modelo (BTCUSDT/ETHUSDT/SOLUSDT XGBoost + 1 MLP global), retreinadas 1x/semana, e o retreino automático hoje sobrescrevia o `.pkl` sem NENHUMA checagem — o AUC (já calculado via purged CV, P0-1) era só impresso no console e perdido. Decisão do usuário: guard-rail leve, sem MLflow (sem processo novo p/ gerenciar no NSSM/systemd). Feito: tabela `model_metricas` (SQLite+Postgres+`supabase/migrations/003_model_metricas.sql`) registra AUC/cv_auc por retreino; `detectar_drift()` compara o retreino atual contra a média histórica (piso absoluto de AUC OU queda de 2 desvios-padrão, com piso mínimo de desvio para não falso-positivar em histórico de baixíssima variância) e ALERTA via `bot_events` (severity=WARNING) sem bloquear o retreino — decisão explícita de "alert-only, não block". |
 | ✅ P1-5 | ~~**Consolidar duplicação de código** (ver Débito Técnico)~~ **FEITO** (2026-07-13), escopo `_klines`; EMA/RSI (dashboard/analise_mercado) adiado | `data/klines.py` (novo) | Investigação achou **6 fetchers de klines, não 4** (o plano perdeu 2 em `risco.py`) — e um bug real: `suporte.py` e `risco.verificar_volatilidade()` hardcodeavam `https://api.binance.com`, ignorando `REST_BASE_URL` do config (uma consolidação anterior, "P0-1", já tinha corrigido `regime.py`/`estrategias/otimizada.py` mas nunca tocou esses dois). Também confirmado: fetch redundante de BTCUSDT entre as 3 threads de par (`regime.py`/`suporte.py` hardcodeiam `SYMBOL="BTCUSDT"` — intencional, BTC como filtro macro — mas sem cache, cada thread refaz o mesmo fetch). Resolvido: `data/klines.py` centraliza o fetch com cache TTL (30s, lock dedicado, mesmo padrão de `risco._cache_correlacao`), usando `REST_BASE_URL` sempre. Cada arquivo migrado (`regime.py`, `suporte.py`, `estrategias/otimizada.py`, `risco.py`) manteve seu **próprio contrato de erro exato** (None/raise/lista vazia/0.0 conforme o caso) via um wrapper fino — nenhuma mudança de comportamento além da correção do bug de URL e da eliminação do fetch redundante. EMA/RSI em `dashboard.py`/`analise_mercado.py` ficaram **fora do escopo** desta rodada (decisão explícita via AskUserQuestion) — **nota (auditoria 2026-07-17): `analise_mercado.py` NÃO é cosmético/morto** como se pensava aqui; é chamado no boot do worker (`main.py:923`), ver correção na seção Débito Técnico abaixo. |
 
+## Auditoria Geral — Rodada 2 (2026-07-17)
+
+Com P0+P1 fechados, rodada de auditoria completa (3 agentes em paralelo:
+código pós-P0/P1, pesquisa de mercado 2025-2026, segurança/confiabilidade) +
+verificação direta de cada achado antes de agir. **Lição desta rodada**: dois
+achados de agentes precisaram de checagem manual antes de virar ação — um
+agente reportou o worktree revertido para uma branch antiga (confirmado real
+via `git log`/`merge-base` antes de agir) e a própria afirmação anterior deste
+documento sobre `analise_mercado.py` ser código morto (linha do P1-5 acima)
+se revelou errada quando verificada agora — nenhuma reescrita de doc ou fix de
+código nesta rodada foi aplicada sem grep/leitura direta primeiro. Corrigido
+nesta rodada (commit `5217027`): boot-crash real (abaixo) + 2 imprecisões de
+doc. Itens abertos, priorizados por severidade/esforço:
+
+| Achado | Severidade | Esforço | Status |
+|---|---|---|---|
+| ✅ `analise_mercado.py` (mercado Futures) sem try/except no boot (`main.py:923`) — falha na API de Futures derrubava o processo inteiro (Spot saudável ou não); NSSM reinicia automaticamente → crash-loop persistente possível | **Alta** (crash-loop do serviço 24/7) | Trivial | **CORRIGIDO** 2026-07-17 |
+| `CORS_ORIGINS='*'` por padrão (`config/runtime_settings.py:106`) + `DASHBOARD_TOKEN` opcional e não confirmado setado no serviço NSSM real | Média (leitura de saldo/estratégia por página maliciosa aberta na mesma máquina; sem rota de execução de ordem exposta) | Baixo | Aberto — trocar default de `CORS_ORIGINS` para origem explícita e/ou exigir `DASHBOARD_TOKEN` fora de `APP_ENV=development` |
+| `Flask-Cors==5.0.1` — CVE-2024-6866 real na versão pinada (impacto prático baixo aqui, único padrão de recurso `/api/*`) | Baixa | Trivial | Aberto — bump para 6.0.0+ |
+| FSRS nunca ativa no caminho ao vivo: `hasattr(ens_mod, "symbol")` (`main.py:650`) é sempre `False` (módulo não tem esse atributo), então `features_fsrs` é sempre `None` e `fator_fsrs` fica fixo em 0.5; `fsrs_trading.registrar_resultado()` também nunca é chamado | Baixa (feature nunca decidida como não vale a pena — não é uma regressão, é um branch morto desde sempre) | Médio (decisão de produto: ativar de vez ou aposentar) | Aberto — precisa decisão, não é só bugfix |
+| `docs/` vault (Obsidian) e scorecard (9.2) inteiramente anteriores a 2026-07-09 — não documentam NADA do P0/P1 | Baixa (não afeta produção, afeta onboarding/memória) | Médio (atualização de conteúdo, não de código) | Aberto |
+| `data/stream_processor.py` — arquivo **não rastreado pelo git** (untracked) no repo principal, resíduo do cluster async aposentado em `d3bc9cd`, sem importadores | Baixa | Trivial | Aberto — mover para `_legado/` (protocolo @Zeta) ou apagar após confirmação |
+| `backtesting/walk_forward.py` não é importado por nenhum outro módulo e não tem teste dedicado (apesar de já usar `backtesting/metricas.py` corretamente) | Baixa | Baixo | Aberto — confirmar se é ferramenta CLI intencional (como `otimizador.py`) e, se sim, só falta suíte de teste |
+| `executor.py`: `threading.Lock` só protege a troca do ponteiro `self.posicao`; mutações de campos individuais em `fechar_posicao`/`_monitorar`/`status()` não são protegidas pelo lock; e há uma janela entre o fill da ordem e `database.salvar_posicao_aberta` onde um crash deixa posição real + stop na exchange sem registro local (boot recovery só lê o DB, nunca cruza com saldo/ordens reais da Binance) | Média (produção real, não simulação — hoje o bot está em `DRY_RUN`, então a janela de risco é teórica até a Rota B ser ativada) | Alto (revisão de concorrência + reconciliação ativa no boot) | Aberto — priorizar **antes** de qualquer ativação de trading real |
+| Cobertura de teste zero em: `fear_greed.py`, `monitor_fluxo.py`, `telegram_bot.py`, `data/stream_processor.py`, `backtesting/{coletar_dados,motor_ensemble,otimizador,walk_forward}.py`, e em `main.py` além de `process_message` (boot, `loop_par`, scheduler de retreino) | Baixa-Média | Alto (é muita superfície) | Aberto — não é bloqueante, mas é onde a próxima regressão não-detectada mora |
+
 ## P2 — Médio/alto esforço
+
+**Validado pela pesquisa de mercado 2025-2026 (Rodada 2): nenhum item ficou
+obsoleto.** OCO/trailingDelta, VectorBT+NautilusTrader e CVaR regime-dependente
+seguem confirmados como a fronteira certa para um bot solo — 3 fontes
+independentes de 2026 (ver Fontes) confirmam NautilusTrader+VectorBT como
+referência ainda vigente, e papers 2025-2026 sobre CVaR cripto tratam
+exatamente de CVaR *regime-dependente*, o mesmo caminho já traçado aqui
+(reforça a sequência CVaR→P3-2/HMM, não muda a ordem).
 
 | # | Ação | Por quê |
 |---|------|---------|
-| P2-1 | **OCO nativo** (`orderList/oco`) + `trailingDelta` server-side | Substitui o cancel-then-replace manual do trailing por bracket atômico na exchange. (Endpoint legado `order/oco` está deprecado.) |
-| P2-2 | **VectorBT** p/ pesquisa (grid de params) + **NautilusTrader** como validador de execução | Split research (vetorizado, rápido) × execução (event-driven, realista). Reduz o gap backtest≠live — o maior risco do backtest atual. |
-| P2-3 | **CVaR / Expected Shortfall** como gate de risco | Circuit breaker atual é limite de drawdown, não de cauda; cripto tem caudas gordas. |
+| P2-1 | **OCO nativo** (`orderList/oco`) + `trailingDelta` server-side | Substitui o cancel-then-replace manual do trailing por bracket atômico na exchange. (Endpoint legado `order/oco` está deprecado.) **Reforço 2025-2026**: Binance adicionou *Order Amend Keep Priority* (mai/2025 — altera quantidade sem perder posição na fila, direto relevante para o maker-first do P0-2) e *STP Decrement* (mesma data — reduz quantidade em vez de cancelar em self-trade). Vale incorporar ambos junto com o OCO nesta mesma rodada, mesmo escopo de arquivo (`executor.py`). |
+| P2-2 | **VectorBT** p/ pesquisa (grid de params) + **NautilusTrader** como validador de execução | Split research (vetorizado, rápido) × execução (event-driven, realista). Reduz o gap backtest≠live — o maior risco do backtest atual. Causas de mercado do gap (2025-2026): overfitting por múltiplas comparações, custos não modelados, mudança de regime — todas já mitigadas aqui por purged CV (P0-1) + DSR/n_trials (P0-4), então a adoção de NautilusTrader é sobre paridade de EXECUÇÃO (fills realistas), não sobre re-resolver um problema de estatística já resolvido. |
+| P2-3 | **CVaR / Expected Shortfall** como gate de risco, **regime-dependente** | Circuit breaker atual é limite de drawdown, não de cauda; cripto tem caudas gordas. Pesquisa 2025-2026 (paper MDPI) reforça CVaR condicionado a regime (via `regime.py`, já existente) em vez de CVaR estático — natural encaixar como um novo gate em `risco.validar_trade()`, no mesmo espírito do check 6.5 (inerte) já construído no P1-2. |
+| P2-4 *(novo, Rodada 2)* | **Meta-labeling com tooling pronto** (`mlfinpy`/`triple-barrier` no PyPI) quando a base de dados do P1-3 tiver histórico suficiente | P1-3 deixou a instrumentação pronta (PnL/barreira/score-na-entrada linkados) mas adiou o treino por falta de histórico. Pesquisa 2025-2026 confirma que meta-labeling via triple-barrier tem ecossistema maduro (não é preciso reimplementar do zero) — quando houver dados, o esforço de implementação cai bastante. |
+| P2-5 *(novo, Rodada 2)* | **Observabilidade leve**: métricas Prometheus expostas (já parcialmente feito em `health.py:/metrics`) + Grafana mínimo numa VM/serviço só, alertas via Telegram (já usado) | Consenso de mercado 2025-2026: stack pesada (MLflow completo, cluster) é desproporcional para bot solo — confirma a decisão já tomada no P1-4. O padrão validado para bots pequenos é uma única VM Grafana+Prometheus+Loki com Alertmanager→Telegram/Discord; exemplo real replicável encontrado: `polymarket-arb` (GitHub, 65 métricas documentadas, alertas de desconexão WS/circuit-breaker — os mesmos eventos que `health.py`/`bot_events` já rastreiam aqui, só falta expor). |
 
 ## P3 — Estrutural (planejar com @Alfa/Plan Mode)
 
@@ -46,6 +97,7 @@ fantasma), **execução maker-first** (custo direto), e **sizing por volatilidad
 |---|------|---------|
 | P3-1 | **Núcleo event-driven (asyncio)** substituindo o polling `--intervalo 15` | Reage a market-data/fills em vez de ciclos fixos; reduz latência de decisão. Refator grande. |
 | P3-2 | **Fractional differentiation** nas features + **HMM probabilístico** no `regime.py` | Features estacionárias com memória; regime como probabilidade/gate, não flag binário. |
+| P3-3 *(novo, Rodada 2)* | **ADDM (Autoregressive Drift Detection Method)** no guard-rail de retreino do P1-4 | O guard-rail atual (`validacao.detectar_drift`) compara AUC contra a média histórica — simples e já funcional. ADDM (QuantInsti, 2025-2026) monitora a autocorrelação da série de erros do modelo em vez da acurácia bruta, detectando degradação mais cedo com menos falso-positivo. Refinamento, não substituição — o guard-rail atual continua válido como piso de segurança. |
 
 ---
 
@@ -69,3 +121,17 @@ fantasma), **execução maker-first** (custo direto), e **sizing por volatilidad
 
 > Detalhe completo com URLs por item: ver o relatório de pesquisa de mercado da
 > sessão de 2026-07-09.
+
+### Fontes de mercado — Rodada 2 (verificadas, 2026-07-17)
+
+- **Execução**: Binance API changelog 2025 (Order Amend Keep Priority, STP Decrement mode, streams SBE binários) — confirma que P2-1 (OCO/trailingDelta) continua na fronteira certa e ganha 2 itens extras de baixo custo no mesmo arquivo.
+- **Backtest vs. live**: NautilusTrader docs, VectorBT docs — reconfirmados como a dupla research-vetorizado/execução-event-driven de referência; causas de gap backtest≠live (overfitting multi-teste, custo não modelado, mudança de regime) já mitigadas aqui por purged CV + DSR (P0-1/P0-4).
+- **Risco**: paper MDPI 2025-2026 sobre CVaR condicionado a regime em cripto — reforça P2-3 (CVaR como gate, ligado ao `regime.py` já existente).
+- **ML/drift**: QuantInsti (ADDM — Autoregressive Drift Detection Method) — refinamento sugerido para o guard-rail simples do P1-4 (P3-3, novo).
+- **Meta-labeling**: `mlfinpy`, `quantreo`, pacote `triple-barrier` (PyPI) — tooling maduro pronto para quando a base do P1-3 tiver histórico suficiente (P2-4, novo).
+- **MLOps leve**: Aim, DVC — confirmam que a decisão do P1-4 (guard-rail leve, sem MLflow completo) é o padrão correto de mercado para bot solo, não um atalho.
+- **Observabilidade**: padrão Prometheus+Grafana+Loki+Alertmanager para bots solo; exemplo real replicável — `polymarket-arb` (GitHub, ~65 métricas documentadas) (P2-5, novo).
+- **Microestrutura**: Order Flow Imbalance (OFI) e Volume Profile como extensões válidas de OBI (P1-1); footprint charts avaliado e **descartado** — ferramenta visual/discricionária, não automatizável no pipeline atual.
+
+> Fontes brutas (URLs completas): transcrição da sessão de pesquisa de mercado
+> de 2026-07-17 (agente em background, "Market research — Rodada 2").
