@@ -34,7 +34,7 @@ scripts/           # migrate_sqlite_to_supabase.py
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (721 passed, 7 skipped)
+tests/             # pytest (908 passed, 7 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -103,7 +103,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 # health server dele colide com o dashboard na 5000.
 
 # Testes
-pytest tests/ -v                    # 721 passed, 7 skipped
+pytest tests/ -v                    # 908 passed, 7 skipped
 # BXBOT_TEST_PG_URL=postgresql://... pytest tests/test_logger_postgres.py -v
 
 # Migração de dados SQLite -> Supabase (idempotente)

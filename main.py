@@ -910,7 +910,7 @@ def main():
     print(f"  Pares: {', '.join(pares)}")
     print("=" * 56)
     print("  Modulos ativos:")
-    print("  [OK] WebSocket BTC/USDT Futures (CVD em tempo real)")
+    print("  [OK] WebSocket BTC/USDT Spot (CVD + OBI em tempo real)")
     print(f"  [OK] Estrategia Otimizada MTF+ATR+Volume+VWAP+ML (por par)")
     print(f"  [OK] Gestao de Risco (Kelly + Circuit Breaker)")
     print(f"  [OK] Executor {'Simulado' if simulacao else 'Real'} + Trailing Stop (por par)")
@@ -920,7 +920,19 @@ def main():
     print("  Ctrl+C para encerrar")
     print("=" * 56 + "\n")
 
-    relatorio_completo()
+    # Achado da auditoria 2026-07-17: relatorio_completo() bate no mercado de
+    # FUTUROS (fapi.binance.com, analise_mercado.py) -- um mercado que o bot
+    # nem opera (opera SPOT). Sem try/except, uma falha ali (rate limit,
+    # geo-block, instabilidade da API de Futures) derrubava o boot inteiro do
+    # processo (main() nao tem nenhum try/except ao redor, chamado nu em
+    # `if __name__ == "__main__": main()`) -- e como o NSSM reinicia o
+    # servico automaticamente, uma falha persistente virava crash-loop,
+    # mesmo com o Spot 100% saudavel. Mesmo padrao de protecao ja usado por
+    # reg.imprimir()/fg.imprimir() logo abaixo.
+    try:
+        relatorio_completo()
+    except Exception as e:
+        print(f"[AVISO] Relatorio de mercado (Futures, informativo): {e}")
 
     # Regime e Fear & Greed na inicializacao
     try:
