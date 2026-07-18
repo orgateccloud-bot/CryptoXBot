@@ -104,12 +104,25 @@ if APP_ENV == "production" and SECRET_KEY == "botbinance-local-dev":
         "defina SECRET_KEY no ambiente para sessoes persistentes."
     )
 CORS_ORIGINS = _env("CORS_ORIGINS", "*")
+# Auditoria 2026-07-17: CORS_ORIGINS='*' deixa qualquer pagina aberta na mesma
+# maquina ler saldo/estrategia via JS (o dashboard nao tem CORS proprio). Em
+# producao, '*' nunca e respeitado — vindo do default ou de um .env real
+# copiado do template antigo (ambos indistinguiveis na pratica, e o template
+# antigo tinha CORS_ORIGINS=* descomentado) — sempre negamos cross-origin por
+# padrao (dashboard.py traduz isso para cada biblioteca: [] no Flask-CORS,
+# None no Socket.IO). Acessar o dashboard diretamente continua funcionando
+# normalmente, so a leitura cross-origin e bloqueada; para liberar de fato,
+# defina CORS_ORIGINS com um dominio real (nao wildcard).
+CORS_SAME_ORIGIN_ONLY = False
 if APP_ENV == "production" and CORS_ORIGINS == "*":
     import logging as _log_cors
 
+    CORS_SAME_ORIGIN_ONLY = True
     _log_cors.getLogger("botbinance").warning(
-        "CORS_ORIGINS='*' em producao — defina CORS_ORIGINS=https://seu-dominio.com "
-        "para restringir o acesso ao dashboard."
+        "CORS_ORIGINS='*' em producao — bloqueando acesso cross-origin por "
+        "padrao (o dashboard acessado diretamente continua funcionando "
+        "normalmente). Defina CORS_ORIGINS=https://seu-dominio.com se precisar "
+        "de acesso cross-origin de fato."
     )
 
 DRY_RUN = _env_bool("DRY_RUN", True)

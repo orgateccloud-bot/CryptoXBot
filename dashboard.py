@@ -28,12 +28,34 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 
 import database
-from config.runtime_settings import WS_BASE_URL, CORS_ORIGINS, PORT, SECRET_KEY, SYMBOL_WS, WHALE_BTC_VOLUME
+from config.runtime_settings import (
+    APP_ENV,
+    CORS_ORIGINS,
+    CORS_SAME_ORIGIN_ONLY,
+    PORT,
+    SECRET_KEY,
+    SYMBOL_WS,
+    WHALE_BTC_VOLUME,
+    WS_BASE_URL,
+)
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 app.config["SECRET_KEY"] = SECRET_KEY
-CORS(app, resources={r"/api/*": {"origins": CORS_ORIGINS}})
-socketio = SocketIO(app, cors_allowed_origins=CORS_ORIGINS, async_mode="threading")
+# Flask-CORS e Socket.IO tem semanticas diferentes para "so mesma origem":
+# [] no Flask-CORS nega qualquer cross-origin (visita direta ao dashboard nao
+# usa CORS, entao nao e afetada); None no Socket.IO faz o engineio deduzir a
+# origem a partir do proprio request (ver CORS_SAME_ORIGIN_ONLY em
+# config/runtime_settings.py) -- [] quebraria o websocket ate para o proprio
+# dashboard.
+CORS(
+    app,
+    resources={r"/api/*": {"origins": [] if CORS_SAME_ORIGIN_ONLY else CORS_ORIGINS}},
+)
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=None if CORS_SAME_ORIGIN_ONLY else CORS_ORIGINS,
+    async_mode="threading",
+)
 
 # P0-5: token opcional para todas as rotas /api/*. Se DASHBOARD_TOKEN estiver
 # no ambiente, exigimos "Authorization: Bearer <token>" ou "?token=<token>".
@@ -757,12 +779,31 @@ def run_dashboard():
     # auth propria. Para expor na rede: DASHBOARD_BIND=0.0.0.0 no .env (de
     # preferencia atras do Caddy/VPN) e DASHBOARD_TOKEN definido.
     bind = os.getenv("DASHBOARD_BIND", "127.0.0.1")
-    if bind != "127.0.0.1" and not os.getenv("DASHBOARD_TOKEN"):
-        print(
-            "[SEGURANCA] AVISO: dashboard exposto na rede SEM DASHBOARD_TOKEN — "
-            "qualquer dispositivo na rede ve saldo e estrategia."
-        )
+    _checar_exposicao_rede(bind, os.getenv("DASHBOARD_TOKEN", ""), APP_ENV)
     socketio.run(app, host=bind, port=PORT, debug=False, allow_unsafe_werkzeug=True)
+
+
+def _checar_exposicao_rede(bind: str, token: str, app_env: str) -> None:
+    """Avisa (ou aborta em producao) quando o dashboard expoe a rede sem token.
+
+    Auditoria 2026-07-17: producao + DASHBOARD_BIND != 127.0.0.1 + sem
+    DASHBOARD_TOKEN e a combinacao realmente perigosa (qualquer dispositivo na
+    rede le saldo/estrategia) — mesmo padrao fail-fast que main.py ja usa para
+    `--real` sem credenciais.
+    """
+    if bind == "127.0.0.1" or token:
+        return
+    if app_env == "production":
+        print(
+            "[SEGURANCA] Abortando: DASHBOARD_BIND != 127.0.0.1 sem "
+            "DASHBOARD_TOKEN em producao. Defina DASHBOARD_TOKEN no .env ou "
+            "volte DASHBOARD_BIND para 127.0.0.1."
+        )
+        raise SystemExit(1)
+    print(
+        "[SEGURANCA] AVISO: dashboard exposto na rede SEM DASHBOARD_TOKEN — "
+        "qualquer dispositivo na rede ve saldo e estrategia."
+    )
 
 
 # ── Inicialização ──────────────────────────────────────────────

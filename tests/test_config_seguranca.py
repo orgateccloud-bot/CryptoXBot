@@ -60,3 +60,41 @@ def test_chaves_efemeras_diferentes_entre_reloads(monkeypatch):
     importlib.reload(rs)
     k2 = rs.SECRET_KEY
     assert k1 != k2  # cada inicialização gera uma chave nova
+
+
+# ── CORS_ORIGINS (auditoria 2026-07-17) ────────────────────────────────────
+
+
+def test_dev_cors_wildcard_por_padrao(monkeypatch):
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    monkeypatch.setenv("ENV", "development")
+    importlib.reload(rs)
+    assert rs.CORS_ORIGINS == "*"
+    assert rs.CORS_SAME_ORIGIN_ONLY is False
+
+
+def test_producao_sem_cors_origins_nega_cross_origin_por_padrao(monkeypatch):
+    monkeypatch.delenv("CORS_ORIGINS", raising=False)
+    monkeypatch.setenv("ENV", "production")
+    importlib.reload(rs)
+    assert rs.CORS_ORIGINS == "*"
+    assert rs.CORS_SAME_ORIGIN_ONLY is True
+
+
+def test_producao_com_cors_origins_explicito_wildcard_tambem_nega(monkeypatch):
+    # '*' explicito no .env e indistinguivel do default em tempo de execucao
+    # (o antigo .env.example vinha com CORS_ORIGINS=* descomentado) — em
+    # producao, ambos caem no mesmo bloqueio seguro.
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("CORS_ORIGINS", "*")
+    importlib.reload(rs)
+    assert rs.CORS_ORIGINS == "*"
+    assert rs.CORS_SAME_ORIGIN_ONLY is True
+
+
+def test_producao_com_cors_origins_restrito_nao_ativa_same_origin_only(monkeypatch):
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("CORS_ORIGINS", "https://dashboard.example.com")
+    importlib.reload(rs)
+    assert rs.CORS_ORIGINS == "https://dashboard.example.com"
+    assert rs.CORS_SAME_ORIGIN_ONLY is False

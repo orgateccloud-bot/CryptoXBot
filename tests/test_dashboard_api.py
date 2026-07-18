@@ -252,3 +252,26 @@ class TestSegurancaWeb:
         finally:
             dashboard._DASHBOARD_TOKEN = original
             dashboard._rate_hits.clear()
+
+
+# ── Testes: _checar_exposicao_rede (auditoria 2026-07-17) ─────────────────────
+
+
+class TestChecarExposicaoRede:
+    def test_bind_local_nao_faz_nada(self, capsys):
+        dashboard._checar_exposicao_rede("127.0.0.1", "", "production")
+        assert capsys.readouterr().out == ""
+
+    def test_bind_exposto_com_token_nao_faz_nada(self, capsys):
+        dashboard._checar_exposicao_rede("0.0.0.0", "algum-token", "production")
+        assert capsys.readouterr().out == ""
+
+    def test_bind_exposto_sem_token_em_producao_aborta(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            dashboard._checar_exposicao_rede("0.0.0.0", "", "production")
+        assert exc.value.code == 1
+        assert "Abortando" in capsys.readouterr().out
+
+    def test_bind_exposto_sem_token_fora_de_producao_so_avisa(self, capsys):
+        dashboard._checar_exposicao_rede("0.0.0.0", "", "development")
+        assert "AVISO" in capsys.readouterr().out
