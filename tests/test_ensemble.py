@@ -22,7 +22,7 @@ def _mock_xgb(prob: float):
     )
 
 
-def _prever_com_mocks(xgb_prob, lstm_prob, regime="INDEFINIDO", features_fsrs=None):
+def _prever_com_mocks(xgb_prob, lstm_prob, regime="INDEFINIDO"):
     """Invoca ensemble.prever() com modelos mockados."""
     with (
         patch("ensemble.ml_filtro", create=True),
@@ -40,7 +40,7 @@ def _prever_com_mocks(xgb_prob, lstm_prob, regime="INDEFINIDO", features_fsrs=No
                 "lstm_modelo": MagicMock(prever=lambda *a, **kw: (lstm_prob, "OK")),
             },
         ):
-            return ensemble.prever(regime_atual=regime, features_fsrs=features_fsrs)
+            return ensemble.prever(regime_atual=regime)
 
 
 # ── Testes: pesos por regime ──────────────────────────────────────────────────
@@ -117,7 +117,6 @@ class TestCalculoEnsemble:
             "motivo",
             "regime",
             "pesos_aplicados",
-            "fator_fsrs",
         ]
         for campo in campos:
             assert campo in r, f"Campo '{campo}' ausente"
@@ -167,62 +166,3 @@ class TestFallback:
         assert r["pesos_aplicados"]["xgb"] == pytest.approx(
             ensemble.AJUSTES_REGIME["INDEFINIDO"]["xgb"]
         )
-
-
-# ── Testes: FSRS integration ──────────────────────────────────────────────────
-
-
-class TestFSRSIntegration:
-    def test_fator_fsrs_neutro_sem_features(self):
-        r = _prever_com_mocks(0.65, 0.60, features_fsrs=None)
-        # Sem features_fsrs, FSRS não é consultado → fator neutro 0.5
-        assert r["fator_fsrs"] == pytest.approx(0.5)
-
-    def test_fsrs_disponivel_consulta_quando_features_presentes(self):
-        mock_fsrs = MagicMock()
-        mock_fsrs.avaliar.return_value = 0.8
-        mock_fsrs.avaliar_com_detalhe.return_value = {"status": "CONFIAVEL", "fator_confianca": 0.8}
-        mock_get_fsrs = MagicMock(return_value=mock_fsrs)
-
-        with (
-            patch("ensemble._FSRS_DISPONIVEL", True),
-            patch("ensemble._get_fsrs", mock_get_fsrs),
-            patch.dict(
-                "sys.modules",
-                {
-                    "ml_filtro": MagicMock(prever=lambda *a, **kw: (0.70, "OK")),
-                    "lstm_modelo": MagicMock(prever=lambda *a, **kw: (0.65, "OK")),
-                },
-            ),
-        ):
-            r = ensemble.prever(
-                regime_atual="TENDENCIA_ALTA",
-                features_fsrs={"rsi": 58, "dist_ema20": 0.005},
-            )
-        assert r["fator_fsrs"] == pytest.approx(0.8)
-
-    def test_fsrs_ruim_bloqueia_operacao(self):
-        """FSRS fator < 0.4 + prob_ajustado < limiar → pode_operar = False."""
-        mock_fsrs = MagicMock()
-        mock_fsrs.avaliar.return_value = 0.1  # histórico muito ruim
-        mock_fsrs.avaliar_com_detalhe.return_value = {"status": "EVITAR", "fator_confianca": 0.1}
-        mock_get_fsrs = MagicMock(return_value=mock_fsrs)
-
-        with (
-            patch("ensemble._FSRS_DISPONIVEL", True),
-            patch("ensemble._get_fsrs", mock_get_fsrs),
-            patch.dict(
-                "sys.modules",
-                {
-                    "ml_filtro": MagicMock(prever=lambda *a, **kw: (0.60, "OK")),
-                    "lstm_modelo": MagicMock(prever=lambda *a, **kw: (0.58, "OK")),
-                },
-            ),
-        ):
-            r = ensemble.prever(
-                regime_atual="INDEFINIDO",
-                features_fsrs={"rsi": 50},
-            )
-        # FSRS 0.1 → ajuste=0.73 → prob_ajustado bem abaixo do limiar → bloqueado
-        assert r["fator_fsrs"] == pytest.approx(0.1)
-        assert r["pode_operar"] is False

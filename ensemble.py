@@ -27,14 +27,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# FSRS — filtro adaptativo (opcional, não bloqueia se ausente)
-try:
-    from fsrs_trading import get_fsrs as _get_fsrs
-
-    _FSRS_DISPONIVEL = True
-except ImportError:
-    _FSRS_DISPONIVEL = False
-
 # Pesos base
 PESO_XGB_BASE = 0.55
 PESO_LSTM_BASE = 0.45
@@ -49,15 +41,12 @@ AJUSTES_REGIME = {
 }
 
 
-def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
+def prever(regime_atual="INDEFINIDO"):
     """
-    Retorna previsao combinada XGBoost + LSTM com ajuste por regime e FSRS.
+    Retorna previsao combinada XGBoost + LSTM com ajuste por regime.
 
     Args:
         regime_atual:   str — regime detectado (TENDENCIA_ALTA, LATERAL, etc.)
-        features_fsrs:  dict — features atuais para consulta ao FSRS (opcional)
-                        Ex: {"regime": "TENDENCIA_ALTA", "rsi": 58, "dist_ema20": 0.005,
-                             "cvd_score": 70, "vol_rel": 1.4}
 
     Retorna dict com:
       prob_ensemble:  probabilidade combinada (0-1)
@@ -69,7 +58,6 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
       motivo:         str
       regime:         regime usado no ajuste
       pesos_aplicados: dict com pesos finais
-      fator_fsrs:     float — fator de confiança adaptativo (0-1)
     """
     prob_xgb = None
     prob_lstm = None
@@ -150,38 +138,6 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
         pode_operar = False
         motivo = f"Nenhum modelo disponivel — XGB: {msg_xgb} | LSTM: {msg_lstm}"
 
-    # ── FSRS: ajuste adaptativo por histórico de padrões ─────────
-    fator_fsrs = 0.5  # neutro (sem histórico)
-    fsrs_detalhe = {}
-    if _FSRS_DISPONIVEL and features_fsrs:
-        try:
-            _fsrs = _get_fsrs()
-            # Garante que o regime está nas features
-            features_fsrs.setdefault("regime", regime_atual)
-            fator_fsrs = _fsrs.avaliar(features_fsrs)
-            fsrs_detalhe = _fsrs.avaliar_com_detalhe(features_fsrs)
-
-            # Aplica FSRS: ajusta prob_ensemble proporcionalmente
-            # fator=0.5 (neutro) → multiplica por 0.85 (leve cautela sem histórico)
-            # fator=1.0 (confiante) → multiplica por 1.0 (sem alteração)
-            # fator=0.1 (padrão ruim) → multiplica por 0.73 (penaliza)
-            ajuste_fsrs = 0.7 + 0.3 * fator_fsrs
-            prob_ensemble_ajustado = round(prob_ensemble * ajuste_fsrs, 4)
-
-            if fator_fsrs < 0.4:
-                motivo += f" | FSRS:{fator_fsrs:.2f}(EVITAR)"
-                if pode_operar and prob_ensemble_ajustado < limiar:
-                    pode_operar = False
-                    motivo += " → bloqueado por histórico ruim"
-            elif fator_fsrs >= 0.75:
-                motivo += f" | FSRS:{fator_fsrs:.2f}(CONFIAVEL)"
-            else:
-                motivo += f" | FSRS:{fator_fsrs:.2f}"
-
-            prob_ensemble = prob_ensemble_ajustado
-        except Exception:
-            pass
-
     return {
         "prob_ensemble": round(prob_ensemble, 4),
         "prob_xgb": prob_xgb,
@@ -192,8 +148,6 @@ def prever(regime_atual="INDEFINIDO", features_fsrs: dict | None = None):
         "motivo": motivo,
         "regime": regime_atual,
         "pesos_aplicados": {"xgb": peso_xgb, "lstm": peso_lstm, "threshold": limiar},
-        "fator_fsrs": fator_fsrs,
-        "fsrs_detalhe": fsrs_detalhe,
     }
 
 
@@ -255,12 +209,6 @@ def imprimir(regime_atual="INDEFINIDO"):
     if r["prob_xgb"] is not None and r["prob_lstm"] is not None:
         conc_txt = f"{verde}SIM{reset}" if r["concordancia"] else f"{vermelho}NAO{reset}"
         print(f"  Concordam: {conc_txt}")
-
-    # FSRS
-    ffsrs = r.get("fator_fsrs", 0.5)
-    cor_fsrs = verde if ffsrs >= 0.7 else "\033[93m" if ffsrs >= 0.5 else vermelho
-    fsrs_status = r.get("fsrs_detalhe", {}).get("status", "DESCONHECIDO")
-    print(f"  FSRS:      {cor_fsrs}{ffsrs:.2f} ({fsrs_status}){reset}")
 
     print(f"  Opera:     {verde+'SIM'+reset if r['pode_operar'] else vermelho+'NAO'+reset}")
     print(f"  {r['motivo']}")
