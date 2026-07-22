@@ -165,6 +165,16 @@ Proteções de execução (`executor.py`, todas só em modo real):
 - **Stop loss NA EXCHANGE**: `STOP_LOSS_LIMIT` colocado na Binance após o fill
   (sobrevive a crash do bot); trailing/breakeven via cancel-then-replace com
   restauração do nível antigo se o novo falhar.
+- **Bracket OCO nativo (P2-1, opt-in `OCO_BRACKET=false` por padrão)**: quando
+  ligado, a proteção pós-entrada vira um par atômico stop+alvo final (target2)
+  via `POST /api/v3/orderList/oco` (one-cancels-the-other) — o **alvo** passa a
+  viver na exchange (sobrevive a crash), não só no monitor local. O take-profit
+  parcial (50% no target1) segue no monitor (um OCO tem 1 qty / 2 pernas): no
+  parcial o OCO é cancelado, vende-se 50% e recoloca-se um OCO para o runner.
+  `OCO_TRAILING_DELTA_BIPS>0` delega o trailing ao servidor (`belowTrailingDelta`,
+  em bips: 80 = 0.8%) e suprime o cancel-then-replace local. Abstração única
+  (`_abrir/_liberar/_mover_protecao`): com OCO desligado, é o `STOP_LOSS_LIMIT`
+  puro de sempre. Fallback p/ stop puro se o OCO falhar (nunca sem proteção).
 - **Crash recovery**: posição persistida no DB (`database.salvar_posicao_aberta`,
   reusa `risk_state` com prefixo `posicao:`); no boot, `loop_par` recupera e
   religa o monitor. Sem posição órfã pós-restart.

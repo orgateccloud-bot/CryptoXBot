@@ -135,3 +135,18 @@ ENABLE_HEALTH_SERVER = _env_bool("ENABLE_HEALTH_SERVER", bool(os.getenv("PORT"))
 MAKER_FIRST = _env_bool("MAKER_FIRST", True)
 MAKER_TIMEOUT_S = _env_int("MAKER_TIMEOUT_S", 20)
 MAKER_MAX_REQUOTES = _env_int("MAKER_MAX_REQUOTES", 3)
+
+# P2-1: bracket OCO nativo (POST /api/v3/orderList/oco) como protecao pos-entrada.
+# Quando ligado, o stop E o alvo final (target2) viram um par atomico
+# one-cancels-the-other na Binance — o alvo passa a viver NA EXCHANGE (nao so no
+# monitor local), sobrevivendo a crash do bot. O take-profit parcial (50% no
+# target1) segue orquestrado pelo monitor local (um OCO tem 1 qty / 2 pernas,
+# nao expressa parcial+runner) — no parcial o OCO e cancelado, vende-se 50% e um
+# novo OCO e recolocado para o restante.
+# OCO_TRAILING_DELTA_BIPS>0 anexa belowTrailingDelta a perna de stop (trailing
+# SERVER-SIDE, em bips: 80 = 0.8%): a exchange trilha o stop sozinha e o
+# cancel-then-replace do trailing local e suprimido para nao brigar com o servidor.
+# Default OFF: mudanca no caminho de dinheiro real exige validacao em paper +
+# sign-off explicito antes de ativar (mesma cautela de MAKER_FIRST / P1-2).
+OCO_BRACKET = _env_bool("OCO_BRACKET", False)
+OCO_TRAILING_DELTA_BIPS = _env_int("OCO_TRAILING_DELTA_BIPS", 0)
