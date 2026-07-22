@@ -42,6 +42,7 @@ from config.runtime_settings import (
     ALLOW_REAL_TRADING,
     ENABLE_HEALTH_SERVER,
     MIN_BTC_VOLUME,
+    RECONCILIAR_BOOT_EXCHANGE,
     SYMBOL_WS,
     WHALE_BTC_VOLUME,
     WS_BASE_URL,
@@ -594,26 +595,33 @@ def loop_par(par, intervalo_min, simulacao):
 
     # P0-3: crash recovery — se havia posicao aberta persistida, readota e
     # religa o monitor (senao a posicao ficaria orfa na exchange sem gestao).
+    # RECONCILIAR_BOOT_EXCHANGE=true (auditoria 2026-07-22) cruza tambem com o
+    # estado real da Binance (saldo/ordens abertas/myTrades) antes de decidir
+    # — default False preserva o comportamento legado abaixo (confia no DB).
     try:
-        persistidas = database.carregar_posicoes_abertas()
-        pos_salva = persistidas.get(par)
-        if pos_salva:
-            executor.posicao = pos_salva
-            executor._ativo = True
-            executor._monitor = threading.Thread(target=executor._monitorar, daemon=True)
-            executor._monitor.start()
+        if RECONCILIAR_BOOT_EXCHANGE:
+            resultado = executor.reconciliar_boot()
             print(
-                f"\033[93m[RECOVERY] {par} — posicao aberta recuperada do banco "
-                f"(entrada ${pos_salva.get('entrada', 0):,.2f}, "
-                f"stop ${pos_salva.get('stop_atual', 0):,.2f}). Monitor religado.\033[0m"
+                f"\033[93m[RECOVERY] {par} — reconciliacao de boot: "
+                f"{resultado['acao']} ({resultado['detalhe']})\033[0m"
             )
-            database.salvar_bot_event(
-                "posicao_recuperada",
-                f"Posicao {par} recuperada apos restart (entrada {pos_salva.get('entrada')})",
-                service="worker",
-                symbol=par,
-                severity="WARNING",
-            )
+        else:
+            persistidas = database.carregar_posicoes_abertas()
+            pos_salva = persistidas.get(par)
+            if pos_salva:
+                executor.reidratar_posicao(pos_salva)
+                print(
+                    f"\033[93m[RECOVERY] {par} — posicao aberta recuperada do banco "
+                    f"(entrada ${pos_salva.get('entrada', 0):,.2f}, "
+                    f"stop ${pos_salva.get('stop_atual', 0):,.2f}). Monitor religado.\033[0m"
+                )
+                database.salvar_bot_event(
+                    "posicao_recuperada",
+                    f"Posicao {par} recuperada apos restart (entrada {pos_salva.get('entrada')})",
+                    service="worker",
+                    symbol=par,
+                    severity="WARNING",
+                )
     except Exception as e:
         print(f"\033[91m[RECOVERY] {par} — falha ao recuperar posicao: {e}\033[0m")
 

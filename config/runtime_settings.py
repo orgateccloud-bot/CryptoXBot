@@ -150,3 +150,16 @@ MAKER_MAX_REQUOTES = _env_int("MAKER_MAX_REQUOTES", 3)
 # sign-off explicito antes de ativar (mesma cautela de MAKER_FIRST / P1-2).
 OCO_BRACKET = _env_bool("OCO_BRACKET", False)
 OCO_TRAILING_DELTA_BIPS = _env_int("OCO_TRAILING_DELTA_BIPS", 0)
+
+# Auditoria 2026-07-22: o boot recovery legado (loop_par em main.py) so le a
+# posicao persistida no DB e nunca cruza com o estado real da Binance (saldo/
+# ordens abertas) -- um crash entre o fill e o registro local deixa uma
+# posicao orfa (real + protegida na exchange) invisivel ao reiniciar; o
+# inverso (DB com posicao ja fechada fora do bot) tambem nao e detectado.
+# RECONCILIAR_BOOT_EXCHANGE=true liga Executor.reconciliar_boot() (GET
+# /api/v3/account + openOrders/openOrderList + myTrades) antes de decidir
+# religar o monitor. Default OFF: mudanca no caminho de dinheiro real exige
+# validacao em paper/drills de restart antes de ativar (mesma cautela de
+# OCO_BRACKET/MAKER_FIRST) -- sem a flag, o comportamento e o legado (confia
+# cegamente no DB).
+RECONCILIAR_BOOT_EXCHANGE = _env_bool("RECONCILIAR_BOOT_EXCHANGE", False)

@@ -22,6 +22,7 @@ Cobertura:
 import os
 import sys
 import threading
+import time
 
 import pytest
 
@@ -115,6 +116,7 @@ def database_mock(monkeypatch):
             self.chamadas = []
             self.chamadas_marcar_executado = []
             self.chamadas_atualizar_fechamento = []
+            self.posicoes_salvas = []
 
         def salvar_sinal(self, *args, **kwargs):
             self.chamadas.append((args, kwargs))
@@ -125,6 +127,18 @@ def database_mock(monkeypatch):
 
         def atualizar_sinal_fechamento(self, *args, **kwargs):
             self.chamadas_atualizar_fechamento.append((args, kwargs))
+
+        def salvar_posicao_aberta(self, *args, **kwargs):
+            # Sem isto, o retry de persistencia da janela fill->DB (executor.py)
+            # bateria em AttributeError 3x com sleep(0.5+1.0s) em todo teste que
+            # chama abrir_long -- silencioso mas lento, ja aconteceu antes.
+            self.posicoes_salvas.append((args, kwargs))
+
+        def remover_posicao_aberta(self, *args, **kwargs):
+            pass
+
+        def salvar_bot_event(self, *args, **kwargs):
+            pass
 
     fake = _DBFake()
     monkeypatch.setattr(executor_mod, "database", fake)
@@ -149,7 +163,9 @@ def ex_sim(gestao_risco_mock, database_mock, monkeypatch):
 
 def test_lock_existe():
     ex = Executor(simulacao=True)
-    assert isinstance(ex._lock, type(threading.Lock()))
+    # RLock (nao Lock): fechar_posicao/_aplicar_novo_stop podem ser chamados
+    # de dentro de _monitorar, que tambem readquire o lock -- ver executor.py.
+    assert isinstance(ex._lock, type(threading.RLock()))
 
 
 def test_precisao_btcusdt():
@@ -782,3 +798,91 @@ def test_fechar_sem_sinal_id_nao_chama_atualizar_fechamento_com_erro(ex_sim, dat
     ex_sim.fechar_posicao(51000.0, "Take Profit Final", parcial=False)
     args, kwargs = database_mock.chamadas_atualizar_fechamento[0]
     assert args[0] is None
+
+
+# ══════════════════════════════════════════════════════════════
+# TestExecutorConcorrencia — RLock, snapshot em status()/fechar_posicao,
+# rede sempre fora do lock (auditoria 2026-07-22)
+# ══════════════════════════════════════════════════════════════
+
+
+class TestExecutorConcorrencia:
+    def test_status_toctou_usa_snapshot_anterior_ao_preco(self, ex_sim, monkeypatch):
+        """Regressao do TOCTOU: status() tirava o snapshot DEPOIS de checar
+        `if not self.posicao`, entao um fechamento concorrente exatamente
+        entre a checagem e a leitura estourava TypeError. Com o snapshot
+        unico sob lock ANTES de chamar get_preco() (rede), um fechamento que
+        aconteça durante get_preco() nao pode mais afetar o `pos` ja capturado."""
+        ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
+        entrada_esperada = ex_sim.posicao["entrada"]
+
+        def _get_preco_e_fecha_concorrentemente():
+            # Simula _monitorar fechando a posicao no exato instante em que
+            # status() estaria lendo o preco (a rede real e o ponto onde uma
+            # outra thread teria a chance de rodar).
+            ex_sim.posicao = None
+            return 50500.0
+
+        monkeypatch.setattr(ex_sim, "get_preco", _get_preco_e_fecha_concorrentemente)
+
+        st = ex_sim.status()  # nao pode lancar TypeError
+
+        assert st["tipo"] == "LONG"
+        assert st["entrada"] == entrada_esperada
+
+    def test_rede_fica_fora_do_lock_nao_bloqueia_status(self, ex_sim, monkeypatch):
+        """fechar_posicao chama _enviar_ordem (rede) -- se isso rodasse DENTRO
+        do lock, status() ficaria preso pela duracao inteira da chamada. Com o
+        escopo correto (so a mutacao do dict sob lock), status() deve retornar
+        rapido mesmo com um fechamento lento em andamento."""
+        ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
+        monkeypatch.setattr(ex_sim, "get_preco", lambda: 50000.0)
+
+        def _enviar_ordem_lento(*a, **k):
+            time.sleep(0.5)
+            return {"status": "FILLED", "price": 51000.0}
+
+        monkeypatch.setattr(ex_sim, "_enviar_ordem", _enviar_ordem_lento)
+
+        t = threading.Thread(
+            target=lambda: ex_sim.fechar_posicao(51000.0, "Take Profit Final")
+        )
+        t.start()
+        time.sleep(0.05)  # garante que fechar_posicao ja esta dentro do sleep lento
+
+        t0 = time.time()
+        ex_sim.status()
+        duracao = time.time() - t0
+
+        t.join(timeout=3)
+        assert duracao < 0.3, f"status() levou {duracao:.2f}s -- rede presa dentro do lock?"
+
+    def test_status_concorrente_com_fechar_posicao_nao_lanca(self, ex_sim, monkeypatch):
+        """Leitores reais de status() em loop, concorrentes com um
+        fechar_posicao de verdade -- nenhuma excecao deve escapar."""
+        ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
+        monkeypatch.setattr(ex_sim, "get_preco", lambda: 50000.0)
+
+        erros = []
+        parar = threading.Event()
+
+        def _ler_status_em_loop():
+            while not parar.is_set():
+                try:
+                    ex_sim.status()
+                except Exception as e:  # qualquer excecao aqui e uma falha do teste
+                    erros.append(e)
+
+        leitores = [threading.Thread(target=_ler_status_em_loop) for _ in range(4)]
+        for t in leitores:
+            t.start()
+
+        time.sleep(0.05)
+        ex_sim.fechar_posicao(51000.0, "Take Profit Final")
+        time.sleep(0.05)
+
+        parar.set()
+        for t in leitores:
+            t.join(timeout=3)
+
+        assert erros == []

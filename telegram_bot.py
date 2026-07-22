@@ -123,6 +123,19 @@ def alerta_trailing_stop(novo_stop, pico):
     return _enviar(msg)
 
 
+def alerta_persistencia_falhou(symbol, tipo, preco, tamanho_btc):
+    msg = (
+        f"🚨 <b>URGENTE — POSIÇÃO SEM REGISTRO NO BANCO</b>\n"
+        f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"⚠️ Ordem <b>{tipo}</b> preenchida em {symbol} @ ${preco:,.2f} "
+        f"({tamanho_btc:.6f}), mas o banco de dados falhou ao persistir a "
+        f"posição após novas tentativas.\n\n"
+        f"<i>A proteção (stop/OCO) já está na exchange. Verifique manualmente "
+        f"se um restart do bot recupera esta posição.</i>"
+    )
+    return _enviar(msg)
+
+
 def relatorio_diario(pnl_dia, trades_dia, saldo_atual, win_rate):
     emoji = "📈" if pnl_dia >= 0 else "📉"
     sinal = "+" if pnl_dia >= 0 else ""

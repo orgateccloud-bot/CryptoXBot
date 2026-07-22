@@ -26,6 +26,7 @@ import requests
 
 import database
 import risco as gestao_risco
+import telegram_bot
 from config.runtime_settings import (
     API_KEY,
     API_SECRET,
@@ -34,6 +35,7 @@ from config.runtime_settings import (
     MAKER_TIMEOUT_S,
     OCO_BRACKET,
     OCO_TRAILING_DELTA_BIPS,
+    RECONCILIAR_BOOT_EXCHANGE,
     REST_BASE_URL,
 )
 
@@ -189,7 +191,10 @@ class Executor:
         self.posicao = None
         self._monitor = None
         self._ativo = False
-        self._lock = threading.Lock()  # protege o estado da posicao (M-2)
+        # RLock (nao Lock): fechar_posicao/_aplicar_novo_stop sao chamados de
+        # dentro de _monitorar, que tambem pode readquirir o lock -- Lock comum
+        # causaria deadlock em chamada aninhada pela mesma thread.
+        self._lock = threading.RLock()  # protege o estado da posicao (M-2)
         prec = _carregar_precisao(self.symbol)  # exchangeInfo real (fonte de verdade)
         self._qty_step = prec["qty_step"]
         self._min_qty = prec["min_qty"]
@@ -208,6 +213,9 @@ class Executor:
         # server-side opcional. Instancia p/ serem ajustaveis em teste.
         self._oco_bracket = OCO_BRACKET
         self._oco_trailing_bips = OCO_TRAILING_DELTA_BIPS
+        # Auditoria 2026-07-22: cruza o boot recovery com o estado real da
+        # Binance antes de religar o monitor. Instancia p/ ser ajustavel em teste.
+        self._reconciliar_boot_exchange = RECONCILIAR_BOOT_EXCHANGE
         if not simulacao:
             self._sincronizar_relogio()  # P0-4: evita -1021 por clock drift
         modo = "SIMULACAO (Paper Trading)" if simulacao else "REAL (Capital Real)"
@@ -553,8 +561,10 @@ class Executor:
             stop_id = self.posicao.get("stop_order_id")
             if stop_id:
                 self._cancelar_ordem_exchange(stop_id)
-        self.posicao["oco_list_id"] = None
-        self.posicao["stop_order_id"] = None
+        with self._lock:
+            if self.posicao:
+                self.posicao["oco_list_id"] = None
+                self.posicao["stop_order_id"] = None
 
     def _mover_protecao(self, novo_stop):
         """Move a protecao para novo_stop (trailing/breakeven). Atualiza
@@ -577,12 +587,16 @@ class Executor:
         stop_antigo = self.posicao.get("stop_atual")
         if not self._cancelar_oco_exchange(oco_antigo):
             return _PROTECAO_NAO_MOVIDA  # nao cancelou: OCO antigo segue vivo
-        self.posicao["oco_list_id"] = None
+        with self._lock:
+            if self.posicao:
+                self.posicao["oco_list_id"] = None
         prot = self._abrir_protecao(qty, novo_stop, alvo)
         if prot["stop_order_id"] is None and prot["oco_list_id"] is None and stop_antigo:
             print("[EXEC] Replace do OCO falhou — restaurando protecao no nivel antigo")
             prot = self._abrir_protecao(qty, stop_antigo, alvo)
-        self.posicao["oco_list_id"] = prot["oco_list_id"]
+        with self._lock:
+            if self.posicao:
+                self.posicao["oco_list_id"] = prot["oco_list_id"]
         return prot["stop_order_id"]
 
     # ── Entrada maker-first / post-only (P0-2) ─────────────────
@@ -740,11 +754,39 @@ class Executor:
                 "pnl_usdt_parcial_acumulado": 0.0,  # P1-3: soma de fechamentos parciais
             }
 
-        # P0-3: posicao persistida — sobrevive a restart (reconciliada no boot)
-        try:
-            database.salvar_posicao_aberta(self.symbol, self.posicao)
-        except Exception as e:
-            print(f"[EXEC] AVISO: falha ao persistir posicao: {e}")
+        # P0-3: posicao persistida — sobrevive a restart (reconciliada no boot).
+        # Retry curto: salvar_posicao_aberta e upsert por symbol, idempotente.
+        # Isso reduz a janela de "DB lento/flaky" -- NAO fecha o gap de crash
+        # duro do processo antes de qualquer tentativa (esse e o papel da
+        # reconciliacao de boot); se falhar mesmo apos retries, escala visivelmente
+        # em vez de so logar (bot_event CRITICAL + alerta Telegram).
+        persistido = False
+        ultimo_erro = None
+        for tentativa in range(3):
+            try:
+                database.salvar_posicao_aberta(self.symbol, self.posicao)
+                persistido = True
+                break
+            except Exception as e:
+                ultimo_erro = e
+                if tentativa < 2:
+                    time.sleep(0.5 * (2**tentativa))
+        if not persistido:
+            print(f"[EXEC] AVISO: falha ao persistir posicao apos retries: {ultimo_erro}")
+            try:
+                database.salvar_bot_event(
+                    "posicao_sem_persistencia",
+                    f"Fill de {self.symbol} sem registro no DB apos retries: {ultimo_erro}",
+                    service="executor",
+                    symbol=self.symbol,
+                    severity="CRITICAL",
+                )
+            except Exception:
+                pass
+            try:
+                telegram_bot.alerta_persistencia_falhou(self.symbol, "LONG", preco_exec, tamanho_btc)
+            except Exception:
+                pass
 
         # P1-3: liga a entrada de fato executada ao sinal que a originou --
         # so agora (ordem preenchida), nao na hora do sinal ser gerado.
@@ -782,11 +824,19 @@ class Executor:
         if not self.posicao:
             return
 
+        # Snapshot unico sob lock (M-2): todos os calculos de PnL/qty abaixo
+        # usam `pos`, nunca releem self.posicao diretamente -- evita reler um
+        # dict que outra chamada possa ter mutado/zerado no meio do caminho.
+        with self._lock:
+            pos = dict(self.posicao) if self.posicao else None
+        if pos is None:
+            return
+
         # P0-2/P2-1: liberar o saldo travado pela protecao (OCO ou stop puro)
         # na exchange antes do SELL
         self._liberar_protecao()
 
-        qty = self.posicao["tamanho_btc"]
+        qty = pos["tamanho_btc"]
         if parcial:
             qty = qty / 2
 
@@ -800,31 +850,31 @@ class Executor:
                 f"Posicao MANTIDA — nova tentativa no proximo ciclo."
             )
             # P0-2/P2-1: SELL falhou e a protecao foi cancelada — RECOLOCA
-            prot = self._abrir_protecao(
-                self.posicao["tamanho_btc"],
-                self.posicao["stop_atual"],
-                self.posicao.get("target2"),
-            )
-            self.posicao["stop_order_id"] = prot["stop_order_id"]
-            self.posicao["oco_list_id"] = prot["oco_list_id"]
+            prot = self._abrir_protecao(pos["tamanho_btc"], pos["stop_atual"], pos.get("target2"))
+            with self._lock:
+                if self.posicao:
+                    self.posicao["stop_order_id"] = prot["stop_order_id"]
+                    self.posicao["oco_list_id"] = prot["oco_list_id"]
             self._persistir_posicao()
             return
 
         # Ordem preenchida: agora sim aplica a mutacao do fechamento parcial
         if parcial:
-            self.posicao["parcial_feita"] = True
-            self.posicao["tamanho_btc"] = qty  # restante
+            with self._lock:
+                if self.posicao:
+                    self.posicao["parcial_feita"] = True
+                    self.posicao["tamanho_btc"] = qty  # restante
             # P0-2/P2-1: recoloca a protecao para a metade restante (a antiga foi
             # cancelada). Com OCO, o novo bracket cobre o runner (stop + target2).
-            prot = self._abrir_protecao(
-                qty, self.posicao["stop_atual"], self.posicao.get("target2")
-            )
-            self.posicao["stop_order_id"] = prot["stop_order_id"]
-            self.posicao["oco_list_id"] = prot["oco_list_id"]
+            prot = self._abrir_protecao(qty, pos["stop_atual"], pos.get("target2"))
+            with self._lock:
+                if self.posicao:
+                    self.posicao["stop_order_id"] = prot["stop_order_id"]
+                    self.posicao["oco_list_id"] = prot["oco_list_id"]
             self._persistir_posicao()
 
-        pnl_pct = (preco - self.posicao["entrada"]) / self.posicao["entrada"] * 100
-        pnl_usdt = qty * (preco - self.posicao["entrada"])
+        pnl_pct = (preco - pos["entrada"]) / pos["entrada"] * 100
+        pnl_usdt = qty * (preco - pos["entrada"])
 
         print(
             f"[EXEC] {'PARCIAL' if parcial else 'TOTAL'} FECHADO @ ${preco:,.2f} | "
@@ -846,25 +896,27 @@ class Executor:
             # P1-3: acumula o PnL desta perna parcial -- o fechamento FINAL
             # soma isso ao PnL da propria perna final para o resultado do
             # trade inteiro bater certo em atualizar_sinal_fechamento.
-            self.posicao["pnl_usdt_parcial_acumulado"] = (
-                self.posicao.get("pnl_usdt_parcial_acumulado", 0.0) + pnl_usdt
-            )
+            with self._lock:
+                if self.posicao:
+                    self.posicao["pnl_usdt_parcial_acumulado"] = (
+                        self.posicao.get("pnl_usdt_parcial_acumulado", 0.0) + pnl_usdt
+                    )
         else:
             # P1-3: fechamento FINAL -- liga o resultado COMPLETO do trade
             # (parciais anteriores + esta perna) de volta ao sinal de
             # entrada, classificando a barreira pelo MOTIVO exato (nao pelo
             # sinal do PnL, que conflava um trailing-stop em lucro com um
             # target real atingido).
-            pnl_usdt_total = self.posicao.get("pnl_usdt_parcial_acumulado", 0.0) + pnl_usdt
-            tamanho_original = self.posicao.get("tamanho_btc_original") or qty
+            pnl_usdt_total = pos.get("pnl_usdt_parcial_acumulado", 0.0) + pnl_usdt
+            tamanho_original = pos.get("tamanho_btc_original") or qty
             pnl_pct_total = (
-                pnl_usdt_total / (tamanho_original * self.posicao["entrada"]) * 100
+                pnl_usdt_total / (tamanho_original * pos["entrada"]) * 100
                 if tamanho_original > 0
                 else pnl_pct
             )
             try:
                 database.atualizar_sinal_fechamento(
-                    self.posicao.get("sinal_id"),
+                    pos.get("sinal_id"),
                     preco,
                     round(pnl_usdt_total, 2),
                     round(pnl_pct_total, 4),
@@ -893,8 +945,10 @@ class Executor:
         res = self._mover_protecao(novo_stop)
         if res is _PROTECAO_NAO_MOVIDA:
             return  # trailing server-side: exchange dona do stop
-        self.posicao["stop_order_id"] = res
-        self.posicao["stop_atual"] = novo_stop
+        with self._lock:
+            if self.posicao:
+                self.posicao["stop_order_id"] = res
+                self.posicao["stop_atual"] = novo_stop
         self._persistir_posicao()
         print(f"[EXEC] {msg_template.format(v=novo_stop)}")
 
@@ -958,13 +1012,257 @@ class Executor:
 
             time.sleep(10)  # verificar a cada 10 segundos
 
+    # ── Reconciliacao de boot (auditoria 2026-07-22) ───────────
+    # O boot recovery legado (main.py:loop_par) so lia database.carregar_
+    # posicoes_abertas() e religava o monitor cegamente -- nunca cruzava com
+    # o estado real da Binance. Um crash entre o fill e o registro local (a
+    # janela fechada acima em abrir_long/_persistir_posicao) deixava uma
+    # posicao orfa (real + protegida na exchange) invisivel ao reiniciar; o
+    # inverso (DB com posicao ja fechada fora do bot) tambem nao era detectado.
+    # RECONCILIAR_BOOT_EXCHANGE=true liga essas checagens (default False).
+
+    def reidratar_posicao(self, pos_salva):
+        """Restaura uma posicao (persistida ou reconstruida) e religa o
+        monitor. Usado tanto pelo caminho legado (RECONCILIAR_BOOT_EXCHANGE=
+        false) quanto pelos casos 'concordam'/'orfa recuperada' de
+        reconciliar_boot()."""
+        with self._lock:
+            self.posicao = pos_salva
+            self._ativo = True
+        self._monitor = threading.Thread(target=self._monitorar, daemon=True)
+        self._monitor.start()
+
+    def _saldo_ativo_base(self):
+        """Saldo livre+travado do ativo-base (ex.: BTC em BTCUSDT). So usado
+        pela reconciliacao de boot para decidir se uma posicao salva no DB
+        ainda existe de fato na exchange. 0.0 em simulacao/falha."""
+        if self.simulacao:
+            return 0.0
+        ativo = self.symbol[:-4] if self.symbol.endswith("USDT") else self.symbol
+        data = self._request_assinado("GET", "/api/v3/account", {}, tentativas=2)
+        if not isinstance(data, dict):
+            return 0.0
+        for b in data.get("balances", []):
+            if b.get("asset") == ativo:
+                try:
+                    return float(b.get("free", 0)) + float(b.get("locked", 0))
+                except (TypeError, ValueError):
+                    return 0.0
+        return 0.0
+
+    def _protecao_aberta_na_exchange(self):
+        """Consulta openOrders + openOrderList reais e devolve
+        (tem_protecao, qty, stop_price, target_price) para self.symbol. Uma
+        OCO tem prioridade (stop+alvo); sem OCO, procura um STOP_LOSS_LIMIT
+        solto. (False, None, None, None) se nao achar nada ou a consulta falhar."""
+        ordens = self._request_assinado(
+            "GET", "/api/v3/openOrders", {"symbol": self.symbol}, tentativas=2
+        )
+        ocos = self._request_assinado("GET", "/api/v3/openOrderList", {}, tentativas=2)
+        ordens = ordens if isinstance(ordens, list) else []
+        ocos = ocos if isinstance(ocos, list) else []
+
+        for oco in ocos:
+            pernas = [p for p in (oco.get("orders") or []) if p.get("symbol") == self.symbol]
+            if not pernas:
+                continue
+            stop_price = target_price = qty = None
+            for p in pernas:
+                detalhe = self._status_ordem(p.get("orderId"))
+                if not detalhe:
+                    continue
+                tipo = detalhe.get("type", "")
+                try:
+                    if tipo in ("STOP_LOSS_LIMIT", "STOP_LOSS"):
+                        stop_price = float(detalhe.get("stopPrice") or 0) or stop_price
+                        qty = float(detalhe.get("origQty") or 0) or qty
+                    elif tipo == "LIMIT_MAKER":
+                        target_price = float(detalhe.get("price") or 0) or target_price
+                        qty = float(detalhe.get("origQty") or 0) or qty
+                except (TypeError, ValueError):
+                    continue
+            if qty:
+                return True, qty, stop_price, target_price
+
+        for o in ordens:
+            if o.get("type") not in ("STOP_LOSS_LIMIT", "STOP_LOSS"):
+                continue
+            try:
+                qty = float(o.get("origQty") or 0)
+                stop_price = float(o.get("stopPrice") or 0) or None
+            except (TypeError, ValueError):
+                continue
+            if qty:
+                return True, qty, stop_price, None
+
+        return False, None, None, None
+
+    def _ultimo_preco_entrada_mytrades(self):
+        """Preco do BUY fill mais recente de self.symbol via myTrades. So
+        usado para reconstruir 'entrada' de uma posicao orfa (protecao real
+        na exchange, sem registro local). None se falhar ou nao achar BUY."""
+        trades = self._request_assinado(
+            "GET", "/api/v3/myTrades", {"symbol": self.symbol, "limit": 50}, tentativas=2
+        )
+        if not isinstance(trades, list):
+            return None
+        compras = [t for t in trades if t.get("isBuyer")]
+        if not compras:
+            return None
+        ultima = max(compras, key=lambda t: t.get("time", 0))
+        try:
+            return float(ultima["price"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def reconciliar_boot(self):
+        """Cruza o estado persistido no DB com o estado real da Binance antes
+        de decidir como religar o monitor apos um restart. So faz sentido com
+        credenciais reais (em simulacao, cai no comportamento legado -- nao ha
+        conta/ordens reais para cruzar).
+
+        Retorna dict {"acao": str, "detalhe": str}. acao em:
+          "religou"        -- DB e exchange concordam (ou simulacao)
+          "orfa_recuperada"-- DB vazio mas exchange tem protecao real;
+                              reconstruida via myTrades + ordem aberta
+          "removida"        -- DB tinha posicao, exchange nao tem nada
+                              (saldo ~0); removida do DB, monitor NAO religado
+          "inconsistente"   -- estado ambiguo (orfa nao-reconstruivel, ou DB
+                              com posicao + saldo real mas sem protecao na
+                              exchange); religa do DB (conservador) e alerta
+                              para investigacao manual, NUNCA decide sozinho
+                              vender ou recriar protecao aqui
+          "nada"            -- nem DB nem exchange tem posicao
+        """
+        pos_salva = None
+        try:
+            pos_salva = database.carregar_posicoes_abertas().get(self.symbol)
+        except Exception as e:
+            print(f"[EXEC] AVISO: falha ao ler posicoes persistidas: {e}")
+
+        if self.simulacao:
+            if pos_salva:
+                self.reidratar_posicao(pos_salva)
+                return {"acao": "religou", "detalhe": "simulacao: confia no DB"}
+            return {"acao": "nada", "detalhe": "simulacao: sem posicao salva"}
+
+        try:
+            tem_protecao, qty_ex, stop_ex, target_ex = self._protecao_aberta_na_exchange()
+            saldo_ativo = self._saldo_ativo_base()
+        except Exception as e:
+            print(f"[EXEC] AVISO: reconciliacao de boot indisponivel ({e}) — usando so o DB")
+            if pos_salva:
+                self.reidratar_posicao(pos_salva)
+                return {"acao": "religou", "detalhe": f"reconciliacao indisponivel: {e}"}
+            return {"acao": "nada", "detalhe": f"reconciliacao indisponivel: {e}"}
+
+        if pos_salva and tem_protecao:
+            self.reidratar_posicao(pos_salva)
+            return {"acao": "religou", "detalhe": "DB e exchange concordam"}
+
+        if not pos_salva and tem_protecao:
+            entrada = self._ultimo_preco_entrada_mytrades()
+            if entrada is None or not qty_ex or stop_ex is None:
+                try:
+                    database.salvar_bot_event(
+                        "reconciliacao_boot_orfa_nao_reconstruida",
+                        f"{self.symbol}: protecao real na exchange sem posicao no DB, mas "
+                        f"nao foi possivel reconstruir com seguranca (entrada={entrada}, "
+                        f"qty={qty_ex}, stop={stop_ex}) — intervencao manual necessaria.",
+                        service="executor",
+                        symbol=self.symbol,
+                        severity="CRITICAL",
+                    )
+                except Exception:
+                    pass
+                return {"acao": "inconsistente", "detalhe": "orfa nao reconstruida com seguranca"}
+
+            posicao_reconstruida = {
+                "tipo": "LONG",
+                "entrada": entrada,
+                "tamanho_btc": qty_ex,
+                "tamanho_btc_original": qty_ex,
+                "stop_inicial": stop_ex,
+                "stop_atual": stop_ex,
+                "target1": target_ex or (entrada * 1.03),
+                "target2": target_ex or (entrada * 1.05),
+                # Conservador: nao tenta adivinhar se um parcial de 50% ja
+                # ocorreu antes do crash -- assume que sim (parcial_feita=True)
+                # para nao vender 50% de uma posicao que a exchange ja reduziu.
+                "parcial_feita": True,
+                "abertura": datetime.now().isoformat(),
+                "order_id": None,
+                # ids resolvidos de novo na proxima _liberar/_mover_protecao
+                "stop_order_id": None,
+                "oco_list_id": None,
+                "sinal_id": None,
+                "pnl_usdt_parcial_acumulado": 0.0,
+            }
+            self.reidratar_posicao(posicao_reconstruida)
+            self._persistir_posicao()
+            try:
+                database.salvar_bot_event(
+                    "reconciliacao_boot_orfa_recuperada",
+                    f"{self.symbol}: posicao orfa reconstruida (entrada=${entrada:,.2f}, "
+                    f"qty={qty_ex}, stop=${stop_ex:,.2f}) e monitor religado",
+                    service="executor",
+                    symbol=self.symbol,
+                    severity="CRITICAL",
+                )
+            except Exception:
+                pass
+            return {"acao": "orfa_recuperada", "detalhe": f"reconstruida: entrada={entrada}"}
+
+        if pos_salva and not tem_protecao:
+            if saldo_ativo < self._min_qty:
+                try:
+                    database.remover_posicao_aberta(self.symbol)
+                except Exception:
+                    pass
+                try:
+                    database.salvar_bot_event(
+                        "reconciliacao_boot_fechada_fora",
+                        f"{self.symbol}: DB tinha posicao mas exchange nao tem protecao "
+                        f"nem saldo do ativo — fechada fora do bot, removida do DB sem "
+                        f"religar monitor",
+                        service="executor",
+                        symbol=self.symbol,
+                        severity="CRITICAL",
+                    )
+                except Exception:
+                    pass
+                return {"acao": "removida", "detalhe": "fechada fora do bot"}
+            # Saldo existe mas sem protecao na exchange: estado inconsistente.
+            # Mais seguro religar do DB (comportamento legado) e alertar do
+            # que decidir sozinho vender ou recriar protecao aqui.
+            self.reidratar_posicao(pos_salva)
+            try:
+                database.salvar_bot_event(
+                    "reconciliacao_boot_sem_protecao",
+                    f"{self.symbol}: posicao no DB, saldo do ativo existe, mas SEM "
+                    f"protecao aberta na exchange — religado do DB, verifique manualmente",
+                    service="executor",
+                    symbol=self.symbol,
+                    severity="WARNING",
+                )
+            except Exception:
+                pass
+            return {"acao": "inconsistente", "detalhe": "religado do DB, sem protecao exchange"}
+
+        return {"acao": "nada", "detalhe": "nem DB nem exchange tem posicao"}
+
     # ── Status da posição ──────────────────────────────────────
 
     def status(self):
-        if not self.posicao:
+        # Snapshot unico sob lock (M-2): evita o TOCTOU de checar
+        # self.posicao e so depois desreferencia-lo -- se _monitorar fechar a
+        # posicao exatamente entre as duas leituras, pos vira None de forma
+        # consistente em vez de estourar TypeError no meio do dict abaixo.
+        with self._lock:
+            pos = dict(self.posicao) if self.posicao else None
+        if pos is None:
             return {"posicao": "Nenhuma posicao aberta"}
         preco = self.get_preco()
-        pos = self.posicao
         pnl = (preco - pos["entrada"]) / pos["entrada"] * 100
         return {
             "tipo": pos["tipo"],
