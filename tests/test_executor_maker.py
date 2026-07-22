@@ -17,6 +17,13 @@ import executor as executor_mod
 from executor import Executor
 
 
+@pytest.fixture(autouse=True)
+def _telegram_hermetico(monkeypatch):
+    """abrir_long agora chama telegram_bot.alerta_trade_aberto -- mockar
+    _enviar evita rede real (ver mesma fixture em tests/test_executor.py)."""
+    monkeypatch.setattr(executor_mod.telegram_bot, "_enviar", lambda *a, **k: True)
+
+
 @pytest.fixture
 def ex(monkeypatch):
     """Executor REAL (simulacao=False) sem tocar rede: precisão pré-cacheada e

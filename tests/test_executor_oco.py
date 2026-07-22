@@ -20,6 +20,13 @@ import executor as executor_mod
 from executor import _PROTECAO_NAO_MOVIDA, Executor
 
 
+@pytest.fixture(autouse=True)
+def _telegram_hermetico(monkeypatch):
+    """fechar_posicao/_aplicar_novo_stop agora chamam telegram_bot.alerta_* --
+    mockar _enviar evita rede real (ver mesma fixture em test_executor.py)."""
+    monkeypatch.setattr(executor_mod.telegram_bot, "_enviar", lambda *a, **k: True)
+
+
 @pytest.fixture
 def gestao_risco_mock(monkeypatch):
     """Mock minimo das funcoes de risco usadas pelo Executor (espelha o de

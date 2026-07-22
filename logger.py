@@ -416,8 +416,10 @@ class LoggerBot:
         finally:
             conn.close()
 
-    def relatorio_diario(self, symbol="BTCUSDT"):
-        """Imprime relatorio do dia."""
+    def dados_relatorio_diario(self, symbol="BTCUSDT"):
+        """Dados brutos do relatorio do dia (sem imprimir) -- usado tanto por
+        relatorio_diario() (print) quanto pelo alerta Telegram agendado
+        (P2-5, main.py) para nao duplicar a query."""
         conn = self._connect()
         hoje = datetime.now().strftime("%Y-%m-%d")
         try:
@@ -443,16 +445,31 @@ class LoggerBot:
         finally:
             conn.close()
 
-        print(f"\n  RELATORIO DIARIO — {hoje} ({symbol})")
+        trades_dia = trades[0] or 0
+        win_rate = (trades[1] or 0) / trades_dia * 100 if trades_dia > 0 else 0.0
+        return {
+            "hoje": hoje,
+            "avaliacoes": avals[0] or 0,
+            "score_medio": avals[1] or 0.0,
+            "sinais_gerados": avals[2] or 0,
+            "trades_dia": trades_dia,
+            "win_rate": win_rate,
+            "pnl_usdt": trades[2] or 0.0,
+            "pnl_pct": trades[3] or 0.0,
+        }
+
+    def relatorio_diario(self, symbol="BTCUSDT"):
+        """Imprime relatorio do dia."""
+        d = self.dados_relatorio_diario(symbol)
+        print(f"\n  RELATORIO DIARIO — {d['hoje']} ({symbol})")
         print(f"  {'='*45}")
-        print(f"  Avaliacoes:     {avals[0] or 0}")
-        print(f"  Score medio:    {avals[1] or 0:.1f}")
-        print(f"  Sinais gerados: {avals[2] or 0}")
-        print(f"  Trades feitos:  {trades[0] or 0}")
-        if trades[0] and trades[0] > 0:
-            wr = (trades[1] or 0) / trades[0] * 100
-            print(f"  Win Rate:       {wr:.1f}%")
-            print(f"  PnL dia:        ${trades[2] or 0:,.2f} ({trades[3] or 0:.2f}%)")
+        print(f"  Avaliacoes:     {d['avaliacoes']}")
+        print(f"  Score medio:    {d['score_medio']:.1f}")
+        print(f"  Sinais gerados: {d['sinais_gerados']}")
+        print(f"  Trades feitos:  {d['trades_dia']}")
+        if d["trades_dia"] > 0:
+            print(f"  Win Rate:       {d['win_rate']:.1f}%")
+            print(f"  PnL dia:        ${d['pnl_usdt']:,.2f} ({d['pnl_pct']:.2f}%)")
         print(f"  {'='*45}")
 
     def ultimos_trades(self, n=10, symbol="BTCUSDT"):

@@ -66,10 +66,46 @@ def increment_metric(name: str, value: float = 1.0) -> None:
             _metrics[name] += value
 
 
+# Auditoria 2026-07-22 (P2-5): gauges — ao contrario de _metrics (contadores,
+# so incrementam), sobrescrevem o valor a cada chamada. Para metricas de
+# negocio que nao acumulam: PnL do dia, drawdown atual, confianca do
+# ensemble, latencia de decisao.
+_gauges: dict[str, float] = {}
+_gauges_lock = threading.Lock()
+
+# Regime nao e numerico -- exposto como um one-hot (1 para o regime ativo, 0
+# para os demais) ja que este formato de exposicao nao suporta labels
+# Prometheus reais (sem a lib prometheus_client, removida deliberadamente).
+_REGIMES_CONHECIDOS = (
+    "TENDENCIA_ALTA",
+    "TENDENCIA_BAIXA",
+    "LATERAL",
+    "VOLATILIDADE",
+    "INDEFINIDO",
+)
+
+
+def set_gauge(name: str, value: float) -> None:
+    """Define (sobrescreve) o valor atual de um gauge, thread-safe."""
+    with _gauges_lock:
+        _gauges[name] = float(value)
+
+
+def set_regime_atual(regime: str | None) -> None:
+    """Define o regime atual como gauges one-hot (botbinance_regime_lateral=1,
+    demais=0). Regime desconhecido/None cai em INDEFINIDO."""
+    regime = regime if regime in _REGIMES_CONHECIDOS else "INDEFINIDO"
+    with _gauges_lock:
+        for r in _REGIMES_CONHECIDOS:
+            _gauges[f"regime_{r.lower()}"] = 1.0 if r == regime else 0.0
+
+
 def _metrics_text() -> bytes:
     """Gera resposta Prometheus-compatible (text/plain)."""
     with _metrics_lock:
         snap = dict(_metrics)
+    with _gauges_lock:
+        gauges_snap = dict(_gauges)
     uptime = time.time() - snap.pop("uptime_start", time.time())
     lines = [
         "# HELP botbinance_uptime_seconds Segundos desde o inicio do worker",
@@ -79,6 +115,10 @@ def _metrics_text() -> bytes:
     for key, val in snap.items():
         metric_name = f"botbinance_{key}"
         lines.append(f"# TYPE {metric_name} counter")
+        lines.append(f"{metric_name} {val}")
+    for key, val in gauges_snap.items():
+        metric_name = f"botbinance_{key}"
+        lines.append(f"# TYPE {metric_name} gauge")
         lines.append(f"{metric_name} {val}")
     return ("\n".join(lines) + "\n").encode("utf-8")
 

@@ -105,6 +105,77 @@ class TestIncrementMetric:
             assert health._metrics["sinais_total"] == 20
 
 
+# ── Testes: set_gauge / set_regime_atual (P2-5) ────────────────────────────────
+
+
+class TestSetGauge:
+    def setup_method(self):
+        with health._gauges_lock:
+            health._gauges.clear()
+
+    def test_define_valor(self):
+        health.set_gauge("pnl_dia", 42.5)
+        with health._gauges_lock:
+            assert health._gauges["pnl_dia"] == 42.5
+
+    def test_sobrescreve_valor_anterior(self):
+        health.set_gauge("pnl_dia", 10.0)
+        health.set_gauge("pnl_dia", -5.0)
+        with health._gauges_lock:
+            assert health._gauges["pnl_dia"] == -5.0
+
+    def test_aparece_no_metrics_text_como_gauge(self):
+        health.set_gauge("pnl_dia", 12.3)
+        out = health._metrics_text().decode()
+        assert "botbinance_pnl_dia 12.3" in out
+        assert "# TYPE botbinance_pnl_dia gauge" in out
+
+    def test_thread_safe(self):
+        threads = [
+            threading.Thread(target=lambda i=i: health.set_gauge("x", float(i)))
+            for i in range(20)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        with health._gauges_lock:
+            assert health._gauges["x"] in {float(i) for i in range(20)}
+
+
+class TestSetRegimeAtual:
+    def setup_method(self):
+        with health._gauges_lock:
+            health._gauges.clear()
+
+    def test_regime_conhecido_liga_so_o_ativo(self):
+        health.set_regime_atual("LATERAL")
+        with health._gauges_lock:
+            assert health._gauges["regime_lateral"] == 1.0
+            assert health._gauges["regime_tendencia_alta"] == 0.0
+            assert health._gauges["regime_tendencia_baixa"] == 0.0
+            assert health._gauges["regime_volatilidade"] == 0.0
+            assert health._gauges["regime_indefinido"] == 0.0
+
+    def test_regime_desconhecido_cai_em_indefinido(self):
+        health.set_regime_atual("ALGO_QUE_NAO_EXISTE")
+        with health._gauges_lock:
+            assert health._gauges["regime_indefinido"] == 1.0
+            assert health._gauges["regime_lateral"] == 0.0
+
+    def test_regime_none_cai_em_indefinido(self):
+        health.set_regime_atual(None)
+        with health._gauges_lock:
+            assert health._gauges["regime_indefinido"] == 1.0
+
+    def test_troca_de_regime_desliga_o_anterior(self):
+        health.set_regime_atual("TENDENCIA_ALTA")
+        health.set_regime_atual("VOLATILIDADE")
+        with health._gauges_lock:
+            assert health._gauges["regime_tendencia_alta"] == 0.0
+            assert health._gauges["regime_volatilidade"] == 1.0
+
+
 # ── Testes: HealthHandler (roteamento direto) ─────────────────────────────────
 
 

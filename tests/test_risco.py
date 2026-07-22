@@ -49,6 +49,11 @@ def _isolar_estado_risco(monkeypatch):
 
     monkeypatch.setattr(risco.database, "salvar_risk_state", lambda *a, **k: None, raising=True)
     monkeypatch.setattr(risco.database, "carregar_risk_state", lambda *a, **k: None, raising=True)
+    # P2-5: drawdown/circuit-breaker agora tambem chamam salvar_bot_event +
+    # telegram_bot.alerta_circuit_breaker -- mockados aqui (nao so no teste
+    # especifico) para toda a suite continuar hermetica (sem rede/banco).
+    monkeypatch.setattr(risco.database, "salvar_bot_event", lambda *a, **k: None, raising=True)
+    monkeypatch.setattr(risco.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: True, raising=True)
 
     yield
 
@@ -320,6 +325,44 @@ class TestValidarTrade:
         r = risco.validar_trade("COMPRA", 68000, 1000)
         assert r["pode"] is False
         assert "olatil" in r["motivo"]  # "Volatilidade"
+
+    def test_drawdown_bloqueio_incrementa_metrica_uma_vez(self, monkeypatch):
+        # P2-5: o proprio bloqueado=True (gate 1) ja faz chamadas seguintes
+        # retornarem cedo -- so passa por este branch (e incrementa) 1x.
+        import health
+
+        monkeypatch.setattr(health, "_metrics", {"drawdown_bloqueios": 0}, raising=False)
+        _set_estado(capital_inicio_dia=1000.0, pnl_dia=-60.0)
+        risco.validar_trade("COMPRA", 68000, 1000)
+        risco.validar_trade("COMPRA", 68000, 1000)
+        risco.validar_trade("COMPRA", 68000, 1000)
+        assert health._metrics["drawdown_bloqueios"] == 1
+
+    def test_circuit_breaker_debounce_so_incrementa_na_transicao(self, monkeypatch):
+        # P2-5: volatilidade alta SUSTENTADA por varias chamadas nao pode
+        # re-incrementar/re-alertar a cada chamada -- so na transicao
+        # calmo->extremo. Ao voltar ao calmo e subir de novo, re-arma.
+        import health
+
+        monkeypatch.setattr(health, "_metrics", {"circuit_breaker_ativacoes": 0}, raising=False)
+        monkeypatch.setattr(risco, "verificar_volatilidade", lambda *a, **k: 0.09)
+
+        risco.validar_trade("COMPRA", 68000, 1000)
+        risco.validar_trade("COMPRA", 68000, 1000)
+        risco.validar_trade("COMPRA", 68000, 1000)
+        assert health._metrics["circuit_breaker_ativacoes"] == 1
+        assert risco._estado_risco["circuit_breaker_ativo"] is True
+
+        # Volta ao calmo: desarma o debounce (sem incrementar)
+        monkeypatch.setattr(risco, "verificar_volatilidade", lambda *a, **k: 0.01)
+        risco.validar_trade("COMPRA", 68000, 1000)
+        assert risco._estado_risco["circuit_breaker_ativo"] is False
+        assert health._metrics["circuit_breaker_ativacoes"] == 1
+
+        # Sobe de novo: re-arma e incrementa mais uma vez
+        monkeypatch.setattr(risco, "verificar_volatilidade", lambda *a, **k: 0.10)
+        risco.validar_trade("COMPRA", 68000, 1000)
+        assert health._metrics["circuit_breaker_ativacoes"] == 2
 
     def test_volatilidade_no_limite_nao_bloqueia(self, monkeypatch):
         # vol == 0.08 não é > 0.08 -> passa

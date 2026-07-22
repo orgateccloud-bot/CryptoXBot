@@ -35,8 +35,10 @@ import websockets
 
 import database
 import fear_greed as fg
+import health
 import regime as reg
 import risco as gestao_risco
+import telegram_bot
 from analise_mercado import relatorio_completo
 from config.runtime_settings import (
     ALLOW_REAL_TRADING,
@@ -57,6 +59,10 @@ from suporte import ScaleIn
 # Retreinamento automático semanal (domingo 02h)
 _RETREINAMENTO_HORA = 2  # hora do dia (02:00)
 _RETREINAMENTO_DIA = 6  # 6 = domingo (weekday())
+
+# P2-5: relatório diário via Telegram (18h) — telegram_bot.relatorio_diario()
+# existia pronta mas nunca era chamada (achado da auditoria 2026-07-22).
+_RELATORIO_HORA = 18
 
 # Configurar logging estruturado para WebSocket
 ws_logger = logging.getLogger("websocket")
@@ -196,6 +202,7 @@ async def websocket_handler():
             ws_state["connected"] = False
             latency = (time.time() - ws_state["last_message_time"]) * 1000
             ws_state["latency_ms"] = latency
+            health.increment_metric("ws_reconexoes")
 
             # Backoff exponencial com jitter
             delay = min(base_delay * (2**attempt), max_delay)
@@ -355,6 +362,7 @@ async def websocket_handler_depth():
             ws_state_depth["connected"] = False
             latency = (time.time() - ws_state_depth["last_message_time"]) * 1000
             ws_state_depth["latency_ms"] = latency
+            health.increment_metric("ws_reconexoes")
 
             delay = min(base_delay * (2**attempt), max_delay)
             jitter = random.uniform(-jitter_factor * delay, jitter_factor * delay)
@@ -581,6 +589,39 @@ def iniciar_retreinamento_automatico(pares: list[str]):
     )
 
 
+def iniciar_relatorio_diario(symbol: str):
+    """Thread que dispara o relatorio diario (Telegram) 1x por dia às
+    _RELATORIO_HORA. Não bloqueia o loop principal. (P2-5: telegram_bot.
+    relatorio_diario() existia pronta mas nunca era chamada em produção.)"""
+
+    def _loop_relatorio():
+        ultimo_relatorio = None
+        while True:
+            agora = datetime.now()
+            hora_certa = agora.hour == _RELATORIO_HORA and agora.minute < 10
+            data_hoje = agora.date()
+            ja_relatou_hoje = ultimo_relatorio == data_hoje
+
+            if hora_certa and not ja_relatou_hoje:
+                try:
+                    d = logger.dados_relatorio_diario(symbol)
+                    saldo_atual = gestao_risco.get_saldo_usdt()
+                    telegram_bot.relatorio_diario(
+                        d["pnl_usdt"], d["trades_dia"], saldo_atual, d["win_rate"]
+                    )
+                except Exception as e:
+                    print(f"\033[91m[RELATORIO] Falha ao enviar relatorio diario: {e}\033[0m")
+                ultimo_relatorio = data_hoje
+
+            time.sleep(300)  # verifica a cada 5 minutos (baixo overhead)
+
+    thread = threading.Thread(target=_loop_relatorio, daemon=True, name="relatorio-diario")
+    thread.start()
+    print(
+        f"\033[94m[RELATORIO] Relatorio diario agendado — todo dia às {_RELATORIO_HORA:02d}h\033[0m"
+    )
+
+
 # ── Loop de Estratégia por Par ────────────────────────────────
 
 
@@ -638,6 +679,7 @@ def loop_par(par, intervalo_min, simulacao):
     while True:
         time.sleep(intervalo_min * 60)
         try:
+            t_inicio_ciclo = time.time()  # P2-5: latencia de decisao (gauge)
             # CVD/OBI: BTC usa WebSocket, ETH e outros usam None (opcional)
             cvd_snap = None
             historico_ticks_snap = None
@@ -681,6 +723,20 @@ def loop_par(par, intervalo_min, simulacao):
 
             try:
                 logger.registrar_avaliacao(resultado, symbol=par)
+            except Exception:
+                pass
+
+            # P2-5: gauges de observabilidade -- leves (sem rede extra: regime/
+            # ml_prob ja calculados acima; PnL/drawdown via risco.status_leve(),
+            # sem chamada de saldo/volatilidade).
+            try:
+                health.set_regime_atual(resultado.get("regime"))
+                if ml_prob is not None:
+                    health.set_gauge("ml_prob", ml_prob)
+                leve = gestao_risco.status_leve()
+                health.set_gauge("pnl_dia", leve["pnl_dia"])
+                health.set_gauge("drawdown_dia_pct", leve["drawdown_dia_%"])
+                health.set_gauge("latencia_decisao_ms", (time.time() - t_inicio_ciclo) * 1000)
             except Exception:
                 pass
 
@@ -951,6 +1007,9 @@ def main():
 
     # Thread de retreinamento automático semanal
     iniciar_retreinamento_automatico(pares)
+
+    # Thread de relatorio diario via Telegram (P2-5)
+    iniciar_relatorio_diario(pares[0])
 
     # Threads — uma por par
     for par in pares:

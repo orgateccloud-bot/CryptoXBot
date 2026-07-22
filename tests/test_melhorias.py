@@ -267,6 +267,52 @@ class TestRetreinamentoAutomatico(unittest.TestCase):
             self.fail(f"_retreinar_modelos lançou exceção inesperada: {e}")
 
 
+class TestRelatorioDiarioAutomatico(unittest.TestCase):
+    """P2-5: relatorio_diario existia pronto em telegram_bot.py mas nunca era
+    chamado -- verifica a thread de agendamento adicionada em main.py."""
+
+    def test_constante_relatorio(self):
+        import main
+
+        self.assertEqual(main._RELATORIO_HORA, 18, "_RELATORIO_HORA deve ser 18 (18h)")
+
+    def test_iniciar_relatorio_diario_cria_thread(self):
+        import threading
+
+        import main
+
+        threads_antes = {t.name for t in threading.enumerate()}
+        main.iniciar_relatorio_diario("BTCUSDT")
+        time.sleep(0.2)
+        threads_depois = {t.name for t in threading.enumerate()}
+        novas = threads_depois - threads_antes
+        self.assertIn("relatorio-diario", novas, "Thread 'relatorio-diario' deve ser criada")
+
+    def test_dados_relatorio_diario_retorna_campos_esperados(self):
+        from logger import logger as logger_singleton
+
+        d = logger_singleton.dados_relatorio_diario("BTCUSDT")
+        for campo in (
+            "hoje",
+            "avaliacoes",
+            "score_medio",
+            "sinais_gerados",
+            "trades_dia",
+            "win_rate",
+            "pnl_usdt",
+            "pnl_pct",
+        ):
+            self.assertIn(campo, d, f"Campo '{campo}' ausente em dados_relatorio_diario")
+
+    def test_dados_relatorio_diario_sem_trades_win_rate_zero(self):
+        """Sem nenhum trade fechado hoje, win_rate deve ser 0.0 (nao ZeroDivisionError)."""
+        from logger import logger as logger_singleton
+
+        d = logger_singleton.dados_relatorio_diario("SYMBOL_INEXISTENTE_XYZ")
+        self.assertEqual(d["trades_dia"], 0)
+        self.assertEqual(d["win_rate"], 0.0)
+
+
 # ══════════════════════════════════════════════════════════════
 # Runner
 # ══════════════════════════════════════════════════════════════

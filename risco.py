@@ -19,6 +19,8 @@ from datetime import date, datetime
 import requests
 
 import database
+import health
+import telegram_bot
 from config.params_pares import PARAMS_PARES
 from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
 from data.klines import obter_klines
@@ -46,6 +48,12 @@ _estado_risco = {
     "bloqueado": False,
     "motivo_bloqueio": "",
     "posicoes_abertas": 0,
+    # Auditoria 2026-07-22 (P2-5): debounce do circuit breaker de volatilidade
+    # (gate 4 de validar_trade) -- sem isso, cada chamada durante um episodio
+    # de volatilidade alta sustentada re-incrementaria a metrica e re-enviaria
+    # o alerta Telegram. Nao e persistido deliberadamente (um restart no meio
+    # do episodio so re-dispara 1 alerta a mais, sem risco).
+    "circuit_breaker_ativo": False,
 }
 _estado_carregado = False
 # main.py roda 1 thread por par (loop_par) e todas compartilham este mesmo
@@ -519,12 +527,45 @@ def validar_trade(
             _estado_risco["bloqueado"] = True
             _estado_risco["motivo_bloqueio"] = f"Max drawdown diario atingido ({dd_dia*100:.1f}%)"
             persistir_estado()
+            # Sem debounce extra: o proprio bloqueado=True faz o gate 1 (acima)
+            # retornar cedo em qualquer chamada seguinte -- isto so executa 1x.
+            health.increment_metric("drawdown_bloqueios")
+            try:
+                database.salvar_bot_event(
+                    "drawdown_bloqueio",
+                    _estado_risco["motivo_bloqueio"],
+                    service="risco",
+                    severity="CRITICAL",
+                )
+            except Exception:
+                pass
+            try:
+                telegram_bot.alerta_circuit_breaker(_estado_risco["motivo_bloqueio"])
+            except Exception:
+                pass
             return {"pode": False, "motivo": _estado_risco["motivo_bloqueio"], "tamanho_btc": 0}
 
     # 4. Volatilidade extrema?
     vol = verificar_volatilidade()
     if vol > VOLATILIDADE_MAXIMA:
-        return {"pode": False, "motivo": f"Volatilidade extrema: {vol*100:.1f}%", "tamanho_btc": 0}
+        motivo = f"Volatilidade extrema: {vol*100:.1f}%"
+        if not _estado_risco["circuit_breaker_ativo"]:
+            # Debounce: so conta/alerta na TRANSICAO para o estado ativado,
+            # nao em toda chamada enquanto a volatilidade seguir alta.
+            _estado_risco["circuit_breaker_ativo"] = True
+            health.increment_metric("circuit_breaker_ativacoes")
+            try:
+                database.salvar_bot_event(
+                    "circuit_breaker_volatilidade", motivo, service="risco", severity="WARNING"
+                )
+            except Exception:
+                pass
+            try:
+                telegram_bot.alerta_circuit_breaker(motivo)
+            except Exception:
+                pass
+        return {"pode": False, "motivo": motivo, "tamanho_btc": 0}
+    _estado_risco["circuit_breaker_ativo"] = False
 
     # 5. Posições abertas?
     if _estado_risco["posicoes_abertas"] >= MAX_POSICOES_ABERTAS:
@@ -579,23 +620,35 @@ def validar_trade(
     }
 
 
-def status():
-    """Retorna estado atual do módulo de risco."""
+def status_leve() -> dict:
+    """Subconjunto de status() SEM nenhuma chamada de rede (sem saldo/
+    volatilidade) -- usado pela observabilidade (health.set_gauge), chamada a
+    cada ciclo de estrategia sem gastar rate-limit da Binance."""
     _resetar_se_novo_dia()
-    saldo_usdt = get_saldo_usdt()
-    saldo_btc = get_saldo_btc()
-    vol = verificar_volatilidade()
     dd_dia = 0.0
     if _estado_risco["capital_inicio_dia"]:
         dd_dia = _estado_risco["pnl_dia"] / _estado_risco["capital_inicio_dia"] * 100
+    return {
+        "pnl_dia": round(_estado_risco["pnl_dia"], 2),
+        "drawdown_dia_%": round(dd_dia, 2),
+        "bloqueado": _estado_risco["bloqueado"],
+    }
+
+
+def status():
+    """Retorna estado atual do módulo de risco."""
+    leve = status_leve()
+    saldo_usdt = get_saldo_usdt()
+    saldo_btc = get_saldo_btc()
+    vol = verificar_volatilidade()
 
     return {
         "saldo_usdt": round(saldo_usdt, 4),
         "saldo_btc": round(saldo_btc, 8),
-        "pnl_dia": round(_estado_risco["pnl_dia"], 2),
-        "drawdown_dia_%": round(dd_dia, 2),
+        "pnl_dia": leve["pnl_dia"],
+        "drawdown_dia_%": leve["drawdown_dia_%"],
         "volatilidade_%": round(vol * 100, 2),
-        "bloqueado": _estado_risco["bloqueado"],
+        "bloqueado": leve["bloqueado"],
         "motivo_bloqueio": _estado_risco["motivo_bloqueio"],
         "posicoes_abertas": _estado_risco["posicoes_abertas"],
         "kelly_%": round(kelly_do_banco() * 100, 2),

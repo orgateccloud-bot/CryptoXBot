@@ -66,6 +66,17 @@ def _precisao_hermetica():
     executor_mod._precisao_cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _telegram_hermetico(monkeypatch):
+    """P2-5: abrir_long/fechar_posicao/_aplicar_novo_stop agora chamam
+    telegram_bot.alerta_*. Sem isto, o .env local tem TELEGRAM_BOT_TOKEN/
+    TELEGRAM_CHAT_ID com placeholders NAO-VAZIOS ("your_..._here"), entao
+    telegram_bot._enviar() tenta uma requisicao de rede REAL a cada alerta —
+    lento e nao-hermetico. Mockar so _enviar (funil unico de todas as
+    alerta_*) mantem a suite rapida sem precisar mockar cada funcao."""
+    monkeypatch.setattr(executor_mod.telegram_bot, "_enviar", lambda *a, **k: True)
+
+
 # ══════════════════════════════════════════════════════════════
 # Fixtures: mocks dos colaboradores externos
 # ══════════════════════════════════════════════════════════════

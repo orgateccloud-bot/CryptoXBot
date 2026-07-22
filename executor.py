@@ -25,6 +25,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 import requests
 
 import database
+import health
 import risco as gestao_risco
 import telegram_bot
 from config.runtime_settings import (
@@ -357,6 +358,7 @@ class Executor:
             }
 
         # Ordem real (P0-4: idempotente via newClientOrderId + retry + confirmacao pos-timeout)
+        health.increment_metric("ordens_total")
         client_id = f"bx-{uuid.uuid4().hex[:20]}"
         params = {
             "symbol": self.symbol,
@@ -386,6 +388,7 @@ class Executor:
 
         # Erros da Binance chegam como {"code": -xxxx, "msg": "..."} sem orderId
         if isinstance(data, dict) and "orderId" not in data:
+            health.increment_metric("ordens_erro")
             return {"erro": data.get("erro") or data.get("msg", "resposta sem orderId"), **data}
         return data
 
@@ -415,6 +418,7 @@ class Executor:
             print(f"[EXEC] Stop na exchange @ ${stop:,.2f} (orderId={data['orderId']})")
             return data["orderId"]
         print(f"[EXEC] AVISO: falha ao colocar stop na exchange: {data}")
+        health.increment_metric("ordens_erro")
         return None
 
     def _cancelar_ordem_exchange(self, order_id):
@@ -499,6 +503,7 @@ class Executor:
             )
             return handle
         print(f"[EXEC] AVISO: falha ao colocar OCO na exchange: {data}")
+        health.increment_metric("ordens_erro")
         return None
 
     @staticmethod
@@ -801,6 +806,10 @@ class Executor:
             f"[EXEC] LONG aberto @ ${preco_exec:,.2f} | "
             f"Stop: ${stop_loss:,.2f} | Target: ${take_profit:,.2f}"
         )
+        try:
+            telegram_bot.alerta_trade_aberto("LONG", preco_exec, tamanho_btc, stop_loss, take_profit)
+        except Exception:
+            pass
 
         # Inicia monitoramento
         self._ativo = True
@@ -932,6 +941,19 @@ class Executor:
             gestao_risco.decrementar_posicoes_abertas()
             gestao_risco.persistir_estado()
 
+            # P2-5: 1 alerta por trade concluido -- alerta_stop para a barreira
+            # de stop especifica, alerta_trade_fechado para as demais (target/
+            # manual). Nao dispara na perna parcial (a posicao ainda segue aberta).
+            try:
+                if motivo == "Stop Loss":
+                    telegram_bot.alerta_stop(preco, pnl_usdt_total)
+                else:
+                    telegram_bot.alerta_trade_fechado(
+                        pos["tipo"], pos["entrada"], preco, pnl_usdt_total, pnl_pct_total, motivo
+                    )
+            except Exception:
+                pass
+
     # ── Ajuste de stop (trailing / breakeven) ──────────────────
 
     def _aplicar_novo_stop(self, novo_stop, msg_template):
@@ -1006,6 +1028,10 @@ class Executor:
                         d["novo_stop_trailing"],
                         f"Trailing Stop: ${{v:,.2f}} (pico: ${preco_pico:,.2f})",
                     )
+                    try:
+                        telegram_bot.alerta_trailing_stop(d["novo_stop_trailing"], preco_pico)
+                    except Exception:
+                        pass
 
             except Exception as e:
                 print(f"[EXEC] Erro no monitor: {e}")
