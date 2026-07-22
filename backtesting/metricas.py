@@ -118,6 +118,19 @@ def sharpe_esperado_max(sharpes_trials: list[float]) -> float:
     )
 
 
+def cvar_historico(retornos_pct: list[float], nivel_confianca: float = 0.95) -> float:
+    """CVaR histórico (Expected Shortfall) não-paramétrico: média dos retornos
+    na cauda (os piores, abaixo do quantil 1-nivel_confianca). Mesma unidade/
+    escala de retornos_pct. 0.0 se dados insuficientes ou nivel_confianca fora
+    de (0,1) -- mesmo padrão de guarda das demais métricas deste módulo."""
+    n = len(retornos_pct)
+    if n < 2 or not (0.0 < nivel_confianca < 1.0):
+        return 0.0
+    ordenados = sorted(retornos_pct)
+    n_cauda = max(1, math.ceil((1 - nivel_confianca) * n))
+    return statistics.mean(ordenados[:n_cauda])
+
+
 def deflated_sharpe_ratio(
     retornos_pct: list[float], sharpes_trials: Optional[list[float]] = None
 ) -> float:

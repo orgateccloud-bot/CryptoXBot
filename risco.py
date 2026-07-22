@@ -21,6 +21,7 @@ import requests
 import database
 import health
 import telegram_bot
+from backtesting.metricas import cvar_historico
 from config.params_pares import PARAMS_PARES
 from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
 from data.klines import obter_klines
@@ -37,6 +38,22 @@ MAX_POSICOES_ABERTAS = 1  # só 1 posição por vez
 FUNDING_LIMITE = 0.10  # % — não operar se funding acima disso
 VOL_TARGET_MULT_MIN = 0.5  # nunca reduz abaixo de 50% do fator Kelly
 VOL_TARGET_MULT_MAX = 1.5  # nunca aumenta acima de 150% do fator Kelly
+
+# P2-3: CVaR (Expected Shortfall) regime-dependente como gate de cauda —
+# circuit breaker (check 4) e limite de drawdown (check 3), ambos existentes;
+# cripto tem caudas gordas, entao um gate de cauda e complementar, nao
+# redundante. Limites em % (pnl_pct), mesma unidade de backtesting.metricas.
+# cvar_historico(). VOLATILIDADE=0.0 e defesa em profundidade (o check 4 ja
+# bloqueia por volatilidade extrema antes deste gate ser alcançado).
+CVAR_NIVEL_CONFIANCA = 0.95
+CVAR_MIN_HISTORICO = 10  # mesmo piso de kelly_do_banco() -- historico curto = gate inerte
+CVAR_LIMITE_POR_REGIME = {
+    "TENDENCIA_ALTA": -6.0,
+    "TENDENCIA_BAIXA": -4.0,
+    "LATERAL": -3.0,
+    "VOLATILIDADE": 0.0,
+    "INDEFINIDO": -3.0,
+}
 
 
 # ── Estado do dia ─────────────────────────────────────────────
@@ -152,6 +169,27 @@ def kelly_do_banco():
         return kelly(wr, 2.0)
     except Exception:
         return MAX_RISCO_POR_TRADE
+
+
+# ── CVaR regime-dependente (P2-3) ────────────────────────────────
+
+
+def cvar_excede_limite(
+    retornos_pct: list[float],
+    regime_atual: str | None,
+    nivel_confianca: float = CVAR_NIVEL_CONFIANCA,
+) -> tuple[bool, float]:
+    """Retorna (excedeu: bool, cvar: float). `excedeu` é True quando o CVaR
+    (perda esperada da cauda, valor negativo) é PIOR que o limite do regime
+    (cvar < limite). regime_atual None/desconhecido usa o limite mais
+    conservador (mesmo de LATERAL/INDEFINIDO). Histórico curto (<
+    CVAR_MIN_HISTORICO) -> (False, 0.0), gate inerte (mesmo piso de
+    kelly_do_banco())."""
+    if len(retornos_pct) < CVAR_MIN_HISTORICO:
+        return False, 0.0
+    limite = CVAR_LIMITE_POR_REGIME.get(regime_atual, CVAR_LIMITE_POR_REGIME["INDEFINIDO"])
+    cvar = cvar_historico(retornos_pct, nivel_confianca=nivel_confianca)
+    return cvar < limite, cvar
 
 
 # ── Vol Targeting (P0-3) ────────────────────────────────────────
@@ -484,10 +522,15 @@ def validar_trade(
     atr_relativo=None,
     posicoes_abertas_detalhe: list[dict] | None = None,
     symbol: str | None = None,
+    regime: str | None = None,
 ):
     """
     Valida todas as condições de risco antes de executar um trade.
     Retorna: {"pode": bool, "motivo": str, "tamanho_btc": float}
+
+    regime: regime de mercado atual (TENDENCIA_ALTA/BAIXA, LATERAL,
+    VOLATILIDADE, INDEFINIDO — ver regime.py). None (default, inerte) pula o
+    gate de CVaR (P2-3) inteiro, mesmo padrão de posicoes_abertas_detalhe.
 
     posicoes_abertas_detalhe: [{"symbol": str, "notional_usdt": float}, ...]
     das posicoes JA abertas (SEM a candidata), usado no check 6.5 de
@@ -603,6 +646,26 @@ def validar_trade(
             "tamanho_btc": 0,
             "exposicao_agregada_efetiva": round(exposicao_efetiva, 2),
         }
+
+    # 6.6 CVaR de cauda (regime-dependente) excede o limite? (P2-3, inerte por
+    # default -- so roda quando `regime` e passado pelo chamador)
+    if regime is not None:
+        try:
+            retornos_pct = [
+                s["pnl_pct"]
+                for s in database.sinais_executados(limit=1000)
+                if s.get("pnl_pct") is not None
+            ]
+        except Exception:
+            retornos_pct = []
+        cvar_excedeu, cvar = cvar_excede_limite(retornos_pct, regime)
+        if cvar_excedeu:
+            return {
+                "pode": False,
+                "motivo": f"CVaR de cauda excedido p/ regime {regime} ({cvar:.2f}%)",
+                "tamanho_btc": 0,
+                "cvar_pct": round(cvar, 4),
+            }
 
     # Inicializar capital do dia se necessário
     if _estado_risco["capital_inicio_dia"] is None:

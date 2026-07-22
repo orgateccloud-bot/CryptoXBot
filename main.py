@@ -781,7 +781,11 @@ def loop_par(par, intervalo_min, simulacao):
                     else None
                 )
                 validacao = gestao_risco.validar_trade(
-                    sinal, preco, saldo if saldo > 0 else 100, atr_relativo=atr_relativo
+                    sinal,
+                    preco,
+                    saldo if saldo > 0 else 100,
+                    atr_relativo=atr_relativo,
+                    regime=resultado.get("regime"),
                 )
                 if validacao["pode"]:
                     tamanho_base = validacao["tamanho_btc"]

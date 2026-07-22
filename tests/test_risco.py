@@ -1300,3 +1300,75 @@ class TestValidarTradePortfolio:
         )
         assert r["pode"] is True
         assert "exposicao_agregada_efetiva" in r
+
+
+class TestValidarTradeCvar:
+    """P2-3: gate de CVaR de cauda regime-dependente (inerte por default)."""
+
+    @pytest.fixture(autouse=True)
+    def _estado_dia_atual(self, monkeypatch):
+        _set_estado(
+            data_dia=str(date.today()),
+            pnl_dia=0.0,
+            bloqueado=False,
+            motivo_bloqueio="",
+            posicoes_abertas=0,
+            capital_inicio_dia=None,
+        )
+        monkeypatch.setattr(risco, "verificar_volatilidade", lambda *a, **k: 0.0)
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.02)
+
+    def _mock_sinais(self, monkeypatch, pnl_pcts):
+        monkeypatch.setattr(
+            risco.database,
+            "sinais_executados",
+            lambda limit=1000: [{"pnl_pct": p} for p in pnl_pcts],
+        )
+
+    def test_regime_none_e_inerte_sem_bater_no_banco(self, monkeypatch):
+        chamou = []
+        monkeypatch.setattr(
+            risco.database, "sinais_executados", lambda *a, **k: chamou.append(1) or []
+        )
+        r = risco.validar_trade("COMPRA", 68000, 1000)  # regime nao passado (default None)
+        assert r["pode"] is True
+        assert chamou == []
+
+    def test_historico_curto_e_inerte(self, monkeypatch):
+        # 5 linhas < CVAR_MIN_HISTORICO (10) -> gate inerte mesmo com regime passado
+        self._mock_sinais(monkeypatch, [-1.0, -2.0, -3.0, -1.0, -2.0])
+        r = risco.validar_trade("COMPRA", 68000, 1000, regime="LATERAL")
+        assert r["pode"] is True
+
+    def test_bloqueia_quando_cvar_pior_que_limite_do_regime(self, monkeypatch):
+        # LATERAL: limite -3.0%. 10 retornos, cauda 95% = 1 pior valor = -20.0
+        # (bem abaixo do limite) -> bloqueia.
+        pnl_pcts = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -20.0]
+        self._mock_sinais(monkeypatch, pnl_pcts)
+        r = risco.validar_trade("COMPRA", 68000, 1000, regime="LATERAL")
+        assert r["pode"] is False
+        assert "cvar" in r["motivo"].lower()
+        assert "cvar_pct" in r
+
+    def test_aprova_quando_cvar_dentro_do_limite(self, monkeypatch):
+        # Historico consistentemente bom -> cvar > -3.0 (limite de LATERAL) -> aprova
+        pnl_pcts = [1.0, 1.5, 0.5, 2.0, 1.0, 0.8, 1.2, 0.9, 1.1, 0.7]
+        self._mock_sinais(monkeypatch, pnl_pcts)
+        r = risco.validar_trade("COMPRA", 68000, 1000, regime="LATERAL")
+        assert r["pode"] is True
+
+    def test_regime_desconhecido_usa_limite_conservador_de_indefinido(self, monkeypatch):
+        # Mesmo historico ruim, mesmo limite de "INDEFINIDO" (-3.0) quando o
+        # regime passado nao bate com nenhuma chave conhecida.
+        pnl_pcts = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -20.0]
+        self._mock_sinais(monkeypatch, pnl_pcts)
+        r = risco.validar_trade("COMPRA", 68000, 1000, regime="REGIME_INEXISTENTE")
+        assert r["pode"] is False
+
+    def test_falha_ao_consultar_banco_nao_quebra_e_fica_inerte(self, monkeypatch):
+        def _boom(limit=1000):
+            raise ConnectionError("banco indisponivel")
+
+        monkeypatch.setattr(risco.database, "sinais_executados", _boom)
+        r = risco.validar_trade("COMPRA", 68000, 1000, regime="LATERAL")
+        assert r["pode"] is True  # lista vazia -> historico curto -> inerte

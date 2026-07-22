@@ -211,6 +211,41 @@ class TestSortinoRatio:
         assert metricas.sortino_ratio([2.0, 2.0, 2.0], mar_pct=2.0) == 0.0
 
 
+class TestCvarHistorico:
+    def test_media_da_cauda_dos_piores(self):
+        # 10 retornos, nivel_confianca=0.9 -> cauda = ceil(0.1*10)=1 pior valor
+        retornos = [5.0, 4.0, 3.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -10.0]
+        assert metricas.cvar_historico(retornos, nivel_confianca=0.9) == pytest.approx(-10.0)
+
+    def test_cauda_com_mais_de_um_valor(self):
+        # nivel_confianca=0.8 -> cauda = ceil(0.2*10)=2 piores valores
+        retornos = [5.0, 4.0, 3.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -10.0]
+        esperado = statistics.mean([-10.0, -3.0])
+        assert metricas.cvar_historico(retornos, nivel_confianca=0.8) == pytest.approx(esperado)
+
+    def test_lista_com_menos_de_2_retorna_zero(self):
+        assert metricas.cvar_historico([]) == 0.0
+        assert metricas.cvar_historico([-5.0]) == 0.0
+
+    def test_nivel_confianca_fora_do_intervalo_retorna_zero(self):
+        retornos = [1.0, -1.0, 2.0, -2.0]
+        assert metricas.cvar_historico(retornos, nivel_confianca=0.0) == 0.0
+        assert metricas.cvar_historico(retornos, nivel_confianca=1.0) == 0.0
+        assert metricas.cvar_historico(retornos, nivel_confianca=-0.1) == 0.0
+
+    def test_cauda_minima_e_pelo_menos_um_valor(self):
+        # n pequeno + nivel_confianca alto -> ceil((1-nc)*n) pode arredondar p/
+        # 0; o guard max(1, ...) garante que sempre ha pelo menos 1 na cauda.
+        retornos = [10.0, -50.0]
+        assert metricas.cvar_historico(retornos, nivel_confianca=0.99) == pytest.approx(-50.0)
+
+    def test_todos_positivos_cvar_tambem_positivo(self):
+        # CVaR nao e garantidamente <= 0 -- num mercado so de altas, a "cauda"
+        # dos piores retornos ainda pode ser positiva.
+        retornos = [10.0, 20.0, 30.0, 40.0, 5.0]
+        assert metricas.cvar_historico(retornos, nivel_confianca=0.8) == pytest.approx(5.0)
+
+
 class TestCalmarRatio:
     def test_max_dd_zero_sentinel(self):
         assert metricas.calmar_ratio(20.0, 0.0, 365) == pytest.approx(999.0)
