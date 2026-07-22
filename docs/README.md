@@ -29,6 +29,6 @@ docs/
 └── Pontuacoes do Projeto.md
 ```
 
-> Atualizado em 2026-07-09 a partir da análise da branch `chore/aposentar-cluster-async`
-> (estado atual: mercado Spot, serviço 24/7 NSSM/systemd, 723 testes, hardening de
-> segurança/confiabilidade concluído).
+> Atualizado em 2026-07-22 a partir da análise da branch `chore/aposentar-cluster-async`
+> (estado atual: mercado Spot, serviço 24/7 NSSM/systemd, 971 testes, locking do
+> executor + reconciliação de boot + observabilidade conectada + CVaR de cauda).

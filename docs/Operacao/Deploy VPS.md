@@ -1,5 +1,6 @@
 ---
 tags: [operacao, deploy, nssm, systemd, vps]
+atualizado: 2026-07-22
 ---
 
 # 🖥️ Deploy — Serviço 24/7 (Windows NSSM · VPS systemd)
@@ -84,7 +85,17 @@ Provisione o Supabase **antes** (precisa da `DATABASE_URL`) → ver
 - Para operar **real**, é preciso, deliberadamente: trocar `--simulacao` por
   `--real` **e** setar `DRY_RUN=false` + `ALLOW_REAL_TRADING=true` +
   `ENV=production`. `main.py` faz fail-fast no boot se faltar API_KEY/SECRET ou
-  `ENV`. Faça isso só após paper trading extenso (ver [[Planejamento de Melhorias]]).
+  `ENV`. Faça isso só após paper trading extenso (ver `PLANO_MODERNIZACAO.md`,
+  raiz do repo).
+- `ENV=production` também ativa, automaticamente: `CORS_SAME_ORIGIN_ONLY`
+  (nega cross-origin no dashboard por padrão) e o fail-fast do dashboard se
+  exposto (`DASHBOARD_BIND != 127.0.0.1`) sem `DASHBOARD_TOKEN` — ver
+  [[Variaveis de Ambiente]].
+- Antes de ativar `OCO_BRACKET`/`RECONCILIAR_BOOT_EXCHANGE` em produção
+  real: validar em paper primeiro, incluindo **drills de restart** (matar o
+  processo com uma posição aberta e confirmar que o boot recovery se
+  comporta como esperado) — mesma cautela de qualquer mudança no caminho de
+  dinheiro real.
 
 ## Build / dependências
 Sem Docker, sem nixpacks: instalação nativa via `pip install -r requirements.txt`

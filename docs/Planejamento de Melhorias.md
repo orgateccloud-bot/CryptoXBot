@@ -1,60 +1,46 @@
 ---
 tags: [planejamento, backlog]
-atualizado: 2026-06-20
+atualizado: 2026-07-22
 ---
 
 # 🛠️ Planejamento de Melhorias
 
 > Voltar: [[00 - Home]] · Base: relatórios em [[Core e Execucao]], [[ML e Sinais]], [[Dados e Infra]], [[Estrategias e Backtesting]]
 
-Legenda esforço: ⏱️ pequeno (<1h) · ⏱️⏱️ médio (meio dia) · ⏱️⏱️⏱️ grande.
+Esta nota **duplicava** o backlog priorizado (P0/P1/P2/P3) que já vive em
+`PLANO_MODERNIZACAO.md` (raiz do repo) — e drifta toda vez que o roadmap
+muda sem esta nota ser atualizada junto (foi o que aconteceu: o backlog
+detalhado aqui ficou parado em 2026-06-20, listando como "pendente" itens
+que já tinham sido concluídos há semanas). Em vez de manter duas fontes de
+verdade, esta nota agora só aponta para a real.
 
-## ✅ Já concluído
-- Showstoppers de clone limpo (`data/cvd_calculator`, `_score_regime`) — PR de fixes em `main`.
-- Coerência de trading: VENDA ignorada explicitamente; voto de regime com 1D; lock no Executor; validação de resposta da Binance + fix do `fechar_posicao`.
-- Whitelist SQL em `logger.exportar_csv`; docs (CLAUDE.md) alinhadas.
-- Aposentadoria do cluster async (removido do repo; histórico git preserva).
-- `requirements.txt` limpo (5 deps órfãs removidas; `psycopg` mantido p/ Supabase).
-- Vault Obsidian + estrutura de deploy Supabase + serviço 24/7 (NSSM/systemd).
-- ✅ **P0-1 testes do core** — `test_executor.py` (43), `test_risco.py` (74), `test_score.py` (136), `test_executor_monitor.py` (28); **323 passed**; risco 90% / score 75% / executor 82%.
-- ✅ **Trailing stop testado** — `_monitorar` refatorado p/ função pura `avaliar_tick_monitor`, coberto + **oráculo de equivalência** (8.160 casos) provando preservação de comportamento.
-- ✅ **3º showstopper corrigido** — `otimizada.analisar()` quebrava todo ciclo (`volume_relativo` IndexError + `bollinger` NameError em `indicadores.py`). Corrigido + `indicadores.py` desduplicado (100% cobertura) + regressão E2E (`otimizada` 93%).
-- ✅ **Testes ML/sinais** — `ml_filtro` (65%), `regime` (99%), `suporte` (69%), `indicadores` (100%). Suite atual: **723 passed, 7 skipped**.
-- ✅ **Resiliência do `logger`** — `LoggerBot` agora delega `.warning/.error/.critical` (corrige AttributeError nos erros do WebSocket); multi-backend (validado em Postgres real).
-- ✅ **Hygiene de segurança** — `SECRET_KEY` endurecido em produção; `.secrets.baseline` + `.bandit` criados (pre-commit funcional); `requirements-dev.txt`.
-- ✅ **Shutdown gracioso multi-sinal** — `database.fechar_pool()` no `finally` + handler de SIGTERM/SIGINT/SIGBREAK.
-- ✅ **Hardening de execução** — stop loss NA exchange (STOP_LOSS_LIMIT); crash recovery de posição; API robusta (recvWindow, sync de relógio, retry/backoff, newClientOrderId idempotente); precisão via `exchangeInfo` dinâmico.
-- ✅ **Dashboard seguro** — bind `127.0.0.1`, `DASHBOARD_TOKEN`, CSP, rate limit, `esc()` anti-XSS, libs vendorizadas em `static/vendor/`.
-- ✅ **Bug do CVD corrigido** — parser do `@aggTrade` usa `data["a"]` (aggregate trade id), não `data["t"]` (que zerava o CVD).
-- ✅ **Deploy migrado** — serviço 24/7 (Windows NSSM · VPS systemd `deploy/`); Docker/Railway/GCP removidos do repo.
+## Onde está o backlog de verdade
 
-## ✅ P0 — concluído
-1. ✅ ~~Testes do core + trailing stop + estratégia/ML~~ (otimizada 93%, indicadores 100%, regime 99%, score 96%).
-2. ✅ ~~`logger.py` Postgres/Supabase~~ — **feito e validado contra Postgres real**. LoggerBot multi-backend (SQLite/Postgres), DDL/placeholders/ON CONFLICT/RETURNING por backend, `connect_timeout` + init resiliente. Fim do split-brain. Também corrigiu o **pool do `database.py`** (`open=True`, sem o qual o Supabase backend não abria em psycopg_pool ≥ 3.2).
-3. ✅ ~~`pytest`/`pytest-cov` declarados + `.secrets.baseline`/`.bandit`~~.
-4. ✅ ~~`database.fechar_pool()` no shutdown~~ (SIGTERM + finally).
+**`PLANO_MODERNIZACAO.md`** (raiz do repositório) é a fonte de verdade
+única do roadmap — sempre atualizado a cada rodada de trabalho, com:
+- **P0** — alto impacto / baixo esforço (concluído).
+- **P1** — médio impacto/esforço (concluído: OBI, meta-labeling
+  instrumentado, guard-rail de drift, `data/klines.py`).
+- **Auditoria Geral — Rodada 2** — achados de segurança/confiabilidade
+  pós-P0/P1 (boot crash-loop, CORS, FSRS, Flask-Cors — todos concluídos).
+- **P2** — médio/alto esforço: P2-1 (OCO nativo, concluído), P2-2a
+  (VectorBT, concluído) / P2-2b (NautilusTrader, adiado), P2-3 (CVaR de
+  cauda, concluído), P2-4 (meta-labeling, aguardando dados reais), P2-5
+  (observabilidade, concluído).
+- **P3** — estrutural (planejar com Plan Mode antes de qualquer edição):
+  núcleo event-driven, fractional differentiation + HMM, ADDM no guard-rail
+  de drift.
+- **Débito técnico** e **fontes de mercado** (pesquisa 2025-2026)
+  verificadas por rodada.
 
-## 🟡 P1 — Robustez
-5. ✅ ~~Refatorar `indicadores.py`~~ — **feito** (duplicatas mortas removidas, bugs corrigidos, 100% cobertura).
-6. **Retry/backoff** nas chamadas de `ml_filtro`/`lstm_modelo`/`regime` (timeout 8s sem retry). ⏱️
-7. **Persistir estado do `ScaleIn`** — hoje some no restart, deixando parcelas inconsistentes. ⏱️⏱️
-8. **Lock no JSON do FSRS** (`fsrs_padroes.json`) — evitar corrupção concorrente. ⏱️
-9. ✅ ~~Canonizar deploy~~ — **feito**: serviço 24/7 (Windows NSSM · VPS systemd em `deploy/`); Docker/Railway/GCP removidos do repo (`@Zeta`).
+## Como consultar
 
-## 🟢 P2 — Evolução
-10. **Revalidação ML walk-forward** — overfitting do MLP (~264-517 features) e scaler drift (`@Sigma`). ⏱️⏱️⏱️
-11. **SHORT real** (`executor.abrir_short`) — só após paper trading extenso + sign-off. ⏱️⏱️⏱️
-12. **Determinismo no backtesting** — baseline de regressão (Sharpe/DD conhecidos). ⏱️⏱️
-13. **`capital_inicio_dia` robusto** + **cache de saldo** no `risco.py`. ⏱️
-14. **ADX validado** contra ta-lib em `regime.py`. ⏱️⏱️
+Para saber o que já foi feito, o que está aberto, e por quê, leia
+`PLANO_MODERNIZACAO.md` diretamente — cada item tem justificativa, arquivos
+tocados e (quando concluído) a data e o resumo da solução. Os relatórios de
+módulo deste vault ([[Core e Execucao]], [[ML e Sinais]], [[Dados e Infra]],
+[[Estrategias e Backtesting]]) detalham a implementação de cada item nos
+arquivos correspondentes — o *quê* e *como* vivem lá; o *backlog priorizado*
+vive só em `PLANO_MODERNIZACAO.md`.
 
-## Sequência recomendada
-```
-P0 (1-4) → suíte cobre o core + Supabase íntegro   ← pré-requisito p/ capital real
-P1 (5-9) → robustez de cálculo, rede e deploy
-P2 (10-14) → evolução de modelo e estratégia
-```
-
-> 🚀 **Modernização de estado-da-arte** (validação de ML com purged CV, execução
-> maker-first `LIMIT_MAKER`, vol targeting, meta-labeling, OBI): roadmap P0–P3 em
-> `PLANO_MODERNIZACAO.md` (raiz do repo).
+Para o estado de maturidade geral por dimensão, ver [[Pontuacoes do Projeto]].
