@@ -1,0 +1,15 @@
+# Dependências OPCIONAIS de pesquisa de backtesting (P2-2a — não vão para a
+# imagem de produção nem para requirements-dev.txt: o worker/dashboard/CI
+# nunca importam vectorbt, só backtesting/motor_vectorbt.py, usado sob
+# demanda para grid search rápido).
+#
+# Instale com: pip install -r requirements-backtest.txt
+#
+# NOTA (2026-07-22): pin exato validado por spike de compatibilidade contra
+# numpy==2.4.3/scipy==1.17.1/scikit-learn==1.8.0 já fixados em
+# requirements.txt — `pip install vectorbt` sem pin explícito resolve para
+# uma versão mais nova (numpy>=2.4.6/pandas>=3.0) e força upgrade desses
+# pacotes; sempre instalar num ambiente/venv isolado deste projeto, nunca
+# num Python compartilhado com outras ferramentas.
+-r requirements.txt
+vectorbt==1.0.0
