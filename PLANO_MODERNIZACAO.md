@@ -92,6 +92,43 @@ exatamente de CVaR *regime-dependente*, o mesmo caminho já traçado aqui
 | P2-4 *(novo, Rodada 2)* | **Meta-labeling com tooling pronto** (`mlfinpy`/`triple-barrier` no PyPI) quando a base de dados do P1-3 tiver histórico suficiente | P1-3 deixou a instrumentação pronta (PnL/barreira/score-na-entrada linkados) mas adiou o treino por falta de histórico. Pesquisa 2025-2026 confirma que meta-labeling via triple-barrier tem ecossistema maduro (não é preciso reimplementar do zero) — quando houver dados, o esforço de implementação cai bastante. **Auditoria 2026-07-22**: SQLite local órfão (schema pré-P1-3, 262 sinais todos `executado=0`) — a base real de produção é Supabase, não verificável a partir deste ambiente. Ver seção "P2-4 — verificação pendente" abaixo. |
 | ✅ P2-5 *(novo, Rodada 2)* | ~~**Observabilidade leve**: métricas Prometheus expostas + alertas via Telegram~~ **FEITO** (2026-07-22) | `health.py` já expunha `/metrics` em formato Prometheus nativo, mas os 6 contadores nunca eram incrementados; `telegram_bot.py` tinha 7 funções de alerta prontas, só 1 chamada. Conectado: `increment_metric` em `executor.py`(ordens)/`risco.py`(drawdown+circuit breaker, com debounce novo)/`main.py`(WS); novos `set_gauge`/`set_regime_atual` (regime como one-hot, formato não suporta labels); 6 alertas Telegram órfãos ligados nos call sites de `bot_events`; nova thread `iniciar_relatorio_diario` (18h). Sem stack nova (sem `prometheus_client`, sem Alertmanager/Grafana) — confirma a decisão do P1-4. |
 
+### P2-4 — verificação pendente (ação do usuário, fora deste ambiente)
+
+Não implementado nesta rodada — implementar o treino do meta-modelo sem
+saber se há dados reais seria trabalho especulativo. O que falta:
+
+**Threshold decidido**: ~200–500 trades fechados e rotulados (literatura de
+triple-barrier/meta-labeling) como piso mínimo razoável para um treino
+piloto. Não havia nenhum número documentado no projeto antes desta rodada
+(só um `if len(sinais_rows) < 10` em `risco.kelly_do_banco()`, que é outro
+propósito — fallback de sizing, não meta-labeling).
+
+**Achado da auditoria 2026-07-22**: o SQLite local (`data/btc_data.db`)
+está órfão — schema anterior ao P1-3 (nem tem as colunas `preco_saida`/
+`pnl_usdt`/`pnl_pct`/`barreira_tocada`), 262 sinais todos com
+`executado=0`. A base real de produção é **Supabase** (Postgres), não
+verificável a partir deste ambiente (sem credenciais). Antes de decidir
+implementar ou não o P2-4:
+
+1. Confirmar que a migration `supabase/migrations/002_meta_labeling_columns.sql`
+   já foi aplicada no Supabase de produção (só é automática se o schema foi
+   criado depois de 2026-07-13).
+2. Rodar diretamente no Supabase de produção:
+   ```sql
+   SELECT barreira_tocada, COUNT(*), SUM((pnl_usdt>0)::int) AS ganhos
+   FROM sinais WHERE executado=true AND pnl_usdt IS NOT NULL
+   GROUP BY barreira_tocada;
+   ```
+3. Comparar o total contra o piso de ~200–500. Se abaixo, deferir de novo
+   (acumular mais histórico); se acima, P2-4 vira candidato real para a
+   próxima rodada.
+
+**Nota lateral**, fora do escopo de P2-4 mas relevante para interpretar
+qualquer `pnl_usdt` real encontrado: o serviço ao vivo (NSSM/systemd) inicia
+fixo com `--simulacao`; `main.py` só entra em modo real com a flag `--real`
+na linha de comando (não basta `.env`). Vale confirmar com o usuário se o
+serviço ao vivo já rodou com `--real` em algum momento.
+
 ## P3 — Estrutural (planejar com @Alfa/Plan Mode)
 
 | # | Ação | Por quê |
