@@ -1,6 +1,6 @@
 # CLAUDE.md — BinanceXBot / CryptoXbot (HFT Trading Bot)
 
-Bot de trading algorítmico de alta frequência para **Binance Spot**.
+Bot de trading algorítmico swing/intraday (sinais em 1h/4h) para **Binance Spot**.
 Execução via `/api/v3/order` (spot); indicadores de **funding rate / open
 interest** são lidos de Futures (`fapi.binance.com`) apenas como sentimento.
 **Deploy: serviço 24/7 (Windows NSSM no PC · systemd na VPS) + Supabase.**
@@ -13,7 +13,7 @@ histórico git) — zero acoplamento no código.
 |--------|-----------|
 | Core | Python 3.11+ |
 | Mercado | **Binance Spot** (execução) · Futures só p/ funding/OI (sentimento) |
-| ML/IA | XGBoost (modelo principal) + sklearn MLP + FSRS, em ensemble |
+| ML/IA | XGBoost (modelo principal) + sklearn MLP, em ensemble |
 | Compute | **NSSM** (Windows, serviço 24/7 no PC) · ou **systemd** na VPS (`deploy/`) |
 | Banco | **Supabase** (Postgres) em produção · SQLite (WAL) local em dev |
 | CI | GitHub Actions (`ci.yml`: lint + smoke test + pytest + segurança) |
@@ -34,12 +34,12 @@ scripts/           # migrate_sqlite_to_supabase.py
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (908 passed, 7 skipped)
+tests/             # pytest (971 passed, 8 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
 Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `database.py`,
-`logger.py`, `ensemble.py`/`ml_filtro.py`/`lstm_modelo.py`/`fsrs_trading.py`/
+`logger.py`, `ensemble.py`/`ml_filtro.py`/`lstm_modelo.py`/
 `score.py`/`regime.py`/`fear_greed.py`, `dashboard.py`, `health.py`,
 `telegram_bot.py`, `monitor_fluxo.py`, `indicadores.py`, `suporte.py`.
 
@@ -103,7 +103,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 # health server dele colide com o dashboard na 5000.
 
 # Testes
-pytest tests/ -v                    # 908 passed, 7 skipped
+pytest tests/ -v                    # 971 passed, 8 skipped
 # BXBOT_TEST_PG_URL=postgresql://... pytest tests/test_logger_postgres.py -v
 
 # Migração de dados SQLite -> Supabase (idempotente)
@@ -189,8 +189,8 @@ Proteções de execução (`executor.py`, todas só em modo real):
 - `ml_filtro.py` — **XGBoost** (modelo principal). Pickle salvo atomicamente
   (`tmp` + `os.replace` — crash no retreino não corrompe o modelo).
 - `lstm_modelo.py` — **MLP do sklearn** (nome "LSTM" é histórico; não é LSTM real)
-- `ensemble.py` — Ensemble ponderado XGBoost 55% + MLP 45%, ajuste por regime + FSRS
-- `fsrs_trading.py` — Filtro adaptativo (padrões com bom histórico)
+- `ensemble.py` — Ensemble ponderado XGBoost 55% + MLP 45%, ajuste por regime.
+  FSRS aposentado em 2026-07-21 (nunca ativava no caminho ao vivo — branch morto).
 - `score.py` — Score unificado 0-100 (11 componentes; ≥60 opera reduzido, ≥70 cheio).
   CVD (7%) e OBI (8%) — ver seção CVD/OBI/WebSocket abaixo — só têm dado real
   para BTCUSDT; demais pares operam com esses dois componentes neutros (50).

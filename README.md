@@ -1,8 +1,13 @@
 # CryptoXbot (BinanceXBot)
 
-Bot de trading algorítmico de alta frequência (HFT) para **Binance Futures**,
-com filtro de sinal por ensemble de ML (XGBoost + MLP) e gestão de risco
-(Kelly Criterion + Circuit Breaker). Paper trading por padrão.
+> **Status: estratégia NÃO validada.** Ver [`docs/GATE_GO_LIVE.md`](docs/GATE_GO_LIVE.md)
+> antes de qualquer operação real — a engenharia está pronta, mas nunca houve
+> backtest consolidado nem paper trading com números registrados.
+
+Bot de trading algorítmico **swing/intraday** (sinais em 1h/4h) para
+**Binance Spot**, com filtro de sinal por ensemble de ML (XGBoost + MLP) e
+gestão de risco (Kelly Criterion + Circuit Breaker). Dados de Futures usados
+apenas como sentimento (funding/open interest). Paper trading por padrão.
 
 [![CI](https://github.com/orgateccloud-bot/CryptoXBot/actions/workflows/ci.yml/badge.svg)](https://github.com/orgateccloud-bot/CryptoXBot/actions/workflows/ci.yml)
 
@@ -11,7 +16,7 @@ com filtro de sinal por ensemble de ML (XGBoost + MLP) e gestão de risco
 | Camada | Tecnologia |
 |--------|-----------|
 | Core | Python 3.11+ |
-| ML/IA | XGBoost (modelo principal) + sklearn MLP + FSRS, em ensemble |
+| ML/IA | XGBoost (modelo principal) + sklearn MLP, em ensemble |
 | Compute | systemd direto na VPS (ver `deploy/`) |
 | Banco | **Supabase** (Postgres) em produção · SQLite local em dev |
 | CI | GitHub Actions (`ci.yml`: lint + smoke test + pytest + segurança) |
@@ -30,14 +35,15 @@ estrategias/       # Estratégias de trading (otimizada)
 scripts/           # migrate_sqlite_to_supabase.py
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard HTML
-tests/             # pytest (723 passed, 7 skipped)
+tests/             # pytest (971 passed, 8 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
 Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `database.py`,
-`logger.py`, `ensemble.py`/`ml_filtro.py`/`lstm_modelo.py`/`fsrs_trading.py`/
+`logger.py`, `ensemble.py`/`ml_filtro.py`/`lstm_modelo.py`/
 `score.py`/`regime.py`/`fear_greed.py`, `dashboard.py`, `health.py`,
-`telegram_bot.py`, `monitor_fluxo.py`, `indicadores.py`, `suporte.py`.
+`telegram_bot.py`, `monitor_fluxo.py`, `indicadores.py`, `suporte.py`,
+`relatorio_gate.py` (métricas do gate de go-live).
 
 ## Início rápido (dev local)
 
@@ -60,7 +66,7 @@ python dashboard.py                 # http://localhost:5000
 Testes:
 
 ```bash
-pytest tests/ -v                    # 710 passed, 7 skipped
+pytest tests/ -v                    # 971 passed, 8 skipped
 ```
 
 ## Deploy (VPS + Supabase)

@@ -1,7 +1,7 @@
 ---
 tags: [scorecard, maturidade]
-atualizado: 2026-07-22
-nota_global: 9.3
+atualizado: 2026-07-23
+nota_global: 7.9
 ---
 
 # 📊 Pontuações do Projeto (Maturidade)
@@ -27,25 +27,28 @@ CVaR de cauda (P2-3), grid search vetorizado (P2-2a). Escala 0-10.
 | Deploy & Infra | 🟢 **9** | 1.0 | **serviço 24/7**: Windows NSSM (worker :8080 + dashboard :5000) · VPS systemd (`deploy/`); Caddy p/ HTTPS; Supabase (pool fix); shutdown gracioso multi-sinal; boot fail-fast em modo real |
 | **Observabilidade** | 🟢 **9** | 0.8 | **P2-5 (2026-07-22): métricas/alertas conectados** — `/metrics` Prometheus com contadores/gauges REAIS (ordens, drawdown, circuit breaker, WS, PnL do dia, regime, latência de decisão); 7 alertas Telegram todos ligados (antes só 1 de 7); relatório diário agendado (18h); `/health`/`/ready` com watchdog de WS |
 | Documentação | 🟢 **9** | 0.8 | vault Obsidian atualizado (Rodada 3, 2026-07-22) refletindo P0/P1/P2; `PLANO_MODERNIZACAO.md` na raiz é a fonte de verdade do roadmap |
+| **Rentabilidade validada** | 🔴 **0** | 2.0 | **Nunca houve backtest consolidado nem paper trading com números** — o serviço roda 24/7 em `--simulacao`, mas nenhum resultado foi registrado ou avaliado contra critérios. É a dimensão que justifica o projeto existir. Ver [[GATE_GO_LIVE]] (critérios pré-registrados, 3 etapas antes de capital real) e `relatorio_gate.py` (medição) |
 
 ## Nota global ponderada
 
 ```
 Σ(nota × peso) / Σ(peso)
-= (9·1.5 + 9·1.5 + 9·1.3 + 9·1.2 + 9·1.2 + 9·1.0 + 9·1.0 + 9·1.0 + 9·1.0 + 9·0.8 + 9·0.8) / 12.3
-= 113.1 / 12.3
-≈ 9.2
+= (9·1.5 + 9·1.5 + 9·1.3 + 9·1.2 + 9·1.2 + 9·1.0 + 9·1.0 + 9·1.0 + 9·1.0 + 9·0.8 + 9·0.8 + 0·2.0) / 14.3
+= 113.1 / 14.3
+≈ 7.9
 ```
 
-> ## 🟢 Nota global: **9.2 / 10 — "Production Ready · Hardened"**
-> **971 testes** herméticos (8 skipped). **11 de 11 dimensões em 9/10**.
-> Rodando **paper trading 24/7 em serviço** (NSSM/systemd). Rodada 3
-> (2026-07-22) fechou o gap mais crítico restante — o *locking* incorreto
-> do executor e a cegueira do boot recovery frente ao estado real da
-> Binance — e conectou a observabilidade que já existia mas estava
-> desligada. Próxima fronteira: `NautilusTrader` (P2-2b), meta-labeling
-> (P2-4, aguardando dados reais) e o núcleo event-driven (P3-1) — ver
-> `PLANO_MODERNIZACAO.md`.
+> ## 🟡 Nota global: **7.9 / 10 — "Engenharia pronta · Estratégia não validada"**
+> **971 testes** herméticos (8 skipped). 11 dimensões de engenharia em 9/10 —
+> mas a 12ª dimensão, **rentabilidade validada, está em 0**: o serviço roda
+> 24/7 em `--simulacao`, porém nunca houve backtest consolidado nem paper
+> trading com números registrados. Engenharia sem estratégia validada não
+> opera capital real. O caminho está pré-registrado em [[GATE_GO_LIVE]]
+> (backtest walk-forward → 90 dias de paper com métricas → capital piloto);
+> nenhuma etapa foi cumprida ainda. Rodada 3 (2026-07-22) fechou o gap de
+> engenharia mais crítico (locking do executor + reconciliação de boot) e
+> conectou a observabilidade — a fronteira agora não é mais código, é
+> validação.
 
 ## Radar (visão rápida)
 ```
@@ -60,6 +63,7 @@ Observabilidade   █████████░  9   ← metricas/alertas Teleg
 ML/Sinais         █████████░  9   ← OBI (P1-1) + guard-rail de drift (P1-4)
 Qualidade código  █████████░  9
 Documentação      █████████░  9   ← vault atualizado Rodada 3
+Rentabilidade     ░░░░░░░░░░  0   ← NUNCA VALIDADA — ver GATE_GO_LIVE.md
 ```
 
 ## Evolução do projeto
@@ -76,4 +80,10 @@ Documentação      █████████░  9   ← vault atualizado Rod
 | Pós lotes de segurança/qualidade/ML/testes/obs | ~9.0 | 710 testes; 9 dimensões em 9/10 |
 | Pós hardening (stop na exchange, crash recovery, API robusta, dashboard seguro, CVD) | 9.2 | 723 testes; mercado SPOT unificado; serviço 24/7 |
 | Rodada 2 (auditoria pós-P0/P1: boot crash-loop, CORS, OCO nativo P2-1) | ~9.2 | bracket OCO opt-in; CORS endurecido em produção |
-| **Rodada 3 (locking/reconciliação de boot, CVaR P2-3, observabilidade P2-5, VectorBT P2-2a, FSRS aposentado)** | **9.2** | **971 testes; 11/11 dimensões em 9/10; vault atualizado** |
+| Rodada 3 (locking/reconciliação de boot, CVaR P2-3, observabilidade P2-5, VectorBT P2-2a, FSRS aposentado) | ~9.2¹ | 971 testes; 11/11 dimensões de engenharia em 9/10; vault atualizado |
+| **Rodada de honestidade (2026-07-23): 12ª dimensão — rentabilidade validada** | **7.9** | **Gate de go-live pré-registrado (GATE_GO_LIVE.md + relatorio_gate.py); guia de API corrigido (menor privilégio, sem Futuros); nenhuma etapa de validação cumprida ainda** |
+
+¹ As notas até a Rodada 3 mediam só engenharia (11 dimensões). A queda para
+7.9 não é regressão — é a mesma engenharia medida com a régua completa: a
+dimensão que faltava (a estratégia ganha dinheiro?) nunca tinha sido posta
+no scorecard, e está em 0 porque nunca foi medida, não porque mediu mal.

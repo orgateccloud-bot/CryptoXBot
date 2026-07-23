@@ -1,6 +1,8 @@
 ====================================================================
   GUIA DE CONFIGURAÇÃO DAS CHAVES DE API DA BINANCE
-  BotBinance — Segurança em Primeiro Lugar
+  BinanceXBot — Segurança em Primeiro Lugar
+  [CORRIGIDO 2026-07-23: o bot executa em SPOT — a versão anterior
+   mandava ativar permissão de FUTUROS, o que era errado e perigoso]
 ====================================================================
 
 PASSO 1 — ACESSAR O PAINEL DE API
@@ -9,55 +11,69 @@ PASSO 1 — ACESSAR O PAINEL DE API
 2. Clique na sua foto/avatar (canto superior direito)
 3. Vá em: Gerenciamento de API  →  Criar API
 4. Escolha: "API gerada pelo sistema"
-5. Dê um nome (ex: "BotBinancePython")
+5. Dê um nome (ex: "BinanceXBot")
 6. Complete a verificação 2FA
 
-PASSO 2 — CONFIGURAR AS PERMISSÕES (CRÍTICO)
+PASSO 2 — CONFIGURAR AS PERMISSÕES (CRÍTICO — MENOR PRIVILÉGIO)
 --------------------------------------------------------------------
-Ative APENAS as seguintes permissões:
+O bot executa ordens APENAS no mercado SPOT (/api/v3/order).
+Os dados de Futures (funding/open interest) usados como sentimento
+são endpoints PÚBLICOS — não exigem permissão nenhuma.
 
-  [x] Habilitar leitura              ← necessário
-  [x] Habilitar trading de Futuros   ← necessário para operar
-  [ ] Habilitar saques               ← NUNCA ATIVE ISSO
-  [ ] Habilitar transferências       ← NUNCA ATIVE ISSO
+Ative APENAS:
 
-PASSO 3 — RESTRINGIR POR IP (ALTAMENTE RECOMENDADO)
+  [x] Habilitar leitura                      ← necessário
+  [x] Habilitar Trading Spot e de Margem     ← necessário para operar SPOT
+
+Deixe DESATIVADO (sempre):
+
+  [ ] Habilitar trading de Futuros           ← o bot NÃO opera futuros;
+                                                ativar isso só amplia o
+                                                estrago se a chave vazar
+  [ ] Habilitar saques                       ← NUNCA ATIVE
+  [ ] Habilitar transferências internas      ← NUNCA ATIVE
+  [ ] Permitir empréstimo/margem             ← NUNCA ATIVE
+
+PASSO 3 — RESTRINGIR POR IP (OBRIGATÓRIO PARA MODO REAL)
 --------------------------------------------------------------------
 Na opção "Restrição de acesso":
 
   Selecione: "Restringir acesso a IPs confiáveis"
 
-  Adicione APENAS o IP da sua máquina local para testes.
-  Você pode descobrir seu IP atual acessando: https://meuip.com.br
+  Adicione APENAS o IP fixo da máquina que roda o worker
+  (VPS ou PC). Ao migrar de máquina, adicione o IP novo e
+  REMOVA o antigo no mesmo momento.
 
-  Quando migrar para o servidor na nuvem, adicione o IP fixo do servidor
-  e REMOVA o IP da sua máquina local.
+  Sem restrição de IP, a Binance ainda aceita a chave de qualquer
+  lugar do mundo — não pule este passo.
 
-PASSO 4 — COPIAR AS CHAVES COM SEGURANÇA
+PASSO 4 — ONDE COLOCAR AS CHAVES
 --------------------------------------------------------------------
-Após criar, você verá:
-  - API Key:    uma sequência longa de letras e números
-  - Secret Key: EXIBIDA APENAS UMA VEZ — copie imediatamente
+As chaves vão no arquivo .env (NUNCA em código, NUNCA no Git):
 
-Cole as chaves no arquivo: config/settings.py
-  API_KEY    = "sua_api_key_aqui"
-  API_SECRET = "sua_secret_key_aqui"
+  BINANCE_API_KEY=sua_api_key_aqui
+  BINANCE_API_SECRET=sua_secret_key_aqui
+
+A Secret Key é exibida UMA única vez na criação — copie na hora.
+Em produção o .env fica em /opt/binancexbot/.env (fora do Git).
 
 REGRAS DE SEGURANÇA — NUNCA QUEBRE ESTAS REGRAS
 --------------------------------------------------------------------
-* NUNCA compartilhe suas chaves com ninguém
-* NUNCA envie settings.py por WhatsApp, email ou qualquer chat
-* NUNCA faça upload de settings.py para o GitHub
-* O arquivo .gitignore já protege settings.py — não remova essa linha
-* Se suspeitar que as chaves foram expostas: ROGUE IMEDIATAMENTE na Binance
-  (há um botão "Revogar todas as chaves" no painel de API)
+* NUNCA compartilhe suas chaves com ninguém (nem em chat com IA)
+* NUNCA envie o .env por WhatsApp, email ou qualquer chat
+* NUNCA faça commit do .env (o .gitignore protege — não remova a linha)
+* Se suspeitar de exposição: REVOGUE IMEDIATAMENTE na Binance
+  (botão "Excluir" na chave, no painel de API) e gere outra
+* Lembrete do modo real: além das chaves, o bot só envia ordem real
+  com DRY_RUN=false + ALLOW_REAL_TRADING=true + ENV=production —
+  e SOMENTE após o GATE_GO_LIVE.md estar integralmente aprovado
 
 VERIFICAR SE ESTÁ FUNCIONANDO
 --------------------------------------------------------------------
-Após preencher as chaves em settings.py, rode:
+Após preencher o .env, rode:
 
   python testar_api.py
 
-Se aparecer seu saldo, está tudo certo.
+Se aparecer seu saldo spot, está tudo certo.
 
 ====================================================================

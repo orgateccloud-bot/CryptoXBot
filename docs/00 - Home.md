@@ -13,10 +13,11 @@ Bot de trading algorítmico para Binance **Spot** (execução via `/api/v3/order
 **apenas** para funding rate / open interest como sentimento — não é o
 mercado de execução.
 
-> **Estado atual:** Beta maduro · paper trading 24/7 em serviço · locking do
-> executor e reconciliação de boot endurecidos · observabilidade conectada ·
-> `import main` limpo · `pytest` verde (**971 passed**, 8 skipped).
-> **Nota de maturidade global: 🟢 9.2/10** — ver [[Pontuacoes do Projeto]].
+> **Estado atual:** engenharia pronta · **estratégia NÃO validada** (nenhum
+> backtest consolidado nem paper trading com números — ver [[GATE_GO_LIVE]]) ·
+> serviço 24/7 em `--simulacao` · `pytest` verde (**971 passed**, 8 skipped).
+> **Nota de maturidade global: 🟡 7.9/10** — ver [[Pontuacoes do Projeto]]
+> (12ª dimensão, rentabilidade validada, está em 0).
 > **Roadmap de modernização:** `PLANO_MODERNIZACAO.md` (raiz) — P0–P3.
 
 ## 🗺️ Navegação
@@ -37,6 +38,7 @@ mercado de execução.
 - [[Variaveis de Ambiente]] — referência completa de env vars
 
 ### Gestão
+- [[GATE_GO_LIVE]] — **critérios pré-registrados de go-live** (3 etapas antes de capital real)
 - [[Planejamento de Melhorias]] — ver `PLANO_MODERNIZACAO.md` (raiz), fonte de verdade do roadmap
 - [[Pontuacoes do Projeto]] — scorecard de maturidade por dimensão
 
@@ -56,11 +58,11 @@ mercado de execução.
 | ML / Sinais | 🟢 9 | XGBoost+MLP com Purged CV; OBI (8% do score); guard-rail de drift |
 | Qualidade de código | 🟢 9 | dead code removido + bugs corrigidos + black aplicado |
 
-> 🎯 **9.2/10.** Rodada 3 (2026-07-22) fechou o gap mais crítico restante — o
-> *locking* incorreto do executor (mutações de posição fora do lock, TOCTOU
-> em `status()`) e a cegueira do boot recovery frente ao estado real da
-> Binance — e conectou a observabilidade que já existia mas estava
-> desligada (contadores/gauges/alertas Telegram). Também: CVaR de cauda
-> regime-dependente (P2-3), grid search vetorizado via VectorBT (P2-2a),
-> FSRS aposentado. Próximos focos: `NautilusTrader` (P2-2b), meta-labeling
-> (P2-4, aguardando dados reais) — ver `PLANO_MODERNIZACAO.md`.
+> 🎯 **7.9/10 — engenharia pronta, estratégia não validada.** Rodada 3
+> (2026-07-22) fechou o gap de engenharia mais crítico — locking do executor
+> e reconciliação de boot — e conectou a observabilidade. A rodada de
+> honestidade (2026-07-23) adicionou a dimensão que faltava ao scorecard:
+> **rentabilidade validada = 0** (nunca houve backtest consolidado nem paper
+> trading com números). A fronteira agora não é código: é cumprir as 3
+> etapas de [[GATE_GO_LIVE]] (walk-forward → 90 dias de paper medidos por
+> `relatorio_gate.py` → capital piloto). Capital real segue proibido até lá.
