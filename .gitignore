@@ -97,3 +97,6 @@ tmp/
 
 
 
+
+# Edge lab — cache de matriz de features (recomputavel)
+research/.cache/
