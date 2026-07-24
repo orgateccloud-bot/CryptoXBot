@@ -292,6 +292,101 @@ def _auc_xgb_combinado(X, f, m, n, ini, fim) -> dict | None:
             "folds": [round(a, 4) for a in aucs], "base_rate": float(yf.mean())}
 
 
+def retorno_barreira(f, m, n, i, alvo, stop, H) -> float:
+    """Retorno BRUTO (long) do trade barreira a partir de i: +alvo se o alvo é
+    tocado antes do stop dentro de H; -stop se stop primeiro; retorno a mercado
+    se timeout. Ordem intra-candle: stop antes de alvo (conservador)."""
+    entrada = f[i]
+    ns, na = entrada * (1 - stop), entrada * (1 + alvo)
+    for j in range(i + 1, i + H + 1):
+        if n[j] <= ns:
+            return -stop
+        if m[j] >= na:
+            return alvo
+    return (f[i + H] - entrada) / entrada
+
+
+def _oos_probs_xgb(Xf, yf, H, n_splits=5):
+    """Probabilidades OOS por amostra via purged CV (XGBoost 11-features). NaN
+    nas amostras que nunca caíram num fold de teste válido."""
+    from xgboost import XGBClassifier
+
+    prob = np.full(len(yf), np.nan)
+    for tr, te in purged_kfold_indices(len(Xf), n_splits, H, H):
+        if len(tr) < 50 or len(np.unique(yf[tr])) < 2:
+            continue
+        mdl = XGBClassifier(n_estimators=200, max_depth=4, learning_rate=0.03,
+                            subsample=0.8, colsample_bytree=0.8,
+                            eval_metric="logloss", verbosity=0)
+        mdl.fit(Xf[tr], yf[tr])
+        prob[te] = mdl.predict_proba(Xf[te])[:, 1]
+    return prob
+
+
+def teste_permutacao_auc_xgb(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02,
+                             n_perm=120, seed=11) -> dict:
+    """Submete a AUC do XGBoost combinado ao MESMO rigor do teste primário:
+    rotaciona o label (preserva autocorrelação, quebra alinhamento) e recomputa
+    a purged-CV AUC -> null. p = fração de nulls >= AUC observada. Responde se a
+    AUC 'boa' é sinal não-linear real ou artefato de labels sobrepostos."""
+    ts, m, n, f, v = carregar_klines(symbol)
+    X = construir_matriz_features(f, m, n, v, symbol)
+    ini, fim = _porcao_pesquisa(len(f))
+    y, vy = label_triple_barrier(f[ini:fim], m[ini:fim], n[ini:fim], alvo, stop, H)
+    Xr = X[ini:fim]
+    ok = vy & ~np.isnan(Xr).any(axis=1)
+    Xf, yf = Xr[ok], y[ok]
+
+    def _auc(yy):
+        aucs = purged_cv_auc(
+            lambda: __import__("xgboost").XGBClassifier(
+                n_estimators=100, max_depth=4, learning_rate=0.03, subsample=0.8,
+                colsample_bytree=0.8, eval_metric="logloss", verbosity=0),
+            Xf, yy, n_splits=5, horizonte=H, embargo=H)
+        return float(np.mean(aucs)) if aucs else np.nan
+
+    auc_obs = _auc(yf)
+    rng = np.random.default_rng(seed)
+    N = len(yf)
+    nulls = []
+    for _ in range(n_perm):
+        off = int(rng.integers(H + 1, N - H - 1))
+        nulls.append(_auc(np.concatenate([yf[off:], yf[:off]])))
+    nulls = np.array([a for a in nulls if not np.isnan(a)])
+    p = float((np.sum(nulls >= auc_obs) + 1) / (len(nulls) + 1))
+    return {"auc_obs": auc_obs, "p_valor": p, "null_media": float(nulls.mean()),
+            "null_p95": float(np.quantile(nulls, 0.95)), "base_rate": float(yf.mean())}
+
+
+def avaliar_economia(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02, custo=0.003) -> dict:
+    """A pergunta decisiva: o ranking do XGBoost sobrevive AOS CUSTOS? Usa
+    probabilidades OOS (purged CV) para computar a expectância LÍQUIDA por trade
+    dos sinais mais bem-ranqueados. Um edge estatístico com net <= 0 no melhor
+    balde é economicamente morto (afogado pelos custos)."""
+    ts, m, n, f, v = carregar_klines(symbol)
+    X = construir_matriz_features(f, m, n, v, symbol)
+    ini, fim = _porcao_pesquisa(len(f))
+    fr, mr, nr = f[ini:fim], m[ini:fim], n[ini:fim]
+    y, vy = label_triple_barrier(fr, mr, nr, alvo, stop, H)
+    Xr = X[ini:fim]
+    ok = vy & ~np.isnan(Xr).any(axis=1)
+    idx_ok = np.where(ok)[0]
+    Xf, yf = Xr[ok], y[ok]
+    ret = np.array([retorno_barreira(fr, mr, nr, int(i), alvo, stop, H) for i in idx_ok])
+    prob = _oos_probs_xgb(Xf, yf, H)
+    val = ~np.isnan(prob)
+    prob, ret, yv = prob[val], ret[val], yf[val]
+    net = ret - custo
+    ordem = np.argsort(-prob)
+    baldes = {}
+    for k in (0.05, 0.10, 0.20, 0.30):
+        sel = ordem[: int(k * len(ordem))]
+        baldes[k] = {"n": len(sel), "net_medio": float(net[sel].mean()),
+                     "win": float(yv[sel].mean()), "soma": float(net[sel].sum())}
+    return {"custo": custo, "n": len(net), "net_base": float(net.mean()),
+            "win_base": float(yv.mean()), "baldes": baldes}
+
+
 def ic_por_asset(symbol, fi, H, ini_frac=0.0, fim_frac=1 - HOLDOUT_FRAC) -> float:
     """IC de uma feature específica em outro ativo, na mesma fração temporal —
     para a corroboração cross-asset (replicação de sinal)."""

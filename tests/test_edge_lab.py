@@ -196,6 +196,33 @@ class TestPermutacao:
 # ══════════════════════════════════════════════════════════════
 
 
+class TestRetornoBarreira:
+    def test_alvo_retorna_mais_alvo(self):
+        f = np.array([100.0, 100.0, 100.0])
+        m = np.array([100.0, 105.0, 100.0])
+        n = np.array([100.0, 100.0, 100.0])
+        assert el.retorno_barreira(f, m, n, 0, 0.04, 0.02, 1) == pytest.approx(0.04)
+
+    def test_stop_retorna_menos_stop(self):
+        f = np.array([100.0, 100.0, 100.0])
+        m = np.array([100.0, 100.0, 100.0])
+        n = np.array([100.0, 97.0, 100.0])
+        assert el.retorno_barreira(f, m, n, 0, 0.04, 0.02, 1) == pytest.approx(-0.02)
+
+    def test_timeout_retorna_mercado(self):
+        f = np.array([100.0, 101.0, 100.5])
+        m = np.array([100.0, 101.2, 100.6])  # nunca +4%
+        n = np.array([100.0, 100.8, 100.4])  # nunca -2%
+        # H=2: sai a mercado no candle 2 -> (100.5-100)/100 = 0.005
+        assert el.retorno_barreira(f, m, n, 0, 0.04, 0.02, 2) == pytest.approx(0.005)
+
+    def test_stop_prioridade_no_ambiguo(self):
+        f = np.array([100.0, 100.0, 100.0])
+        m = np.array([100.0, 105.0, 100.0])
+        n = np.array([100.0, 97.0, 100.0])
+        assert el.retorno_barreira(f, m, n, 0, 0.04, 0.02, 1) == pytest.approx(-0.02)
+
+
 class TestHoldoutLock:
     def test_recusa_sem_confirmacao(self):
         with pytest.raises(RuntimeError, match="USO ÚNICO"):

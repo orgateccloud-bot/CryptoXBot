@@ -128,8 +128,58 @@ parâmetro da estratégia antiga é considerado — a Etapa 1 já a matou.**
 | 2026-07-24 | Null trocado de "circular block shuffle" para "rotação circular" | Rotação preserva 100% da autocorrelação; teste canônico e mais conservador. Feito antes de rodar o harness. |
 | 2026-07-24 | IC medido sobre a porção de pesquisa inteira (não por-fold) para features cruas | Feature crua não tem ajuste → não há OOS a distinguir; per-fold não agregava rigor. Purged CV mantido só para o XGBoost combinado. |
 
+## Resultado (2026-07-24) — SEM EDGE TRADEABLE
+
+Pesquisa rodada na porção de pesquisa (BTCUSDT, 2024-07-26 → 2025-11-10,
+n=11.325). **Hold-out temporal NÃO foi tocado** (a regra de decisão falhou
+antes disso). Reprodutível via `research/edge_lab.py`.
+
+**1. Teste primário (IC de feature única vs retorno futuro):** FALHA.
+- Melhor `|IC|` = 0.0677 (`dist_vwap`, H=24) — acima do piso econômico 0.03,
+  mas o **teste de permutação dá p = 0.378** (null p95 de max|IC| = 0.10).
+  Testando 22 features autocorrelacionadas, um |IC| de 0.068 é comum por
+  acaso. **Nenhuma feature prevê o retorno futuro além do ruído.** (Foi
+  exatamente a armadilha que matou a estratégia original: um IC que "parece
+  tradeable" mas não sobrevive à correção de múltiplas hipóteses.)
+
+**2. Corroboração secundária (XGBoost combinado) — investigada a fundo:**
+- Purged-CV AUC = 0.62 (barreira ±2%/H=8, base 11.5%). Submetida ao MESMO
+  rigor: teste de permutação por rotação do label, **p = 0.0083** (observada
+  acima de todas as 120 rotações; null p95 = 0.566). **É sinal não-linear
+  REAL** que o IC de feature única perdeu — distinto do overfit in-sample da
+  estratégia velha (que tinha AUC ~0.9999 in-sample, lixo).
+
+**3. Teste econômico decisivo (o sinal sobrevive AOS CUSTOS?):** NÃO.
+- Expectância líquida por trade (OOS, custo round-trip 0.30% = taxa+slippage
+  do gate), operando os sinais mais bem-ranqueados pela probabilidade do
+  modelo:
+
+  | Faixa | net %/trade | win rate |
+  |---|---|---|
+  | Operar tudo (base) | −0.279% | 11.5% |
+  | Top 5% prob | −0.145% | 26.0% |
+  | Top 10% | −0.256% | 20.3% |
+  | Bottom 10% | −0.265% | 9.2% |
+
+- O modelo **ranqueia de verdade** (top 5% win 26% vs base 11.5% vs bottom
+  9.2%), mas **toda faixa perde dinheiro após custos.** O alfa vale ~0.13%/
+  trade; os custos são 0.30%/trade. **Alfa < metade do custo → edge
+  estatístico REAL, economicamente MORTO** (afogado pelas taxas).
+
+### Conclusão pré-registrada aplicada
+
+A regra de decisão (p<0.05 no IC primário) FALHA → não há edge direcional na
+família de features testada. O achado secundário (XGBoost) confirma-o por
+outro caminho: mesmo o sinal não-linear real é fino demais para cobrir custos
+em BTC 1h. **Não construir estratégia direcional sobre este conjunto de
+features.** Levar ao usuário: (a) expandir features com hipótese nova
+pré-registrada (order-flow/CVD/funding/cross-asset — odds modestas dada a
+eficiência medida), ou (b) pivô de payoff/mercado (trend-following ou
+timeframe maior, onde o problema "precisa de edge preditivo para bater uma
+barreira 1:1" se dissolve). Nenhum ajuste da estratégia velha é considerado.
+
 ## Registro de uso do hold-out
 
 | Data | Evento | Resultado |
 |---|---|---|
-| — | Hold-out temporal ainda NÃO avaliado | — |
+| 2026-07-24 | Pesquisa concluída — regra de decisão falhou (sem edge economicamente tradeable) | Hold-out temporal **NÃO tocado** (preservado para uma futura hipótese que sobreviva à pesquisa) |
