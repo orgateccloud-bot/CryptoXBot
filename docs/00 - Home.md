@@ -13,12 +13,14 @@ Bot de trading algorítmico para Binance **Spot** (execução via `/api/v3/order
 **apenas** para funding rate / open interest como sentimento — não é o
 mercado de execução.
 
-> **Estado atual:** engenharia pronta · **estratégia NÃO validada** (nenhum
-> backtest consolidado nem paper trading com números — ver [[GATE_GO_LIVE]]) ·
-> serviço 24/7 em `--simulacao` · `pytest` verde (**971 passed**, 8 skipped).
+> **Estado atual:** engenharia pronta · **estratégia REPROVADA no gate**
+> (Etapa 1, walk-forward de 2 anos, 2026-07-24: −21% vs +14% do B&H — ver
+> [[GATE_GO_LIVE]]) · serviço 24/7 em `--simulacao` · `pytest` verde
+> (**986 passed**, 8 skipped).
 > **Nota de maturidade global: 🟡 7.9/10** — ver [[Pontuacoes do Projeto]]
-> (12ª dimensão, rentabilidade validada, está em 0).
-> **Roadmap de modernização:** `PLANO_MODERNIZACAO.md` (raiz) — P0–P3.
+> (12ª dimensão, rentabilidade validada, está em 0: medida e reprovada).
+> **Roadmap de modernização:** `PLANO_MODERNIZACAO.md` (raiz) — P0–P3;
+> próximo passo real: redesenho ESTRUTURAL da estratégia.
 
 ## 🗺️ Navegação
 

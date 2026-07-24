@@ -5,13 +5,18 @@
 > propósito do gate. Qualquer mudança exige justificativa escrita aqui, datada,
 > e reinicia o relógio de validação.
 >
-> Criado em: 2026-07-23 · Status: **NENHUMA ETAPA CUMPRIDA**
+> Criado em: 2026-07-23 · Status: **ETAPA 1 EXECUTADA EM 2026-07-24 —
+> ESTRATÉGIA REPROVADA (4 de 5 critérios). Capital real segue PROIBIDO.**
 
 ## Estado atual (honesto)
 
 - Engenharia: pronta (o scorecard do vault cobre infra, não estratégia).
-- Estratégia: **nunca validada**. Sem backtest consolidado, sem paper trading
-  com números. Capital real: **proibido** até completar as 3 etapas abaixo.
+- Estratégia: **medida pela primeira vez em 2026-07-24 e REPROVADA** — a
+  configuração atual perde dinheiro no walk-forward de 2 anos (retorno
+  −21.25% vs +14.09% do buy-and-hold, profit factor 0.86, DSR 0.23). Nos
+  termos pré-registrados deste gate: estratégia morta; volta ao desenho
+  (mudanças estruturais, não ajuste de parâmetros); o backtest reinicia do
+  zero após qualquer mudança. Capital real: **proibido**.
 
 ## Etapa 1 — Backtest Walk-Forward (custo: 1 tarde)
 
@@ -28,11 +33,41 @@ python backtesting/walk_forward.py --par BTCUSDT --intervalo 1h --treino 500 --t
 
 | Critério | Mínimo para aprovar | Resultado | Passou? |
 |---|---|---|---|
-| DSR (PSR, 1 único backtest — probabilidade) | ≥ 0.95 ¹ | — | ☐ |
-| Profit factor (após TAXA+SLIPPAGE do motor) | > 1.3 | — | ☐ |
-| Nº de trades no teste (todas as janelas) | ≥ 100 | — | ☐ |
-| Retorno vs buy-and-hold BTC no mesmo período | ≥ B&H ajustado a risco ² | — | ☐ |
-| Max drawdown | ≤ 20% | — | ☐ |
+| DSR (PSR, 1 único backtest — probabilidade) | ≥ 0.95 ¹ | **0.2260** | ❌ |
+| Profit factor (após TAXA+SLIPPAGE do motor) | > 1.3 | **0.86** | ❌ |
+| Nº de trades no teste (todas as janelas) | ≥ 100 | **156** | ✅ |
+| Retorno vs buy-and-hold BTC no mesmo período | ≥ B&H ajustado a risco ² | **−21.25% vs +14.09%** (retorno negativo reprova direto pela definição ²) | ❌ |
+| Max drawdown | ≤ 20% | **28.90%** | ❌ |
+
+### Resultado da medição oficial (2026-07-24) — **ESTRATÉGIA REPROVADA (4 de 5)**
+
+Registro B8 (reprodutibilidade):
+- Comando: `python backtesting/walk_forward.py --par BTCUSDT --intervalo 1h --treino 500 --teste 100 --capital 1000 --taxa 0.001` (com `PYTHONIOENCODING=utf-8`)
+- Código: commit `4f84f6b61d61964b6744da4b5885ec71e02efe04` (régua corrigida B1-B8, 15 testes)
+- Dados: klines BTCUSDT — 1h: 17.520 candles (ts 1721768400000→1784836800000, 23/07/2024→23/07/2026); 4h: 4.380 candles (ts 1721779200000→1784836800000). F&G: 3.091 dias (alternative.me). Período efetivamente testado: 15/08/2024 21:00 → 21/07/2026 00:00 (169 janelas)
+- Detalhe: 156 trades (52W/104L), win rate 33.3%, Sharpe −0.98, Sortino −1.56, Calmar −0.40, capital $1.000 → $787.46
+
+**Sensibilidade de taxa (o veredito NÃO depende da fee):**
+
+| Taxa/lado | PF | Retorno | DSR | Max DD |
+|---|---|---|---|---|
+| 0.100% (spot taker — oficial) | 0.86 | −21.25% | 0.2260 | 28.90% |
+| 0.075% (maker+BNB) | 0.89 | −16.84% | 0.2896 | 25.77% |
+| 0.040% (tarifa legada de futures — irrealista) | 0.93 | −10.24% | 0.3918 | 21.16% |
+
+Mesmo com a taxa irrealisticamente baixa que o motor usava antes da correção
+B5, a estratégia perde dinheiro e reprova em todos os critérios exceto o de
+nº de trades. O problema não é custo de transação — é a estratégia.
+
+**Quantificação do viés B1 (diagnóstico `--mtf-lookahead-legado`, taxa 0.100%):**
+com o look-ahead legado: 148 trades, PF 0.87, retorno −19.14%, DSR 0.2544.
+Neste dataset o delta do bug foi pequeno (~2 p.p. de retorno) — o veredito
+não muda com ou sem o bug; ambos reprovam.
+
+**Consequência pré-registrada** (parágrafo abaixo, escrito antes da medição):
+estratégia morta; volta ao desenho; NÃO ajustar parâmetros até passar;
+mudanças estruturais apenas; o backtest reinicia do zero. As Etapas 2 e 3
+NÃO iniciam.
 
 ¹ **Correção pré-registrada (2026-07-23, ANTES de qualquer medição):** o
 critério original "DSR > 0" era vácuo — `deflated_sharpe_ratio(rets, None)`
@@ -151,3 +186,4 @@ no candle ambíguo, censura final, B&H) — o arquivo tinha ZERO cobertura.
 | 2026-07-23 | Gate criado | Capital real proibido até cumprir Etapas 1-3 |
 | 2026-07-23 | Ablação FSRS da Etapa 1 marcada como resolvida | FSRS removido do repo em 2026-07-21 (nunca ativava no caminho ao vivo); walk-forward padrão já é o cenário sem FSRS |
 | 2026-07-23 | Verificação adversarial da régua ANTES da 1ª medição | 8 bloqueantes corrigidos (B1-B8, tabela acima); critério DSR e definição de B&H pré-registrados; medição só roda com a régua corrigida |
+| 2026-07-24 | **Etapa 1 executada — ESTRATÉGIA REPROVADA (4 de 5 critérios)** | Retorno −21.25% vs B&H +14.09%; PF 0.86; DSR 0.23; DD 28.9%. Veredito robusto à taxa (reprova até com fee irrealista de 0.04%) e ao bug B1 (reprova com e sem). Capital real segue proibido; Etapas 2-3 não iniciam; próximo passo é redesenho ESTRUTURAL da estratégia (não ajuste de parâmetros), com novo backtest do zero |

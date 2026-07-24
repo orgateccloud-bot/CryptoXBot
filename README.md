@@ -1,8 +1,10 @@
 # CryptoXbot (BinanceXBot)
 
-> **Status: estratégia NÃO validada.** Ver [`docs/GATE_GO_LIVE.md`](docs/GATE_GO_LIVE.md)
-> antes de qualquer operação real — a engenharia está pronta, mas nunca houve
-> backtest consolidado nem paper trading com números registrados.
+> **Status: estratégia REPROVADA no gate de go-live** (Etapa 1, walk-forward
+> de 2 anos, 2026-07-24: retorno −21% vs +14% do buy-and-hold — reprovou em
+> 4 de 5 critérios pré-registrados; o veredito não depende da taxa). Ver
+> [`docs/GATE_GO_LIVE.md`](docs/GATE_GO_LIVE.md). Capital real **proibido**;
+> próximo passo é redesenho estrutural da estratégia, não ajuste de parâmetros.
 
 Bot de trading algorítmico **swing/intraday** (sinais em 1h/4h) para
 **Binance Spot**, com filtro de sinal por ensemble de ML (XGBoost + MLP) e

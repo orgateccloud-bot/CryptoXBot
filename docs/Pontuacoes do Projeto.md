@@ -27,7 +27,7 @@ CVaR de cauda (P2-3), grid search vetorizado (P2-2a). Escala 0-10.
 | Deploy & Infra | 🟢 **9** | 1.0 | **serviço 24/7**: Windows NSSM (worker :8080 + dashboard :5000) · VPS systemd (`deploy/`); Caddy p/ HTTPS; Supabase (pool fix); shutdown gracioso multi-sinal; boot fail-fast em modo real |
 | **Observabilidade** | 🟢 **9** | 0.8 | **P2-5 (2026-07-22): métricas/alertas conectados** — `/metrics` Prometheus com contadores/gauges REAIS (ordens, drawdown, circuit breaker, WS, PnL do dia, regime, latência de decisão); 7 alertas Telegram todos ligados (antes só 1 de 7); relatório diário agendado (18h); `/health`/`/ready` com watchdog de WS |
 | Documentação | 🟢 **9** | 0.8 | vault Obsidian atualizado (Rodada 3, 2026-07-22) refletindo P0/P1/P2; `PLANO_MODERNIZACAO.md` na raiz é a fonte de verdade do roadmap |
-| **Rentabilidade validada** | 🔴 **0** | 2.0 | **Nunca houve backtest consolidado nem paper trading com números** — o serviço roda 24/7 em `--simulacao`, mas nenhum resultado foi registrado ou avaliado contra critérios. É a dimensão que justifica o projeto existir. Ver [[GATE_GO_LIVE]] (critérios pré-registrados, 3 etapas antes de capital real) e `relatorio_gate.py` (medição) |
+| **Rentabilidade validada** | 🔴 **0** | 2.0 | **Medida pela 1ª vez em 2026-07-24 e REPROVADA** — walk-forward de 2 anos (169 janelas, 156 trades, régua verificada adversarialmente antes de rodar): retorno −21.25% vs +14.09% do buy-and-hold, PF 0.86, DSR 0.23, DD 28.9%; reprova em 4 de 5 critérios pré-registrados e o veredito não depende da taxa. Ver [[GATE_GO_LIVE]] — estratégia volta ao desenho estrutural |
 
 ## Nota global ponderada
 
@@ -63,7 +63,7 @@ Observabilidade   █████████░  9   ← metricas/alertas Teleg
 ML/Sinais         █████████░  9   ← OBI (P1-1) + guard-rail de drift (P1-4)
 Qualidade código  █████████░  9
 Documentação      █████████░  9   ← vault atualizado Rodada 3
-Rentabilidade     ░░░░░░░░░░  0   ← NUNCA VALIDADA — ver GATE_GO_LIVE.md
+Rentabilidade     ░░░░░░░░░░  0   ← MEDIDA E REPROVADA (2026-07-24) — ver GATE_GO_LIVE.md
 ```
 
 ## Evolução do projeto
