@@ -107,8 +107,16 @@ def _score_backtest(
     rsi_max=60,
     score_operar=60,
     score_cheio=70,
+    fear_greed_score=100,
 ):
-    """Calcula score simplificado para backtest (sem API calls)."""
+    """Calcula score simplificado para backtest (sem API calls).
+
+    fear_greed_score: score 0-100 do componente Fear & Greed. O default 100
+    equivale a assumir F&G na zona ideal 35-65 (producao: _score_fear_greed(50)
+    == 100) — comportamento historico deste motor, preservado para os callers
+    legados (otimizador/motor_ensemble). O walk_forward (gate) passa o score
+    REAL computado do historico do indice (alternative.me), para que bloqueios
+    de ganancia/medo extremos entrem na medicao (auditoria 2026-07-23)."""
     scores = {}
 
     # Regime (25%)
@@ -141,8 +149,9 @@ def _score_backtest(
     else:
         scores["ema"] = 0
 
-    # Fear & Greed (10%) - sem API no backtest, assume neutro
-    scores["fear_greed"] = 100
+    # Fear & Greed (10%) — parametrizado (ver docstring); default 100 =
+    # zona ideal (equivale a F&G neutro na funcao de producao).
+    scores["fear_greed"] = fear_greed_score
 
     # RSI (8%)
     if rsi_v is None:
