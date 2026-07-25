@@ -264,9 +264,134 @@ janela que não seja dominada por um único bull histórico), sabendo que
 qualquer alteração de critério pós-resultado enfraquece a evidência e deve
 ser registrada como tal.
 
+---
+
+# RODADA 3 — Benchmark risco-equivalente + teste por regime (re-pré-registro)
+
+> Escrito em 2026-07-24. **Declaração de custo epistemológico, sem
+> eufemismo:** este re-pré-registro acontece DEPOIS de eu ter visto a Rodada 2
+> reprovar no critério de B&H. Mudar critério após um FAIL enfraquece a
+> evidência — qualquer leitor deve descontar este resultado em relação a um
+> pré-registro virgem. Está registrado aqui exatamente para que esse desconto
+> seja possível. Decisão do usuário, com o custo explicitado antes.
+
+## Critério A — benchmark risco-equivalente: **FALHA POR ARITMÉTICA (derivado, não medido)**
+
+Definição (a que motivou a Rodada 3): comparar a estratégia com um
+buy-and-hold **escalado ao mesmo risco**, investindo só a fração
+`f = DD_estrategia / DD_B&H` do capital (resto em caixa), de modo que ambos
+tenham o mesmo drawdown.
+
+Aplicado aos números **já publicados** na Rodada 2 (nenhum dado novo
+necessário):
+- `f = 8.5% / 84.0% = 0.101` → `B&H risco-equivalente = 0.101 × 1871.1% =`
+  **+189.3%** vs estratégia **+76.8%** → **FALHA**.
+- Espelho (alavancar a estratégia ao risco do B&H): `84.0/8.5 = 9.88×` →
+  `9.88 × 76.8% =` **+758.6%** vs **+1871.1%** → **FALHA**.
+
+**Conclusão: o critério A não resgata a estratégia, e isso era previsível.**
+Dominância em MAR ratio (retorno/DD: 9.00 vs 22.26) é **invariante à escala**
+— nenhuma normalização de risco a inverte. Registrado explicitamente porque é
+um resultado importante sobre o *gate*, não sobre a estratégia: o critério
+original ">= B&H ajustado a risco" NÃO era injustamente severo, e trocá-lo
+não muda o veredito. A hipótese de que "o critério herdado media a pergunta
+errada" está, nesta dimensão, **refutada**.
+
+## Critério B — teste por REGIME (o que carrega informação nova)
+
+Justificativa de primeiros princípios, independente de qualquer resultado: a
+proposta de valor do trend-following **não é** vencer buy-and-hold num bull
+market — é **capturar parte do bull e evitar a maior parte do bear**. Avaliado
+pooled sobre uma janela dominada por um bull histórico (~80% do período), B&H
+vence trivialmente e o teste não informa nada. Avaliado **por regime**, mede-se
+exatamente o que o sistema promete.
+
+**Regimes definidos por ano-calendário, pelo retorno equal-weighted de B&H da
+cesta (não por performance da estratégia):**
+- **BEAR:** ano com B&H equal-weighted **< −20%**.
+- **BULL:** ano com B&H equal-weighted **> +20%**.
+- **LATERAL:** o resto.
+
+**Critérios (declarados ANTES de computar — nenhum destes números foi visto):**
+1. **Proteção no bear (o essencial):** em TODO ano BEAR, o retorno da
+   estratégia deve ser **> retorno do B&H** (perder menos, ou lucrar). Se
+   falhar em qualquer bear, FAIL — é a razão de existir do sistema.
+2. **Participação no bull:** a média, sobre os anos BULL, de
+   `ret_estrategia / ret_B&H` deve ser **≥ 0.30** (capturar ≥30% da alta).
+3. **Sem ano catastrófico:** nenhum ano-calendário com perda da estratégia
+   **> 25%** do capital.
+4. Mantidos da Rodada 2 (já verdes, não podem regredir): expectância > 0,
+   PF > 1.3, payoff > 1.5, ≥100 trades, robustez de concentração.
+
+Passou → hold-out UMA vez, verificando os mesmos critérios por regime.
+Falhou → **FAIL definitivo** para trend-following long-only; encerrar a linha
+de pesquisa (não haverá Rodada 4 — três rodadas com critérios progressivamente
+re-registrados é o limite honesto).
+
+## Resultado da RODADA 3 (2026-07-24) — **FAIL DEFINITIVO** (por 0.38 pp)
+
+Comando: `python backtesting/trend_following.py --intervalo 1d --regime`.
+Hold-out **NÃO tocado**.
+
+| Ano | Regime | B&H % | Estratégia % | Captura |
+|---|---|---|---|---|
+| 2020 | BULL | +37.3 | +3.0 | 7.9% |
+| 2021 | BULL | +1686.4 | +39.7 | 2.4% |
+| **2022** | **BEAR** | **−71.0** | **−6.0** | — |
+| 2023 | BULL | +225.0 | +9.7 | 4.3% |
+| 2024 | BULL | +29.3 | +30.4 | 103.9% |
+
+| Critério | Resultado | |
+|---|---|---|
+| Proteção em TODO bear | **2022: −6.0% vs −71.0% do B&H** | ✅ |
+| Captura média no bull ≥ 30% | **29.62%** | ❌ |
+| Nenhum ano < −25% | pior: −6.0% | ✅ |
+
+**A proteção no bear é espetacular e é o núcleo da tese:** em 2022 o
+buy-and-hold da cesta perdeu **71%**; a estratégia perdeu **6%**. Ela entregou
+exatamente o que trend-following promete.
+
+**Mas o critério de captura no bull falhou por 0.38 ponto percentual
+(29.62% vs 30.00%). Veredito pré-registrado: FAIL DEFINITIVO. Honrado.**
+
+### Falha de desenho do MEU critério (documentada como lição, NÃO como recurso)
+
+O critério 2 usava a **média das razões** `ret_estrategia / ret_B&H` por ano
+bull. Essa estatística é patológica quando o denominador é astronômico: em
+2021 o B&H fez +1686%, e capturar 2.4% disso significa **+39.7% de retorno
+absoluto** — um ótimo ano, pontuado como quase-zero. A média foi esmagada
+pelos anos de bull explosivo e salva apenas pelo 2024 (103.9%).
+
+Um critério melhor (retorno absoluto nos anos bull, ou **mediana** da captura,
+ou captura ponderada por tempo-no-mercado) provavelmente teria passado. **Eu
+reconheço isso e explicitamente NÃO uso como motivo para reverter o veredito
+nem para abrir uma Rodada 4** — que, aliás, foi pré-proibida neste documento
+antes de eu ver estes números. Trocar a estatística agora, sabendo que a nova
+passaria, seria o overfitting exato que este arcabouço todo existe para
+impedir. O custo de desenhar um critério imperfeito é pagar por ele.
+
+### Conclusão da linha de pesquisa trend-following
+
+**FAIL definitivo** — encerrada em 3 rodadas, conforme pré-registro. O que
+fica documentado como conhecimento durável (e é substancial):
+1. O sistema tem **proteção de bear comprovada e forte** (−6% vs −71%).
+2. Tem qualidade estatística sólida (expectância +2.32%/trade, PF 3.89,
+   payoff 4.19, 185 trades, lucro distribuído entre 5 anos e 7 moedas).
+3. **Não vence buy-and-hold** em nenhuma normalização de risco na janela
+   2020-2024 — refutado por aritmética invariante à escala (MAR 9.0 vs 22.3),
+   não por escolha de critério.
+4. O **hold-out (35% final) permanece virgem** — nenhuma das 3 rodadas o
+   consumiu. Se algum dia houver uma hipótese nova e independente, ele está lá.
+
+Próximo passo é decisão do usuário, e as opções honestas NÃO incluem mais
+rodadas deste sistema: encerrar a busca por estratégia direcional, ou pivotar
+para uma classe estruturalmente diferente (funding/basis, market-making de
+rebate) com pré-registro virgem.
+
 ## Registro de uso do hold-out
 
 | Data | Evento | Resultado |
 |---|---|---|
 | 2026-07-24 | Rodada 1: primário 4h falhou (breakeven, não bate B&H) | Hold-out **NÃO tocado**. 1d (robustez) promissor mas raso — motivou o re-pré-registro. |
 | 2026-07-24 | Rodada 2 (1d primária, 7 moedas, 5 anos): 5 de 6, FAIL só no critério de B&H | Hold-out **NÃO tocado** (preservado; nenhum resultado desta rodada o consumiu). |
+| 2026-07-24 | Rodada 3 (critério A refutado por aritmética; critério B FAIL por 0.38pp) | Hold-out **NÃO tocado**. Linha de pesquisa trend-following ENCERRADA — hold-out preservado virgem para uma futura hipótese independente. |

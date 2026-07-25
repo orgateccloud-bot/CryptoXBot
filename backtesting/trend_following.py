@@ -251,6 +251,104 @@ def _metricas_pool(rets_pct, por_ativo) -> dict:
     }
 
 
+def analise_por_regime(intervalo="1d", holdout=False) -> dict:
+    """Rodada 3, critério B: retorno da estratégia vs buy-and-hold POR
+    ANO-CALENDÁRIO, com o regime classificado pelo B&H equal-weighted da cesta
+    (não pela performance da estratégia). Testa a proposta de valor real do
+    trend-following: capturar parte do bull, evitar a maior parte do bear.
+
+    Retorno da estratégia no ano = PnL do ano / capital inicial (base fixa de
+    1000 por ativo, medida consistente entre ativos e anos)."""
+    ativos = ATIVOS_1D if intervalo == "1d" else ATIVOS_4H
+    strat_por_ano: dict[int, list[float]] = {}
+    bh_por_ano: dict[int, list[float]] = {}
+
+    for sym in ativos:
+        ts, c = carregar_closes(sym, intervalo)
+        if holdout:
+            corte = int(len(c) * (1 - HOLDOUT_FRAC))
+            ts, c = ts[corte:], c[corte:]
+        else:
+            ts, c = porcao_pesquisa(ts), porcao_pesquisa(c)
+        r = simular_trend(c, ts=ts)
+        pnl_ano: dict[int, float] = {}
+        for t in r.get("trades", []):
+            a = t.get("ano")
+            if a:
+                pnl_ano[a] = pnl_ano.get(a, 0.0) + t["pnl"]
+        anos = np.array([_ano_de(ts, i) for i in range(len(ts))])
+        for a in sorted({int(x) for x in anos if x}):
+            mask = anos == a
+            if mask.sum() < 20:  # ano com poucos candles (borda) — ignora
+                continue
+            cc = c[mask]
+            bh_por_ano.setdefault(a, []).append((cc[-1] / cc[0] - 1) * 100)
+            strat_por_ano.setdefault(a, []).append(pnl_ano.get(a, 0.0) / 1000 * 100)
+
+    linhas = []
+    for a in sorted(bh_por_ano):
+        bh = float(np.mean(bh_por_ano[a]))
+        st = float(np.mean(strat_por_ano.get(a, [0.0])))
+        regime = "BEAR" if bh < -20 else ("BULL" if bh > 20 else "LATERAL")
+        captura = (st / bh) if (regime == "BULL" and bh > 0) else None
+        linhas.append({"ano": a, "regime": regime, "bh_pct": bh, "strat_pct": st,
+                       "captura": captura})
+    return {"linhas": linhas, "holdout": holdout, "intervalo": intervalo}
+
+
+def imprimir_regime(reg):
+    linhas = reg["linhas"]
+    print("\n" + "=" * 72)
+    print("  RODADA 3 — CRITÉRIO B: estratégia vs buy-and-hold POR REGIME")
+    print("  (regime classificado pelo B&H equal-weighted da cesta)")
+    print("=" * 72)
+    print(f"\n  {'ano':>5} {'regime':<8} {'B&H %':>10} {'estrat %':>10} {'captura':>9}")
+    for L in linhas:
+        cap = f"{L['captura']:.0%}" if L["captura"] is not None else "—"
+        print(f"  {L['ano']:>5} {L['regime']:<8} {L['bh_pct']:>+10.1f} "
+              f"{L['strat_pct']:>+10.1f} {cap:>9}")
+
+    bears = [L for L in linhas if L["regime"] == "BEAR"]
+    bulls = [L for L in linhas if L["regime"] == "BULL"]
+    print("\n" + "-" * 72)
+    print("  Critérios da Rodada 3 (pré-registrados em METODOLOGIA_TREND.md):")
+
+    # 1. proteção no bear
+    if bears:
+        ok_bear = all(L["strat_pct"] > L["bh_pct"] for L in bears)
+        det = ", ".join(f"{L['ano']}: {L['strat_pct']:+.1f}% vs {L['bh_pct']:+.1f}%" for L in bears)
+        print(f"    [{'x' if ok_bear else ' '}] proteção em TODO bear         ({det})")
+    else:
+        ok_bear = False
+        print("    [ ] proteção no bear           (NENHUM ano BEAR na janela — não testável)")
+
+    # 2. participação no bull
+    caps = [L["captura"] for L in bulls if L["captura"] is not None]
+    if caps:
+        cap_med = float(np.mean(caps))
+        ok_bull = cap_med >= 0.30
+        print(f"    [{'x' if ok_bull else ' '}] captura média no bull >= 30%  "
+              f"({cap_med:.2%} em {len(caps)} anos bull; por ano: "
+              f"{', '.join(f'{c:.1%}' for c in caps)})")
+    else:
+        ok_bull = False
+        cap_med = 0.0
+        print("    [ ] captura no bull            (nenhum ano BULL)")
+
+    # 3. sem ano catastrófico
+    pior = min((L["strat_pct"] for L in linhas), default=0.0)
+    ok_cat = pior > -25.0
+    print(f"    [{'x' if ok_cat else ' '}] nenhum ano < -25%             (pior ano: {pior:+.1f}%)")
+
+    if ok_bear and ok_bull and ok_cat:
+        print("\n  >> CRITÉRIO B PASSOU — prosseguir ao hold-out (USO ÚNICO).")
+    else:
+        print("\n  >> CRITÉRIO B NÃO PASSOU — FAIL definitivo (sem Rodada 4, pré-registrado).")
+    print("=" * 72)
+    return {"ok_bear": ok_bear, "ok_bull": ok_bull, "ok_cat": ok_cat,
+            "captura_media": cap_med, "pior_ano": pior}
+
+
 def imprimir(res):
     print("=" * 72)
     print("  TREND-FOLLOWING (Donchian 20/10, long-only, 4h) — PESQUISA (hold-out intocado)")
@@ -333,8 +431,13 @@ def imprimir(res):
 def main():
     ap = argparse.ArgumentParser(description="Trend-following canônico — pesquisa")
     ap.add_argument("--intervalo", default="4h")
+    ap.add_argument("--regime", action="store_true",
+                    help="Rodada 3 critério B: análise por regime (ano-calendário)")
     args = ap.parse_args()
-    imprimir(rodar_pesquisa(args.intervalo))
+    if args.regime:
+        imprimir_regime(analise_por_regime(args.intervalo))
+    else:
+        imprimir(rodar_pesquisa(args.intervalo))
 
 
 if __name__ == "__main__":
