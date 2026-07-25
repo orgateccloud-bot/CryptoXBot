@@ -17,6 +17,10 @@ Uso:
   python main.py --backtest 1h      → roda backtest e sai
   python main.py --treinar-ml       → treina modelo ML e sai
   python main.py --par BTCUSDT      → operar apenas um par específico
+  python main.py --modo-trend --simulacao
+                                    → dry run do sistema Donchian 20/10
+                                      (validação de EXECUÇÃO; estratégia
+                                       reprovada — recusa rodar com --real)
 """
 
 import argparse
@@ -74,6 +78,20 @@ ws_logger.addHandler(handler)
 
 # Pares ativos (BTC sempre ativo, ETH com parâmetros otimizados)
 PARES_ATIVOS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+
+# ── Modo trend (dry run de validacao de execucao) ──────────────
+# Ligado por --modo-trend. Substitui a estrategia otimizada pelo sistema
+# Donchian 20/10 (estrategias/trend_live.py). NAO e uma estrategia aprovada:
+# reprovou no hold-out (research/METODOLOGIA_TREND.md). Roda so em simulacao —
+# ver _validar_trend_so_em_simulacao(), que e um SystemExit, nao um aviso.
+MODO_TREND = False
+MODO_TREND_INTERVALO = "1d"
+# Ultimo bucket de candle ja processado por par: garante NO MAXIMO uma decisao
+# por candle fechado, como no backtest (que avalia 1x por barra). Sem isso, um
+# --intervalo de 15min reavaliaria a MESMA barra diaria 96x e poderia reentrar
+# no mesmo dia logo apos um stop — algo que o backtest nunca faz.
+_trend_ultimo_bucket: dict[str, int] = {}
+_SEGUNDOS_POR_INTERVALO = {"1d": 86400, "4h": 14400, "1h": 3600}
 
 
 # P1: morte de thread NUNCA silenciosa — threads daemon (loop_par, monitor,
@@ -625,13 +643,125 @@ def iniciar_relatorio_diario(symbol: str):
 # ── Loop de Estratégia por Par ────────────────────────────────
 
 
+def _bucket_candle(intervalo: str) -> int:
+    """Identidade do candle atualmente em formacao (buckets da Binance sao
+    alinhados ao epoch UTC: 1d = meia-noite UTC, 4h/1h idem)."""
+    return int(time.time()) // _SEGUNDOS_POR_INTERVALO.get(intervalo, 86400)
+
+
+def _ciclo_trend(par, exec_par):
+    """Um ciclo do sistema Donchian ao vivo (dry run de validacao de execucao).
+
+    Decide no maximo uma vez por candle FECHADO, com os mesmos niveis do
+    backtest. A telemetria (preco de referencia do sinal vs preco de fill,
+    latencia) e o produto real deste experimento: e exatamente o que o
+    backtest idealiza e nao consegue medir.
+    """
+    from estrategias.trend_live import sinal_trend
+
+    bucket = _bucket_candle(MODO_TREND_INTERVALO)
+    if _trend_ultimo_bucket.get(par) == bucket:
+        return  # este candle ja foi avaliado
+    reset = "\033[0m"
+
+    tem_posicao = bool(exec_par.posicao)
+    r = sinal_trend(par, tem_posicao, intervalo=MODO_TREND_INTERVALO)
+    if r["preco_ref"] is None:
+        return  # dados indisponiveis: nao marca o bucket, tenta de novo
+    _trend_ultimo_bucket[par] = bucket
+
+    print(
+        f"\033[96m[{par}][TREND] {r['sinal']} — {r['motivo']} "
+        f"(candle fechado @ ${r['preco_ref']:,.2f}){reset}"
+    )
+
+    if r["sinal"] == "COMPRA":
+        _trend_abrir(par, exec_par, r)
+    elif r["sinal"] == "FECHAR":
+        exec_par.fechar_posicao(exec_par.get_preco(), "Saida Donchian (canal M)")
+    elif tem_posicao and r["canal_baixo"]:
+        # Em posicao: o canal Donchian-M so sobe -> e o trailing do sistema.
+        atual = (exec_par.posicao or {}).get("stop_atual", 0)
+        if r["canal_baixo"] > atual:
+            exec_par._aplicar_novo_stop(
+                r["canal_baixo"], "Trailing Donchian-M: ${v:,.2f}"
+            )
+
+
+def _trend_abrir(par, exec_par, r):
+    """Entrada do sistema trend: sizing por risco ate o canal Donchian-M,
+    limitado pelo tamanho que a gestao de risco autoriza."""
+    from backtesting.trend_following import RISCO_FRAC
+
+    # Ultima linha de defesa, no proprio caminho do dinheiro: mesmo que alguem
+    # contorne a trava de boot (import direto, chamada em teste, edicao futura
+    # do argparse), uma estrategia reprovada nunca envia ordem real.
+    if not exec_par.simulacao:
+        print(f"\033[91m[{par}][TREND] RECUSADO: estrategia reprovada, so opera em simulacao.\033[0m")
+        return
+
+    preco = exec_par.get_preco()
+    stop = r["canal_baixo"]
+    if preco <= 0 or not stop or stop >= preco:
+        print(f"\033[91m[{par}][TREND] Entrada abortada: stop {stop} invalido vs preco {preco}\033[0m")
+        return
+
+    saldo = gestao_risco.get_saldo_usdt()
+    saldo = saldo if saldo > 0 else 100
+    validacao = gestao_risco.validar_trade("COMPRA", preco, saldo)
+    if not validacao["pode"]:
+        print(f"\033[91m[{par}][TREND][RISCO] Bloqueado: {validacao['motivo']}\033[0m")
+        return
+
+    # Sizing do backtest: arrisca RISCO_FRAC do capital ate o stop.
+    risco_pct = (preco - stop) / preco
+    tamanho_trend = (RISCO_FRAC * saldo / risco_pct) / preco
+    # O menor dos dois: nunca excede o que a gestao de risco autorizou.
+    tamanho = round(min(tamanho_trend, validacao["tamanho_btc"]), 6)
+    if tamanho <= 0:
+        return
+
+    t0 = time.time()
+    ok = exec_par.abrir_long(preco, tamanho, stop, float("inf"))
+    if not ok:
+        return
+
+    # Telemetria de execucao — o objetivo declarado do dry run. Compara o preco
+    # de REFERENCIA do sinal (close do candle fechado, que o backtest assume
+    # como preco de entrada) com o preco realmente executado.
+    preco_exec = (exec_par.posicao or {}).get("entrada", preco)
+    desvio_pct = (preco_exec - r["preco_ref"]) / r["preco_ref"] * 100
+    latencia_ms = (time.time() - t0) * 1000
+    print(
+        f"\033[96m[{par}][TREND][EXEC] ref ${r['preco_ref']:,.2f} -> fill "
+        f"${preco_exec:,.2f} ({desvio_pct:+.3f}%) em {latencia_ms:.0f}ms\033[0m"
+    )
+    try:
+        health.set_gauge("trend_desvio_ref_fill_pct", desvio_pct)
+        health.set_gauge("trend_latencia_entrada_ms", latencia_ms)
+    except Exception:
+        pass
+    try:
+        database.salvar_bot_event(
+            "trend_execucao",
+            f"{par} entrada: ref={r['preco_ref']:.2f} fill={preco_exec:.2f} "
+            f"desvio={desvio_pct:+.4f}% latencia={latencia_ms:.0f}ms qty={tamanho}",
+            service="worker",
+            symbol=par,
+            severity="INFO",
+        )
+    except Exception:
+        pass
+
+
 def loop_par(par, intervalo_min, simulacao):
     """Loop independente para cada par operado."""
     global _estado_pares
     reset = "\033[0m"
 
-    print(f"\033[94m[BOT] {par} — Estrategia iniciada (intervalo: {intervalo_min} min).\033[0m")
-    executor = Executor(simulacao=simulacao, symbol=par)
+    rotulo = "TREND (Donchian, dry run)" if MODO_TREND else "Estrategia"
+    print(f"\033[94m[BOT] {par} — {rotulo} iniciada (intervalo: {intervalo_min} min).\033[0m")
+    executor = Executor(simulacao=simulacao, symbol=par, modo_trend=MODO_TREND)
     _estado_pares[par] = {"executor": executor, "scale_in": None}
 
     # P0-3: crash recovery — se havia posicao aberta persistida, readota e
@@ -679,6 +809,13 @@ def loop_par(par, intervalo_min, simulacao):
     while True:
         time.sleep(intervalo_min * 60)
         try:
+            if MODO_TREND:
+                # Caminho totalmente separado: o sistema Donchian nao usa score,
+                # ensemble, CVD/OBI nem scale-in. Misturar os dois caminhos
+                # invalidaria a comparacao com o backtest.
+                _ciclo_trend(par, _estado_pares[par]["executor"])
+                continue
+
             t_inicio_ciclo = time.time()  # P2-5: latencia de decisao (gauge)
             # CVD/OBI: BTC usa WebSocket, ETH e outros usam None (opcional)
             cvd_snap = None
@@ -868,6 +1005,26 @@ def loop_par(par, intervalo_min, simulacao):
 # ── Ponto de entrada ───────────────────────────────────────────
 
 
+def _validar_trend_so_em_simulacao(modo_trend: bool, simulacao: bool) -> None:
+    """TRAVA DE SEGURANCA — nao e convencao, e SystemExit.
+
+    O sistema Donchian REPROVOU no hold-out (research/METODOLOGIA_TREND.md:
+    +5.70% a.a. contra um piso pre-registrado de 8%). Ele existe no caminho ao
+    vivo apenas como experimento de validacao de EXECUCAO em paper trading.
+    Rodar com capital real exigiria hipotese nova, dados novos, hold-out novo e
+    o GATE_GO_LIVE.md — cuja Etapa 1 tambem esta reprovada. Por isso a
+    combinacao --modo-trend + --real e recusada no boot, antes de qualquer
+    ordem, em vez de depender de disciplina operacional.
+    """
+    if modo_trend and not simulacao:
+        print("[BOOT ERROR] --modo-trend nao pode rodar com ordens reais.")
+        print("  A estrategia trend-following esta REPROVADA no hold-out")
+        print("  (research/METODOLOGIA_TREND.md) e no GATE_GO_LIVE.md Etapa 1.")
+        print("  Ela so existe ao vivo como validacao de execucao em paper trading.")
+        print("  Use: python main.py --modo-trend --simulacao")
+        raise SystemExit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description="BotBinance v2")
     parser.add_argument("--intervalo", type=int, default=15)
@@ -885,6 +1042,14 @@ def main():
     parser.add_argument("--backtest", type=str, metavar="INTERVALO")
     parser.add_argument("--treinar-ml", action="store_true")
     parser.add_argument(
+        "--modo-trend",
+        action="store_true",
+        help=(
+            "DRY RUN de validacao de execucao com o sistema Donchian 20/10 "
+            "(estrategia REPROVADA no hold-out — recusa iniciar com --real)."
+        ),
+    )
+    parser.add_argument(
         "--par",
         type=str,
         default=None,
@@ -892,7 +1057,15 @@ def main():
     )
     args = parser.parse_args()
 
+    global MODO_TREND
+    MODO_TREND = args.modo_trend
+
     simulacao = not args.real
+    # Trava ANTES do downgrade por ALLOW_REAL_TRADING: recusa a INTENCAO de
+    # rodar trend com dinheiro real, nao so o efeito. Senao, quem hoje e
+    # rebaixado para paper por falta da env passaria a operar trend com capital
+    # real no dia em que ligasse a env, sem nenhum novo aviso.
+    _validar_trend_so_em_simulacao(MODO_TREND, simulacao)
     if args.real and not ALLOW_REAL_TRADING:
         simulacao = True
         print(
@@ -979,7 +1152,13 @@ def main():
     print("=" * 56)
     print("  Modulos ativos:")
     print("  [OK] WebSocket BTC/USDT Spot (CVD + OBI em tempo real)")
-    print(f"  [OK] Estrategia Otimizada MTF+ATR+Volume+VWAP+ML (por par)")
+    if MODO_TREND:
+        print("  [!!] MODO TREND — Donchian 20/10 diario (substitui a estrategia)")
+        print("       EXPERIMENTO DE VALIDACAO DE EXECUCAO, NAO ESTRATEGIA APROVADA.")
+        print("       Reprovada no hold-out (research/METODOLOGIA_TREND.md).")
+        print("       Score/ensemble/CVD/OBI/scale-in NAO participam da decisao.")
+    else:
+        print(f"  [OK] Estrategia Otimizada MTF+ATR+Volume+VWAP+ML (por par)")
     print(f"  [OK] Gestao de Risco (Kelly + Circuit Breaker)")
     print(f"  [OK] Executor {'Simulado' if simulacao else 'Real'} + Trailing Stop (por par)")
     print(f"  [OK] Banco de dados {database.backend_info()['backend'].upper()}")

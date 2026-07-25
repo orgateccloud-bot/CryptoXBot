@@ -102,8 +102,16 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 # IMPORTANTE ao rodar direto (sem serviço): passe PORT=8080 ao worker, senão o
 # health server dele colide com o dashboard na 5000.
 
+# Dry run de validacao de EXECUCAO (estrategia trend, REPROVADA no hold-out)
+python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
+
 # Testes
-pytest tests/ -v                    # 971 passed, 8 skipped
+pytest tests/ -q                    # 1047 passed, 8 skipped em ~2min13s
+# ATENCAO: test_melhorias.py::TestRetreinamentoAutomatico::
+#   test_retreinar_nao_crasha_sem_dados chama main._retreinar_modelos() DE VERDADE
+#   (treina XGBoost+MLP baixando klines) e leva >10min sozinho. Para uma rodada
+#   rapida, desselecione-o:
+#   pytest tests/ -q --deselect "tests/test_melhorias.py::TestRetreinamentoAutomatico::test_retreinar_nao_crasha_sem_dados"
 # BXBOT_TEST_PG_URL=postgresql://... pytest tests/test_logger_postgres.py -v
 
 # Migração de dados SQLite -> Supabase (idempotente)
@@ -183,6 +191,32 @@ Proteções de execução (`executor.py`, todas só em modo real):
   + consulta pós-timeout (elimina ordem fantasma).
 - Gestão de risco (`risco.py`): Kelly fracionado (25%), circuit breaker 5%/dia e
   15% total, 1 posição por vez.
+
+## Modo trend (dry run) — validação de execução, NÃO estratégia aprovada
+
+`--modo-trend` substitui a estratégia otimizada pelo sistema Donchian 20/10
+diário (`estrategias/trend_live.py`). **A estratégia REPROVOU no hold-out**
+(+5.70% a.a. vs piso pré-registrado de 8% — `research/METODOLOGIA_TREND.md`, e
+o `GATE_GO_LIVE.md` Etapa 1 também está reprovada). Ela existe no caminho ao
+vivo só para medir o que o backtest idealiza: latência sinal→fill, desvio entre
+o preço de referência da decisão e o fill real, e estabilidade em 24/7.
+
+- **Trava:** `--modo-trend` + `--real` → `SystemExit(1)` no boot (recusa a
+  *intenção*, antes do downgrade por `ALLOW_REAL_TRADING`); 2ª camada em
+  `main._trend_abrir()` recusa qualquer executor não-simulado.
+- **Paridade:** usa a *mesma* `trend_following.donchian_niveis` do backtest, e
+  **descarta a vela em formação** que a Binance devolve como último candle
+  (usá-la seria look-ahead). Uma decisão por candle fechado
+  (`_trend_ultimo_bucket`) — senão `--intervalo 15` reavaliaria a mesma barra
+  diária ~96× e reentraria no mesmo dia da saída.
+- **`Executor(modo_trend=True)`** desliga o `target2 = entrada*1.05` hardcoded
+  e o trailing percentual: ambos cortariam a cauda direita, que é todo o edge
+  do trend-following. O stop é trilhado pelo canal Donchian-M.
+- **Divergência declarada:** o backtest sai no close abaixo do canal; ao vivo o
+  stop na exchange dispara intrabar → saídas ao vivo ≤ backtest em timing.
+  Medir esse gap é objetivo do experimento.
+- Telemetria: `bot_events` (`trend_execucao`) + gauges
+  `trend_desvio_ref_fill_pct` / `trend_latencia_entrada_ms` em `/metrics`.
 
 ## Modelos ML
 

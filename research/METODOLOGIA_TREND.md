@@ -528,3 +528,85 @@ re-registro, conforme pré-compromisso.
 | 2026-07-24 | Rodada 2 (1d primária, 7 moedas, 5 anos): 5 de 6, FAIL só no critério de B&H | Hold-out **NÃO tocado** (preservado; nenhum resultado desta rodada o consumiu). |
 | 2026-07-24 | Rodada 3 (critério A refutado por aritmética; critério B FAIL por 0.38pp) | Hold-out **NÃO tocado**. Linha de pesquisa trend-following ENCERRADA — hold-out preservado virgem para uma futura hipótese independente. |
 | 2026-07-24 | Objetivo novo (risco controlado): pesquisa 6/6 → **hold-out CONSUMIDO** | **FAIL (5 de 6)** — +5.70% a.a. vs piso de 8%. Proteção VALIDADA out-of-sample (B&H −20.55%/DD 69.9% vs estratégia +11.46%/DD 5.45%), mas retorno absoluto no nível de stablecoin. Hold-out do trend agora **QUEIMADO** — sem teste limpo restante. |
+
+---
+
+# ANEXO (2026-07-25) — Dry run de validação de EXECUÇÃO
+
+> Registrado a pedido do usuário, DEPOIS do FAIL e sem alterá-lo. Este anexo
+> não é uma "Rodada 5", não re-registra critério nenhum e não reabre a
+> hipótese. **O veredito acima segue valendo integralmente.**
+
+## O que é (e o que explicitamente NÃO é)
+
+O sistema Donchian 20/10 foi ligado ao caminho ao vivo do bot **apenas em
+`DRY_RUN`/paper trading**, via `python main.py --modo-trend --simulacao`.
+
+**É:** um experimento de validação de **execução**. Mede exatamente o que
+nenhum backtest consegue medir, porque idealiza: latência entre o sinal e o
+fill, desvio entre o preço de referência da decisão (close do candle fechado,
+que o backtest assume como preço de entrada) e o preço realmente executado,
+comportamento do serviço em 24/7, e estabilidade da infraestrutura.
+
+**NÃO é:** aprovação da estratégia. Nenhum número produzido por este dry run
+pode promover o sistema a capital real. Isso exigiria hipótese nova, dados
+novos, hold-out novo (o do trend está QUEIMADO) e o `GATE_GO_LIVE.md` — cuja
+Etapa 1 também está reprovada. Resultado bom no dry run é evidência sobre a
+**infraestrutura**, não sobre o **edge**.
+
+## Trava de segurança (três camadas, não convenção)
+
+1. **Boot:** `main._validar_trend_so_em_simulacao()` → `SystemExit(1)` se
+   `--modo-trend` vier com `--real`. Recusa a **intenção**, antes do downgrade
+   por `ALLOW_REAL_TRADING` — senão quem hoje é rebaixado para paper por falta
+   da env passaria a operar trend com capital real no dia em que a ligasse.
+2. **Caminho do dinheiro:** `main._trend_abrir()` recusa se
+   `executor.simulacao is False`, mesmo que a camada 1 seja contornada
+   (import direto, teste, edição futura do argparse).
+3. **Gates herdados:** `DRY_RUN` + `ALLOW_REAL_TRADING` + `ENV=production` +
+   flag `--real` continuam todos necessários para qualquer ordem real, e o
+   serviço NSSM tem `--simulacao` fixo.
+
+Coberto por `tests/test_trend_live.py::TestTravaDeSeguranca`.
+
+## Paridade com o backtest (senão a medição não significa nada)
+
+- Os níveis vêm da **mesma função** do backtest — `trend_following.
+  donchian_niveis` — não de uma reimplementação "equivalente"
+  (`test_mesma_funcao_de_niveis` trava isso por identidade de objeto).
+- **A vela em formação é descartada.** A Binance devolve o candle vivo como
+  último elemento de `/api/v3/klines`; usá-lo seria look-ahead ao vivo (o preço
+  ainda se move) e quebraria a paridade com o backtest, que decide no
+  fechamento. `trend_live._closes_fechados()` corta o último elemento sempre —
+  conservador: no pior caso o dado é um pouco mais velho, nunca do futuro.
+- **Uma decisão por candle fechado.** Com `--intervalo 15`, a mesma barra
+  diária é vista ~96×; `_trend_ultimo_bucket` garante que só a primeira decide.
+  Sem isso o bot reentraria no mesmo dia em que saiu — algo que o backtest
+  nunca faz. Falha de fetch **não** marca o bucket (uma queda de rede às 00h01
+  não pode cancelar a decisão do dia).
+- **`Executor(modo_trend=True)`** desliga o `target2 = entrada*1.05` hardcoded
+  e o trailing por percentual fixo. Ambos cortariam a cauda direita — que é
+  literalmente todo o edge do trend-following (win rate 42-48%, payoff alto).
+  Quem trilha o stop é o canal Donchian-M, via `_aplicar_novo_stop`.
+
+## Divergência conhecida e declarada (não é bug — é o que se quer medir)
+
+O backtest sai no **close** abaixo do canal Donchian-M. Ao vivo, o mesmo nível
+também vive como `STOP_LOSS_LIMIT` na exchange, então um toque **intrabar**
+dispara antes do fechamento do candle. Consequência: saídas ao vivo são
+**iguais ou mais precoces** que as do backtest, nunca mais tardias.
+Quantificar esse gap é um objetivo declarado do experimento — não uma surpresa
+a ser "descoberta" depois.
+
+Segunda divergência menor, também declarada: `_trend_ultimo_bucket` vive em
+memória. Um restart do serviço no meio do dia reavalia o candle corrente; se
+uma posição já tinha sido aberta e fechada naquele mesmo dia, o bot pode
+reentrar no dia — o que o backtest não faz. Só afeta o dia de um restart, e
+como isto é paper trading, não se paga nada por isso; registrado para não ser
+"descoberto" como surpresa ao ler os logs.
+
+## Telemetria coletada
+
+- `bot_events` (`trend_execucao`): `ref`, `fill`, `desvio_%`, `latencia_ms`, `qty`.
+- Gauges Prometheus em `/metrics`: `trend_desvio_ref_fill_pct`,
+  `trend_latencia_entrada_ms`.

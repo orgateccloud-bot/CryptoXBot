@@ -16,6 +16,7 @@ Uso:
 
 import hashlib
 import hmac
+import math
 import threading
 import time
 import uuid
@@ -186,9 +187,17 @@ def avaliar_tick_monitor(
 
 
 class Executor:
-    def __init__(self, simulacao=True, symbol="BTCUSDT"):
+    def __init__(self, simulacao=True, symbol="BTCUSDT", modo_trend=False):
         self.simulacao = simulacao
         self.symbol = symbol.upper()
+        # modo_trend (dry run de validacao de execucao, ver estrategias/
+        # trend_live.py): o sistema Donchian NAO tem alvo -- todo o edge esta na
+        # cauda direita (poucos trades enormes). O `target2 = entrada*1.05`
+        # hardcoded de abrir_long e o trailing por TRAILING_ATIVACAO/DISTANCIA
+        # cortariam exatamente essa cauda, transformando o sistema testado em
+        # outro sistema. Neste modo os alvos viram +inf e o trailing embutido e
+        # desligado: quem move o stop e o canal Donchian-M, via _aplicar_novo_stop.
+        self.modo_trend = modo_trend
         self.posicao = None
         self._monitor = None
         self._ativo = False
@@ -547,7 +556,14 @@ class Executor:
         """Coloca a protecao pos-entrada e devolve {"stop_order_id","oco_list_id"}.
         Em simulacao ambos sao None. Se o OCO falhar, cai no stop puro — nunca
         deixa a posicao sem protecao."""
-        if not self.simulacao and self._oco_bracket and target_price:
+        # modo_trend nao tem alvo finito (target=+inf): um OCO exige um preco
+        # limite valido na perna de alvo, entao a protecao e sempre o stop puro.
+        if (
+            not self.simulacao
+            and self._oco_bracket
+            and target_price
+            and math.isfinite(target_price)
+        ):
             oco = self._colocar_oco_exchange(qty, stop_price, target_price, self._oco_trailing_bips)
             if oco:
                 return {"stop_order_id": oco["stop_order_id"], "oco_list_id": oco["oco_list_id"]}
@@ -728,7 +744,14 @@ class Executor:
             if exec_qty > 0:
                 tamanho_btc = exec_qty
 
-        target2 = preco_exec * 1.05  # alvo 2: 5%
+        if self.modo_trend:
+            # Sem alvo: a saida e o rompimento do canal Donchian-M (sinal), nao
+            # um nivel de lucro fixo. +inf faz avaliar_tick_monitor nunca
+            # disparar parcial nem alvo final.
+            take_profit = float("inf")
+            target2 = float("inf")
+        else:
+            target2 = preco_exec * 1.05  # alvo 2: 5%
 
         # P0-2/P2-1: protecao primaria NA EXCHANGE (sobrevive a crash do bot).
         # Com OCO_BRACKET, stop + alvo final (target2) viram um par atomico; o
@@ -1006,6 +1029,15 @@ class Executor:
                     pos["parcial_feita"],
                     preco,
                     preco_pico,
+                    # modo_trend: quem trilha o stop e o canal Donchian-M (via
+                    # _aplicar_novo_stop, no ciclo diario). O trailing por
+                    # percentual fixo daqui competiria com ele e sairia cedo,
+                    # cortando a cauda direita que e o edge do sistema.
+                    **(
+                        {"trailing_ativacao": float("inf")}
+                        if self.modo_trend
+                        else {}
+                    ),
                 )
                 preco_pico = d["preco_pico"]
 

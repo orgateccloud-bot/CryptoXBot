@@ -115,6 +115,24 @@ Medição: `python relatorio_gate.py` (fonte única de verdade — nada de conta
 de cabeça). **Qualquer mudança de estratégia/parâmetro durante os 90 dias
 zera o relógio.** Correção de bug de infra não zera, mas deve ser registrada.
 
+### O `--modo-trend` NÃO conta como Etapa 2 (2026-07-25)
+
+`python main.py --modo-trend --simulacao` roda o sistema Donchian 20/10 em
+paper trading, mas **não é** a Etapa 2 deste gate e não avança nenhum critério
+da tabela acima. Motivos:
+
+1. A Etapa 2 só pode começar se a Etapa 1 aprovar — e ela **reprovou** (4 de 5).
+2. A estratégia trend também tem FAIL pré-registrado próprio
+   (`research/METODOLOGIA_TREND.md`, hold-out CONSUMIDO). Rodar em paper não
+   revoga um FAIL.
+3. O que aquele dry run mede é **execução** (latência sinal→fill, desvio
+   ref↔fill, estabilidade 24/7), não performance de estratégia. É evidência
+   sobre a infraestrutura, não sobre edge.
+
+Trava correspondente no código: `--modo-trend` + `--real` → `SystemExit(1)` no
+boot, mais uma recusa no próprio caminho da ordem
+(`main._trend_abrir`). Ver `tests/test_trend_live.py::TestTravaDeSeguranca`.
+
 ## Etapa 3 — Capital Real Piloto (custo: 30 dias)
 
 Só inicia se a Etapa 2 aprovar.
