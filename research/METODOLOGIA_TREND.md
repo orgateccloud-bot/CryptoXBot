@@ -388,6 +388,138 @@ rodadas deste sistema: encerrar a busca por estratégia direcional, ou pivotar
 para uma classe estruturalmente diferente (funding/basis, market-making de
 rebate) com pré-registro virgem.
 
+---
+
+# OBJETIVO NOVO — "exposição com risco controlado" (pré-registro, 2026-07-24)
+
+> **O FAIL contra buy-and-hold permanece de pé e não é contestado.** Este não é
+> um re-registro de critério para sustentar a mesma alegação — é a declaração
+> de uma alegação **diferente e mais modesta**, que os dados podem refutar.
+> Decisão do usuário, com o custo explicitado.
+
+## A alegação que passa a ser testada
+
+**NÃO se alega:** "esta estratégia bate o mercado". (Refutado: MAR 9.0 vs
+22.3, aritmética invariante à escala.)
+
+**Alega-se:** "esta estratégia entrega retorno positivo com drawdown
+substancialmente menor que a exposição passiva". É um objetivo legítimo e
+distinto — um investidor que não tolera perder 80% do capital pode
+racionalmente preferir +50% com 13% de drawdown a +415% com 77%. A pergunta
+honesta é se os dados sustentam ESSA afirmação, fora da amostra.
+
+## Por que o hold-out ainda é um teste limpo
+
+Os parâmetros **nunca foram otimizados**: N=20/M=10 vêm do Turtle System 1
+(convenção histórica), usados sem alteração nas 3 rodadas. O sweep de M
+(2026-07-24) foi declarado diagnóstico e **nenhum valor foi selecionado dele**
+— o canônico M=10, aliás, já tinha o melhor acerto da faixa testada. Portanto o
+sistema não foi ajustado à porção de pesquisa, e o hold-out (últimos 35%,
+nunca consumido em nenhuma das 3 rodadas) permanece um teste out-of-sample
+válido.
+
+## Medição em nível de CARTEIRA (não média de ativos)
+
+Mudança metodológica declarada: o objetivo é sobre **risco de carteira**, então
+a medição passa a construir uma **curva de equity combinada** (alocação igual
+de capital nos ativos, trades de todos mesclados cronologicamente) e medir o
+drawdown DA CARTEIRA. Média de drawdowns individuais superestima o risco real
+(ignora diversificação) e seria desonesta a favor da estratégia em um sentido e
+contra em outro — a curva combinada é a medida correta.
+
+Limitação declarada: drawdown sobre trades FECHADOS (sem mark-to-market
+intra-trade), igual às rodadas anteriores — subestima o DD real em até ~1
+distância de stop por episódio.
+
+## Critérios (declarados ANTES de medir — nenhum destes números foi visto)
+
+Valem para a porção de pesquisa **E** para o hold-out; **o hold-out decide**.
+
+1. **Retorno anualizado da carteira > 8% a.a.** (líquido de custos).
+   Justificativa: ~5% a.a. de rendimento de stablecoin + ~3pp de prêmio
+   mínimo por assumir risco de mercado, execução e operação. Abaixo disso,
+   não compensa operar nada.
+2. **Max drawdown da carteira ≤ 20%.** Herdado do próprio
+   `GATE_GO_LIVE.md` (Etapa 1) — mantém consistência com o padrão do projeto.
+3. **DD da carteira ≤ 35% do DD do buy-and-hold** equal-weighted no mesmo
+   período. É a prova de que a proteção é material e não artefato de janela —
+   o núcleo da alegação nova.
+4. **MAR ratio (retorno anualizado / max DD) ≥ 0.5.** Referência da indústria
+   de managed futures (fundos da classe operam tipicamente 0.3-0.5); 0.5 é
+   exigente sem ser arbitrário.
+5. **≥ 60% dos anos-calendário positivos** (consistência).
+6. **≥ 100 trades** na carteira (massa estatística; o piso do gate).
+
+**Passou nos dois (pesquisa e hold-out)** → a alegação de "exposição com risco
+controlado" está sustentada out-of-sample; segue para paper trading em
+`DRY_RUN` contra a Binance real (Etapa 2 do `GATE_GO_LIVE.md`: 90 dias, ≥30
+trades fechados) antes de qualquer capital.
+
+**Falhou no hold-out** → a alegação nova também não se sustenta; encerrar de
+vez, sem re-registro. **Pré-proibido:** ajustar parâmetro, trocar critério, ou
+reavaliar o hold-out por qualquer motivo (ele é consumido nesta medição).
+
+## RESULTADO do objetivo "risco controlado" (2026-07-24) — **FAIL (5 de 6)**
+
+Medição em nível de carteira (7 ativos, alocação igual, trades mesclados por
+instante de saída). Reprodutível: `python backtesting/trend_following.py
+--intervalo 1d --carteira [--holdout]`.
+
+### Pesquisa (3.7 anos, 185 trades): PASSOU 6 de 6
++76.77% total (**+20.56% a.a.**), max DD **4.96%**, MAR **4.15**, 80% dos anos
+positivos. DD da carteira = **5.9%** do DD do B&H (84.0%).
+
+### Hold-out (2.0 anos, 107 trades) — CONSUMIDO: **FAIL**
+
+| Critério | Resultado | |
+|---|---|---|
+| Anualizado > 8% a.a. | **+5.70%** | ❌ |
+| Max DD ≤ 20% | 5.45% | ✅ |
+| DD ≤ 35% do DD do B&H | **7.8%** | ✅ |
+| MAR ≥ 0.5 | 1.05 | ✅ |
+| ≥ 60% dos anos positivos | 67% | ✅ |
+| ≥ 100 trades | 107 | ✅ |
+
+### O que FOI validado out-of-sample (registrar a favor, sem ambiguidade)
+
+**A tese de proteção foi confirmada de forma espetacular.** No período do
+hold-out o buy-and-hold da cesta **perdeu 20.55%** com drawdown de **69.9%**;
+a estratégia **ganhou +11.46%** com drawdown de **5.45%**. Ou seja: fora da
+amostra ela **bateu o mercado em ~32 pontos percentuais com 1/13 do
+drawdown**. O mecanismo (sair para caixa quando a tendência quebra) funcionou
+exatamente como a teoria prevê, num regime que não estava na porção de
+pesquisa.
+
+### Por que o FAIL é correto mesmo assim
+
+O critério reprovado é **retorno absoluto**, e o piso de 8% foi justificado
+antes de qualquer número: ~5% a.a. de stablecoin + ~3pp de prêmio por assumir
+risco de mercado, execução e operação 24/7. A **+5.70% a.a., a estratégia
+entrega essencialmente o mesmo que um rendimento passivo de stablecoin** — e
+cobra por isso risco de mercado, complexidade arquitetural e carga
+operacional. Um agente racional prefere os ~5% sem risco. O piso estava certo;
+o FAIL não é tecnicalidade contratual, é economicamente correto.
+
+### Caracterização honesta do sistema (conhecimento durável)
+
+Dependência de regime, medida nos dois lados:
+- **Bull (pesquisa, 2020-2024):** +20.56% a.a., DD 4.96%.
+- **Bear (hold-out, 2024-2026):** +5.70% a.a., DD 5.45% — enquanto o mercado
+  caía 20.55% com DD de 69.9%.
+
+Leitura em uma frase: **"nunca perde muito, mas em mercado de baixa rende
+apenas o de uma stablecoin."** O drawdown de ~5% é notavelmente estável entre
+regimes — a proteção é real e replicável. O que não é replicável é retorno
+absoluto suficiente para justificar operar.
+
+### Veredito e estado final da linha
+
+**FAIL pré-registrado, honrado. Não implantar** — nem em capital real (o
+`GATE_GO_LIVE.md` exige Etapa 1 aprovada, que nunca foi) nem como estratégia
+aprovada. **O hold-out do trend está agora CONSUMIDO** — não existe mais teste
+limpo disponível para nenhuma variante deste sistema. Encerrado sem
+re-registro, conforme pré-compromisso.
+
 ## Registro de uso do hold-out
 
 | Data | Evento | Resultado |
@@ -395,3 +527,4 @@ rebate) com pré-registro virgem.
 | 2026-07-24 | Rodada 1: primário 4h falhou (breakeven, não bate B&H) | Hold-out **NÃO tocado**. 1d (robustez) promissor mas raso — motivou o re-pré-registro. |
 | 2026-07-24 | Rodada 2 (1d primária, 7 moedas, 5 anos): 5 de 6, FAIL só no critério de B&H | Hold-out **NÃO tocado** (preservado; nenhum resultado desta rodada o consumiu). |
 | 2026-07-24 | Rodada 3 (critério A refutado por aritmética; critério B FAIL por 0.38pp) | Hold-out **NÃO tocado**. Linha de pesquisa trend-following ENCERRADA — hold-out preservado virgem para uma futura hipótese independente. |
+| 2026-07-24 | Objetivo novo (risco controlado): pesquisa 6/6 → **hold-out CONSUMIDO** | **FAIL (5 de 6)** — +5.70% a.a. vs piso de 8%. Proteção VALIDADA out-of-sample (B&H −20.55%/DD 69.9% vs estratégia +11.46%/DD 5.45%), mas retorno absoluto no nível de stablecoin. Hold-out do trend agora **QUEIMADO** — sem teste limpo restante. |

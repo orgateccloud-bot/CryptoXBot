@@ -21,6 +21,8 @@ import argparse
 import os
 import sqlite3
 import sys
+from collections import defaultdict
+from datetime import datetime, timezone
 
 import numpy as np
 
@@ -116,6 +118,7 @@ def simular_trend(
                     "pnl": pnl,
                     "ret_capital_pct": pnl / pos["cap_antes"] * 100,
                     "ano": _ano_de(ts, i),
+                    "ts_saida": int(ts[i]) if ts is not None and i < len(ts) else 0,
                 })
                 equity_curve.append(capital)
                 pos = None
@@ -130,6 +133,7 @@ def simular_trend(
             "ret_bruto_pct": (saida - pos["entrada"]) / pos["entrada"] * 100,
             "pnl": pnl, "ret_capital_pct": pnl / pos["cap_antes"] * 100,
             "ano": _ano_de(ts, len(c) - 1),
+            "ts_saida": int(ts[-1]) if ts is not None and len(ts) else 0,
         })
         equity_curve.append(capital)
 
@@ -249,6 +253,146 @@ def _metricas_pool(rets_pct, por_ativo) -> dict:
         "bh_ret_medio_pct": float(bh_ret_med),
         "bh_dd_medio_pct": float(bh_dd_med),
     }
+
+
+def curva_carteira(intervalo="1d", holdout=False, capital_por_ativo=1000.0) -> dict:
+    """Objetivo 'exposição com risco controlado' (pré-registrado 2026-07-24).
+
+    Constrói a curva de equity DA CARTEIRA: alocação igual por ativo, trades de
+    todos os ativos mesclados cronologicamente pelo instante de SAÍDA. O
+    drawdown medido é o da carteira — média de DDs individuais superestima o
+    risco real (ignora diversificação).
+
+    Limitação declarada: DD sobre trades FECHADOS (sem mark-to-market
+    intra-trade), consistente com as rodadas anteriores.
+    """
+    ativos = ATIVOS_1D if intervalo == "1d" else ATIVOS_4H
+    eventos = []          # (ts_saida, pnl)
+    bh_rets, bh_dds = [], []
+    ts_min, ts_max = None, None
+    por_ativo = {}
+
+    for sym in ativos:
+        ts, c = carregar_closes(sym, intervalo)
+        if len(c) == 0:
+            continue
+        if holdout:
+            corte = int(len(c) * (1 - HOLDOUT_FRAC))
+            ts, c = ts[corte:], c[corte:]
+        else:
+            ts, c = porcao_pesquisa(ts), porcao_pesquisa(c)
+        r = simular_trend(c, ts=ts)
+        por_ativo[sym] = r
+        if not r.get("n_trades"):
+            continue
+        for t in r["trades"]:
+            eventos.append((t.get("ts_saida", 0), t["pnl"]))
+        bh_rets.append(r["bh_retorno_pct"])
+        bh_dds.append(r["bh_max_dd_pct"])
+        ts_min = ts[0] if ts_min is None else min(ts_min, ts[0])
+        ts_max = ts[-1] if ts_max is None else max(ts_max, ts[-1])
+
+    if not eventos:
+        return {"n_trades": 0}
+
+    eventos.sort(key=lambda x: x[0])
+    n_ativos = len([s for s in por_ativo if por_ativo[s].get("n_trades")])
+    capital_inicial = capital_por_ativo * n_ativos
+
+    equity = [capital_inicial]
+    cap = capital_inicial
+    anos_pnl = defaultdict(float)
+    for ts_saida, pnl in eventos:
+        cap += pnl
+        equity.append(cap)
+        if ts_saida:
+            anos_pnl[datetime.fromtimestamp(ts_saida / 1000, tz=timezone.utc).year] += pnl
+
+    eq = np.array(equity)
+    pico = np.maximum.accumulate(eq)
+    dd_serie = (pico - eq) / pico * 100
+    max_dd = float(dd_serie.max())
+    ret_total = (cap - capital_inicial) / capital_inicial * 100
+    anos = (ts_max - ts_min) / (365.25 * 86400 * 1000) if ts_min else 0.0
+    anualizado = ret_total / anos if anos > 0 else 0.0
+
+    anos_ok = {a: v for a, v in anos_pnl.items()}
+    frac_anos_pos = (
+        float(np.mean([1.0 if v > 0 else 0.0 for v in anos_ok.values()])) if anos_ok else 0.0
+    )
+
+    return {
+        "n_trades": len(eventos), "n_ativos": n_ativos,
+        "capital_inicial": capital_inicial, "capital_final": cap,
+        "ret_total_pct": ret_total, "anos": anos, "anualizado_pct": anualizado,
+        "max_dd_pct": max_dd,
+        "mar": (anualizado / max_dd) if max_dd > 0 else float("inf"),
+        "bh_ret_medio_pct": float(np.mean(bh_rets)) if bh_rets else 0.0,
+        "bh_dd_medio_pct": float(np.mean(bh_dds)) if bh_dds else 0.0,
+        "frac_anos_pos": frac_anos_pos, "anos_pnl": dict(sorted(anos_ok.items())),
+        "por_ativo": por_ativo,
+    }
+
+
+# Pisos pré-registrados do objetivo "exposição com risco controlado"
+RC_MIN_ANUAL = 8.0        # % a.a. (stablecoin ~5% + 3pp de prêmio)
+RC_MAX_DD = 20.0          # % (herdado do GATE_GO_LIVE Etapa 1)
+RC_MAX_DD_VS_BH = 0.35    # DD da carteira <= 35% do DD do B&H
+RC_MIN_MAR = 0.5          # referência de managed futures
+RC_MIN_ANOS_POS = 0.60
+RC_MIN_TRADES = 100
+
+
+def imprimir_carteira(r, holdout=False):
+    rotulo = "HOLD-OUT (USO ÚNICO)" if holdout else "PESQUISA"
+    print("=" * 74)
+    print(f"  OBJETIVO: EXPOSIÇÃO COM RISCO CONTROLADO — carteira — {rotulo}")
+    print("  (NÃO se alega bater o mercado; alega-se retorno positivo com DD baixo)")
+    print("=" * 74)
+    if not r.get("n_trades"):
+        print("\n  Sem trades.")
+        return None
+
+    print(f"\n  Carteira: {r['n_ativos']} ativos, ${r['capital_inicial']:,.0f} inicial, "
+          f"{r['n_trades']} trades, {r['anos']:.1f} anos")
+    print(f"    Capital final:  ${r['capital_final']:,.2f}")
+    print(f"    Retorno total:  {r['ret_total_pct']:+.2f}%  "
+          f"({r['anualizado_pct']:+.2f}% a.a.)")
+    print(f"    Max drawdown:   {r['max_dd_pct']:.2f}%   |   MAR: {r['mar']:.2f}")
+    print(f"    B&H equal-weight no período: {r['bh_ret_medio_pct']:+.2f}% "
+          f"(DD {r['bh_dd_medio_pct']:.1f}%)")
+    print(f"    -> DD da carteira e {r['max_dd_pct']/r['bh_dd_medio_pct']*100:.1f}% do DD do B&H"
+          if r["bh_dd_medio_pct"] > 0 else "")
+    if r["anos_pnl"]:
+        print("\n    PnL por ano:")
+        for a, v in r["anos_pnl"].items():
+            print(f"      {a}: ${v:>+10,.2f}")
+
+    print("\n" + "-" * 74)
+    print("  Critérios pré-registrados (METODOLOGIA_TREND.md, objetivo novo):")
+    ratio_dd = (r["max_dd_pct"] / r["bh_dd_medio_pct"]) if r["bh_dd_medio_pct"] > 0 else 9.99
+    c1 = r["anualizado_pct"] > RC_MIN_ANUAL
+    c2 = r["max_dd_pct"] <= RC_MAX_DD
+    c3 = ratio_dd <= RC_MAX_DD_VS_BH
+    c4 = r["mar"] >= RC_MIN_MAR
+    c5 = r["frac_anos_pos"] >= RC_MIN_ANOS_POS
+    c6 = r["n_trades"] >= RC_MIN_TRADES
+    print(f"    [{'x' if c1 else ' '}] anualizado > 8% a.a.          ({r['anualizado_pct']:+.2f}%)")
+    print(f"    [{'x' if c2 else ' '}] max DD <= 20%                 ({r['max_dd_pct']:.2f}%)")
+    print(f"    [{'x' if c3 else ' '}] DD <= 35% do DD do B&H        ({ratio_dd*100:.1f}%)")
+    print(f"    [{'x' if c4 else ' '}] MAR >= 0.5                    ({r['mar']:.2f})")
+    print(f"    [{'x' if c5 else ' '}] >= 60% dos anos positivos     ({r['frac_anos_pos']*100:.0f}%)")
+    print(f"    [{'x' if c6 else ' '}] >= 100 trades                 ({r['n_trades']})")
+    ok = all([c1, c2, c3, c4, c5, c6])
+    if ok and not holdout:
+        print("\n  >> PASSOU na pesquisa — prosseguir ao hold-out (uso único).")
+    elif ok and holdout:
+        print("\n  >> PASSOU NO HOLD-OUT — alegação sustentada out-of-sample.")
+        print("     Próximo: paper trading DRY_RUN (Etapa 2 do GATE_GO_LIVE.md, 90 dias).")
+    else:
+        print("\n  >> FAIL — pré-registrado: encerrar sem re-registro.")
+    print("=" * 74)
+    return {"aprovado": ok, "ratio_dd": ratio_dd}
 
 
 def analise_por_regime(intervalo="1d", holdout=False) -> dict:
@@ -431,11 +575,17 @@ def imprimir(res):
 def main():
     ap = argparse.ArgumentParser(description="Trend-following canônico — pesquisa")
     ap.add_argument("--intervalo", default="4h")
+    ap.add_argument("--carteira", action="store_true",
+                    help="objetivo risco-controlado: curva/DD de CARTEIRA")
+    ap.add_argument("--holdout", action="store_true",
+                    help="USO UNICO — so apos a pesquisa aprovar")
     ap.add_argument("--regime", action="store_true",
                     help="Rodada 3 critério B: análise por regime (ano-calendário)")
     args = ap.parse_args()
-    if args.regime:
-        imprimir_regime(analise_por_regime(args.intervalo))
+    if args.carteira:
+        imprimir_carteira(curva_carteira(args.intervalo, args.holdout), args.holdout)
+    elif args.regime:
+        imprimir_regime(analise_por_regime(args.intervalo, args.holdout))
     else:
         imprimir(rodar_pesquisa(args.intervalo))
 

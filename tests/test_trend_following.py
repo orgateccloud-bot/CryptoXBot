@@ -88,6 +88,15 @@ class TestSimularTrend:
         r = tf.simular_trend(c, N=3, M=2)
         assert r["n_trades"] == 0
 
+    def test_trades_carregam_ts_saida(self):
+        """A curva de CARTEIRA mescla trades de vários ativos por instante de
+        saída — sem ts_saida a ordenação (e o DD de carteira) estaria errada."""
+        c = np.array([10, 10, 10, 10, 12, 12, 12, 8, 8], dtype=float)
+        ts = np.array([1_700_000_000_000 + i * 86400_000 for i in range(len(c))], dtype=np.int64)
+        r = tf.simular_trend(c, N=3, M=2, ts=ts, taxa=0.0, slippage=0.0)
+        assert r["n_trades"] == 1
+        assert r["trades"][0]["ts_saida"] == int(ts[7])  # saiu no candle 7
+
     def test_payoff_e_metricas_presentes(self):
         c = np.array([10, 10, 10, 10, 12, 12, 12, 8, 8, 8, 10, 14, 14, 14, 9, 9], dtype=float)
         r = tf.simular_trend(c, N=3, M=2, taxa=0.001, slippage=0.0005)
