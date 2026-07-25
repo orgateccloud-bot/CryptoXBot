@@ -35,12 +35,24 @@ TAXA = 0.001       # por lado (spot taker)
 SLIPPAGE = 0.0005  # por lado
 RISCO_FRAC = 0.02
 HOLDOUT_FRAC = 0.35
-ATIVOS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+# Rodada 1 (4h, primário — FALHOU): BTC/ETH/SOL.
+# Rodada 2 (1d, primário — cesta congelada em METODOLOGIA_TREND.md antes da coleta):
+ATIVOS_4H = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+ATIVOS_1D = ("BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT", "LINKUSDT")
 
 
 # ══════════════════════════════════════════════════════════════
 # Núcleo (puro)
 # ══════════════════════════════════════════════════════════════
+
+
+def _ano_de(ts, i) -> int | None:
+    """Ano-calendário (UTC) do candle i, se timestamps foram fornecidos."""
+    if ts is None or i >= len(ts):
+        return None
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(int(ts[i]) / 1000, tz=timezone.utc).year
 
 
 def donchian_niveis(closes: np.ndarray, periodo: int) -> tuple[np.ndarray, np.ndarray]:
@@ -60,6 +72,7 @@ def donchian_niveis(closes: np.ndarray, periodo: int) -> tuple[np.ndarray, np.nd
 def simular_trend(
     closes: np.ndarray, N=N_ENTRADA, M=M_SAIDA,
     capital_inicial=1000.0, taxa=TAXA, slippage=SLIPPAGE, risco_frac=RISCO_FRAC,
+    ts: np.ndarray | None = None,
 ) -> dict:
     """Backtest long-only Donchian. Decisão sempre no CLOSE do candle i, usando
     só dados <= i (causal). Retorna métricas + lista de trades (retorno líquido
@@ -102,6 +115,7 @@ def simular_trend(
                     "ret_bruto_pct": (saida - pos["entrada"]) / pos["entrada"] * 100,
                     "pnl": pnl,
                     "ret_capital_pct": pnl / pos["cap_antes"] * 100,
+                    "ano": _ano_de(ts, i),
                 })
                 equity_curve.append(capital)
                 pos = None
@@ -115,6 +129,7 @@ def simular_trend(
         trades.append({
             "ret_bruto_pct": (saida - pos["entrada"]) / pos["entrada"] * 100,
             "pnl": pnl, "ret_capital_pct": pnl / pos["cap_antes"] * 100,
+            "ano": _ano_de(ts, len(c) - 1),
         })
         equity_curve.append(capital)
 
@@ -165,29 +180,48 @@ def _metricas(trades, equity_curve, capital_inicial, capital_final, closes) -> d
 
 
 def carregar_closes(symbol, intervalo="4h"):
+    """Closes + timestamps (ts usado para o relatório de PnL por ano)."""
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        "SELECT fechamento FROM klines WHERE symbol=? AND intervalo=? ORDER BY timestamp ASC",
+        "SELECT timestamp, fechamento FROM klines WHERE symbol=? AND intervalo=? ORDER BY timestamp ASC",
         (symbol, intervalo),
     ).fetchall()
     conn.close()
-    return np.array([r[0] for r in rows], dtype=float)
+    ts = np.array([r[0] for r in rows], dtype=np.int64)
+    c = np.array([r[1] for r in rows], dtype=float)
+    return ts, c
 
 
-def porcao_pesquisa(closes):
-    return closes[: int(len(closes) * (1 - HOLDOUT_FRAC))]
+def porcao_pesquisa(arr):
+    return arr[: int(len(arr) * (1 - HOLDOUT_FRAC))]
 
 
-def rodar_pesquisa(intervalo="4h") -> dict:
+def rodar_pesquisa(intervalo="4h", holdout=False) -> dict:
+    """holdout=False -> porção de pesquisa (primeiros 65%). holdout=True ->
+    últimos 35% (USO ÚNICO, só via avaliar_holdout_trend)."""
+    ativos = ATIVOS_1D if intervalo == "1d" else ATIVOS_4H
     por_ativo = {}
     trades_pool = []
-    for sym in ATIVOS:
-        c = porcao_pesquisa(carregar_closes(sym, intervalo))
-        r = simular_trend(c)
+    pnl_por_ano: dict[int, float] = {}
+    pnl_por_ativo: dict[str, float] = {}
+    for sym in ativos:
+        ts, c = carregar_closes(sym, intervalo)
+        if holdout:
+            corte = int(len(c) * (1 - HOLDOUT_FRAC))
+            ts, c = ts[corte:], c[corte:]
+        else:
+            ts, c = porcao_pesquisa(ts), porcao_pesquisa(c)
+        r = simular_trend(c, ts=ts)
         por_ativo[sym] = r
+        pnl_por_ativo[sym] = sum(t["pnl"] for t in r.get("trades", []))
         for t in r.get("trades", []):
             trades_pool.append(t["ret_capital_pct"])
-    return {"por_ativo": por_ativo, "pool": _metricas_pool(trades_pool, por_ativo)}
+            ano = t.get("ano")
+            if ano:
+                pnl_por_ano[ano] = pnl_por_ano.get(ano, 0.0) + t["pnl"]
+    return {"por_ativo": por_ativo, "pool": _metricas_pool(trades_pool, por_ativo),
+            "pnl_por_ano": pnl_por_ano, "pnl_por_ativo": pnl_por_ativo,
+            "intervalo": intervalo, "holdout": holdout}
 
 
 def _metricas_pool(rets_pct, por_ativo) -> dict:
@@ -241,23 +275,56 @@ def imprimir(res):
     print(f"    retorno médio {p['ret_medio_pct']:+.2f}% (DD {p['dd_medio_pct']:.1f}%) vs "
           f"B&H {p['bh_ret_medio_pct']:+.2f}% (DD {p['bh_dd_medio_pct']:.1f}%)")
 
+    # Anti-fragilidade (pré-registrado na Rodada 2): concentração de lucro
+    ano_txt = conc_ano = conc_ativo = None
+    if res.get("pnl_por_ano"):
+        anos = {a: v for a, v in sorted(res["pnl_por_ano"].items())}
+        total_pos = sum(v for v in anos.values() if v > 0)
+        print("\n  PnL por ano-calendário (anti-fragilidade):")
+        ano_txt = "  ".join(f"{a}:{v:+.0f}" for a, v in anos.items())
+        print(f"    {ano_txt}")
+        if total_pos > 0:
+            conc_ano = max((v for v in anos.values()), default=0) / total_pos
+            print(f"    maior ano = {conc_ano:.0%} de todo o lucro bruto positivo")
+    if res.get("pnl_por_ativo"):
+        pa = res["pnl_por_ativo"]
+        total_pos_a = sum(v for v in pa.values() if v > 0)
+        print("  PnL por ativo:")
+        print("    " + "  ".join(f"{s.replace('USDT',''):>5}:{v:+.0f}" for s, v in pa.items()))
+        if total_pos_a > 0:
+            conc_ativo = max(pa.values()) / total_pos_a
+            print(f"    maior ativo = {conc_ativo:.0%} de todo o lucro bruto positivo")
+
     # regra de decisão pré-registrada
     print("\n" + "-" * 72)
+    rodada2 = res.get("intervalo") == "1d"
+    piso_trades = 100 if rodada2 else 30
     c1 = p["expectancy_net_pct"] > 0
     c2 = p["profit_factor"] > 1.3
     c3 = p["payoff_ratio"] > 1.5
     ratio_estrat = p["ret_medio_pct"] / p["dd_medio_pct"] if p["dd_medio_pct"] > 0 else 0
     ratio_bh = p["bh_ret_medio_pct"] / p["bh_dd_medio_pct"] if p["bh_dd_medio_pct"] > 0 else 0
     c4 = (p["ret_medio_pct"] >= p["bh_ret_medio_pct"]) or (ratio_estrat >= ratio_bh)
-    c5 = p["n_trades"] >= 30
-    print("  Regra de decisão (METODOLOGIA_TREND.md, pooled):")
+    c5 = p["n_trades"] >= piso_trades
+    rodada = "RODADA 2 (1d, PRIMÁRIA)" if rodada2 else "RODADA 1 (4h)"
+    print(f"  Regra de decisão — {rodada}, pooled:")
     print(f"    [{'x' if c1 else ' '}] expectância líquida > 0        ({p['expectancy_net_pct']:+.3f}%)")
     print(f"    [{'x' if c2 else ' '}] profit factor > 1.3            ({p['profit_factor']:.2f})")
     print(f"    [{'x' if c3 else ' '}] payoff ratio > 1.5             ({p['payoff_ratio']:.2f})")
     print(f"    [{'x' if c4 else ' '}] >= buy-and-hold risk-adjusted  (estrat {ratio_estrat:.2f} vs B&H {ratio_bh:.2f})")
-    print(f"    [{'x' if c5 else ' '}] >= 30 trades pooled            ({p['n_trades']})")
-    if all([c1, c2, c3, c4, c5]):
-        print("\n  >> HÁ EDGE CANDIDATO — prosseguir ao hold-out (uso único).")
+    print(f"    [{'x' if c5 else ' '}] >= {piso_trades} trades pooled           ({p['n_trades']})")
+    frag = []
+    if conc_ano is not None and conc_ano > 0.70:
+        frag.append(f"um único ano = {conc_ano:.0%} do lucro")
+    if conc_ativo is not None and conc_ativo > 0.70:
+        frag.append(f"um único ativo = {conc_ativo:.0%} do lucro")
+    if rodada2:
+        print(f"    [{'!' if frag else 'x'}] robustez de regime            "
+              f"({'FRÁGIL: ' + '; '.join(frag) if frag else 'lucro distribuído'})")
+    if all([c1, c2, c3, c4, c5]) and not frag:
+        print("\n  >> PASSOU — prosseguir ao hold-out (USO ÚNICO).")
+    elif all([c1, c2, c3, c4, c5]) and frag:
+        print("\n  >> Critérios numéricos OK mas FRÁGIL (concentração) — não aprovar (pré-registrado).")
     else:
         print("\n  >> Não passou. Ver METODOLOGIA_TREND.md p/ próximos passos (sem ajuste de parâmetro).")
     print("=" * 72)

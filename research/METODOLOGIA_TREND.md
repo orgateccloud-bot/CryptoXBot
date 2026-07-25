@@ -148,8 +148,125 @@ como PRIMÁRIA com massa estatística honesta** — antes de ver o resultado del
 - rodar UMA vez como primário; se passar, hold-out UMA vez.
 Decisão de investir nisso: do usuário (é coleta + ciclo de avaliação novos).
 
+---
+
+# RODADA 2 — Avaliação diária como PRIMÁRIA (re-pré-registro)
+
+> Escrito em 2026-07-24, **ANTES de coletar os dados novos e de ver qualquer
+> resultado desta rodada**. Motivação explícita e honesta: a Rodada 1 reprovou
+> o 4h como primário; o 1d (robustez) deu 4/5 falhando só o piso de trades.
+> Promover o 1d a primário exige um teste NOVO e mais duro — não reciclar o
+> resultado que já vi. É isso que este re-pré-registro faz: **mais dados,
+> mais regimes, mais mercados, critérios iguais ou mais rígidos.**
+>
+> Reconhecimento do que isto NÃO apaga: a escolha do timeframe diário foi
+> informada por ter visto o 4h falhar e o 1d brilhar em 2 anos. Isso é uma
+> hipótese-derivada-dos-dados, e a defesa contra o viés é (a) dados novos que
+> a Rodada 1 não usou (2018-2024, incl. bear market), (b) mercados novos, e
+> (c) hold-out temporal intocado avaliado uma única vez.
+
+## Sistema (IDÊNTICO — nada ajustado)
+
+Donchian 20/10, long-only, sizing por risco 2%, custos 0.30% round-trip.
+**Zero parâmetros mudados** em relação à Rodada 1 — só o timeframe (1d, o
+canônico do Turtle) e os dados. Se eu mexesse em N/M aqui, seria overfit.
+
+## Dados (congelados ANTES da coleta)
+
+- **Timeframe: 1d.**
+- **Histórico: ~5 anos** (~1.800-2.000 candles diários por moeda, o máximo que
+  a Binance dá para as majors), cobrindo obrigatoriamente: **bull 2021, bear
+  2022, recuperação 2023, e 2024-2026.** É o teste que trend-following exige
+  (múltiplos regimes) e que a Rodada 1 não tinha (só uma alta de 2 anos).
+- **Cesta congelada (7 moedas):** BTCUSDT, ETHUSDT, BNBUSDT, XRPUSDT,
+  ADAUSDT, SOLUSDT, LINKUSDT. Critério de escolha, declarado antes de ver
+  performance: majors com liquidez alta e histórico longo na Binance
+  (SOL entra apesar de listagem mais recente ~2020, por já estar no
+  universo do bot). **Não são escolhidas por performance** — nenhuma foi
+  testada em trend diário antes deste registro (as 3 da Rodada 1 estão
+  incluídas por já pertencerem ao bot, e seu resultado prévio em 1d é
+  conhecido; as 4 novas são cegas).
+- Split: **pesquisa = primeiros 65% de cada série; hold-out = últimos 35%,
+  intocado.**
+
+## Regra de decisão (PRIMÁRIA, mesmas 4 + piso de trades restaurado)
+
+Pooled sobre as 7 moedas, na porção de pesquisa:
+1. Expectância líquida por trade **> 0**; **E**
+2. Profit factor **> 1.3**; **E**
+3. Payoff ratio **> 1.5**; **E**
+4. Retorno **≥ B&H ajustado a risco** (mesma definição); **E**
+5. **≥ 100 trades pooled** — piso RESTAURADO ao valor original do gate
+   (não os 30 relaxados da Rodada 1): com 7 moedas × 5 anos há massa para
+   isso, então a folga não é mais necessária. **Mais rígido de propósito.**
+
+Adicionalmente, como **evidência de robustez de regime** (reportada e exigida
+qualitativamente, não um 6º critério numérico): a estratégia não pode depender
+de um único ano nem de uma única moeda — reportar PnL por ano-calendário e por
+moeda; se >70% de todo o lucro vier de um único ano OU de uma única moeda,
+tratar como frágil e NÃO aprovar mesmo com os 5 critérios verdes.
+
+Passou → hold-out UMA vez (as 5 condições não podem colapsar). Confirmado →
+integrar ao `executor.py` e rodar o `GATE_GO_LIVE.md` do zero (Etapa 1
+walk-forward do sistema novo → paper 90d → piloto). Falhou → FAIL definitivo
+para trend-following long-only nesta forma; levar ao usuário engavetar ou
+pivotar (não ajustar).
+
+## Resultado da RODADA 2 (2026-07-24) — 5 de 6; FAIL pelo critério de B&H
+
+Dados: 7 moedas × 2.100 candles diários (out/2020 → jul/2026); porção de
+pesquisa = out/2020 → ~meados/2024 (inclui **bull 2021 E bear 2022**).
+Hold-out (35% final) **NÃO tocado**. Comando: `python
+backtesting/trend_following.py --intervalo 1d`.
+
+**Pooled (185 trades):**
+
+| Critério | Resultado | |
+|---|---|---|
+| Expectância líquida > 0 | **+2.316%/trade** | ✅ |
+| Profit factor > 1.3 | **3.89** | ✅ |
+| Payoff ratio > 1.5 | **4.19** | ✅ |
+| ≥ 100 trades pooled | **185** | ✅ |
+| Robustez de regime | maior ano 48%, maior ativo 29% do lucro | ✅ |
+| **≥ B&H ajustado a risco** | **+76.8% vs +1871.1%** (ratio 9.00 vs 22.26) | ❌ |
+
+Win rate 48.1%, retorno médio **+76.8% com DD de 8.5%** vs B&H **+1871% com
+DD de 84.0%**. PnL por ano: 2020 +207, 2021 +2781, **2022 −419** (sobreviveu
+ao bear com perda pequena), 2023 +677, 2024 +2128. Lucro distribuído entre as
+7 moedas (nenhuma > 29%).
+
+**Veredito pré-registrado: FAIL.** Honrado sem reescrever o critério depois
+de ver o número — é a regra que dá valor a todo o exercício.
+
+### A tensão metodológica que este resultado revela (para decisão do usuário)
+
+O critério "≥ B&H ajustado a risco" foi **importado do gate original**, que
+foi desenhado para uma estratégia de alta frequência em BTC. Aplicado a uma
+janela que contém a maior alta da história da cripto (SOL +9.584%, BNB
++1.869% no período), ele é quase impossível de satisfazer **por construção**:
+nenhum sistema com stop acompanha buy-and-hold numa explosão dessas — é
+matemática, não deficiência da estratégia.
+
+Ao mesmo tempo, o critério reprova um sistema que entrega **+77% com 8.5% de
+drawdown** contra **+1871% com 84% de drawdown**. São perfis de risco
+incomparáveis: o B&H exigiria suportar perder 84% do pico (e, na prática,
+quase ninguém segura — vende no fundo). A razão retorno/DD favorece o B&H
+(22 vs 9) só porque o numerador é astronômico.
+
+**Isto NÃO é um pedido para relaxar o critério** — mudá-lo agora seria
+exatamente o overfitting que o gate existe para impedir. É a constatação de
+que o critério herdado pode estar medindo a pergunta errada para esta classe
+de estratégia, e a decisão sobre isso é do usuário, com duas saídas honestas:
+(a) aceitar o FAIL e encerrar trend-following long-only; ou (b) re-pré-
+registrar UMA Rodada 3 com um critério de comparação declarado antes dos
+números e justificado por escrito (ex.: benchmark de risco-alvo comparável, ou
+janela que não seja dominada por um único bull histórico), sabendo que
+qualquer alteração de critério pós-resultado enfraquece a evidência e deve
+ser registrada como tal.
+
 ## Registro de uso do hold-out
 
 | Data | Evento | Resultado |
 |---|---|---|
-| 2026-07-24 | Primário 4h falhou (breakeven, não bate B&H) | Hold-out **NÃO tocado**. 1d (robustez) promissor mas raso — motiva re-pré-registro de avaliação diária primária, não uso do hold-out. |
+| 2026-07-24 | Rodada 1: primário 4h falhou (breakeven, não bate B&H) | Hold-out **NÃO tocado**. 1d (robustez) promissor mas raso — motivou o re-pré-registro. |
+| 2026-07-24 | Rodada 2 (1d primária, 7 moedas, 5 anos): 5 de 6, FAIL só no critério de B&H | Hold-out **NÃO tocado** (preservado; nenhum resultado desta rodada o consumiu). |
