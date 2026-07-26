@@ -171,10 +171,11 @@ class TestTelemetriaSaida:
         assert g["exec_desvio_saida_ref_fill_pct"] == pytest.approx(0.0)
         assert not any(t == "execucao_saida" for t, _ in ev)
 
-    def test_pnl_segue_usando_a_referencia(self, monkeypatch):
-        """Trava o comportamento ATUAL, que é conhecido e declarado: o PnL usa
-        `preco` (referência), não o fill. Se alguém mudar a base do PnL, este
-        teste falha e força a decisão a ser explícita, não acidental."""
+    def test_pnl_usa_o_fill_nao_a_referencia(self, monkeypatch):
+        """O PnL contabiliza o preço EXECUTADO. Antes usava `preco` (o que o
+        monitor observou), o que inflava o resultado por exatamente o slippage
+        de saída — na mesma coluna que a Etapa 2 do gate usa para profit factor.
+        """
         registrado = {}
         ex, e = self._exec_sim(monkeypatch, preco_fill=109.45)
         monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: None)
@@ -185,5 +186,98 @@ class TestTelemetriaSaida:
         )
         e.fechar_posicao(110.0, "Take Profit Final")
 
-        # 0.01 * (110 - 100) = 0.10 com a referência; seria 0.0945 com o fill.
-        assert registrado["pnl"] == pytest.approx(0.10)
+        # 0.01 * (109.45 - 100) = 0.0945 com o fill; era 0.10 com a referência.
+        assert registrado["pnl"] == pytest.approx(0.0945)
+
+    def test_banco_grava_o_preco_executado(self, monkeypatch):
+        """`preco_saida` no banco tem que ser o fill — senão o registro diz que
+        saiu num preço em que não saiu."""
+        gravado = {}
+        ex, e = self._exec_sim(monkeypatch, preco_fill=109.45)
+        monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: None)
+        monkeypatch.setattr(ex.database, "salvar_bot_event", lambda *a, **k: None)
+        monkeypatch.setattr(
+            ex.database, "salvar_sinal",
+            lambda tipo, preco, motivo, **kw: gravado.__setitem__("sinal", (tipo, preco)),
+        )
+        monkeypatch.setattr(
+            ex.database, "atualizar_sinal_fechamento",
+            lambda sid, preco, pnl, pct, barreira: gravado.__setitem__(
+                "fechamento", (preco, pnl)),
+        )
+        e.fechar_posicao(110.0, "Take Profit Final")
+
+        assert gravado["sinal"][1] == pytest.approx(109.45)
+        assert gravado["fechamento"][0] == pytest.approx(109.45)
+        assert gravado["fechamento"][1] == pytest.approx(0.09, abs=0.005)
+
+    def test_stop_com_slippage_contra_registra_prejuizo_maior(self, monkeypatch):
+        """O caso que mais importa: stop dispara em 90 mas preenche em 89.2. O
+        registro tem que doer o valor real, não o do gatilho."""
+        registrado = {}
+        ex, e = self._exec_sim(monkeypatch, preco_fill=89.2)
+        monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: None)
+        monkeypatch.setattr(ex.database, "salvar_bot_event", lambda *a, **k: None)
+        monkeypatch.setattr(
+            ex.gestao_risco, "registrar_resultado",
+            lambda pnl: registrado.__setitem__("pnl", pnl),
+        )
+        e.fechar_posicao(90.0, "Stop Loss")
+
+        # 0.01 * (89.2 - 100) = -0.108; com a referência seria -0.10 (otimista)
+        assert registrado["pnl"] == pytest.approx(-0.108)
+
+
+class TestPrecoMedioFill:
+    """A resposta da Binance não entrega o preço de fill num campo só.
+
+    Numa MARKET, `price` vem "0.00000000" (o campo é o preço *pedido*, e MARKET
+    não pede preço). Ler `price` cegamente faria a correção do PnL valer só em
+    simulação — em modo real cairia no fallback e nada mudaria.
+    """
+
+    def test_market_real_ignora_price_zerado(self):
+        from executor import preco_medio_fill
+
+        resp = {"status": "FILLED", "price": "0.00000000",
+                "executedQty": "0.01000000", "cummulativeQuoteQty": "1094.50000000"}
+        assert preco_medio_fill(resp, 110.0) == pytest.approx(109450.0)
+
+    def test_cqq_tem_prioridade_sobre_price(self):
+        """LIMIT que cruza: `price` é o limite, o fill sai melhor."""
+        from executor import preco_medio_fill
+
+        resp = {"price": "100.0", "executedQty": "2.0", "cummulativeQuoteQty": "198.0"}
+        assert preco_medio_fill(resp, 100.0) == pytest.approx(99.0)
+
+    def test_media_ponderada_de_fills(self):
+        from executor import preco_medio_fill
+
+        resp = {"price": "0.00000000", "fills": [
+            {"qty": "1.0", "price": "100.0"}, {"qty": "3.0", "price": "104.0"}]}
+        assert preco_medio_fill(resp, 50.0) == pytest.approx(103.0)
+
+    def test_simulacao_usa_price(self):
+        from executor import preco_medio_fill
+
+        assert preco_medio_fill({"price": 64500.0, "executedQty": 0.01}, 1.0) == 64500.0
+
+    def test_maker_medio_preservado(self):
+        """_entrar_maker já calcula custo/preenchido e devolve em `price`; o
+        helper não pode sobrescrever isso."""
+        from executor import preco_medio_fill
+
+        resp = {"status": "FILLED", "executedQty": 0.5, "price": 101.25, "maker": True}
+        assert preco_medio_fill(resp, 100.0) == pytest.approx(101.25)
+
+    def test_fallback_quando_nao_ha_nada_utilizavel(self):
+        from executor import preco_medio_fill
+
+        assert preco_medio_fill({"status": "FILLED"}, 123.0) == 123.0
+        assert preco_medio_fill({"price": "0.00000000"}, 123.0) == 123.0
+        assert preco_medio_fill(None, 123.0) == 123.0
+
+    def test_campos_corrompidos_nao_estouram(self):
+        from executor import preco_medio_fill
+
+        assert preco_medio_fill({"price": "abc", "executedQty": None}, 77.0) == 77.0

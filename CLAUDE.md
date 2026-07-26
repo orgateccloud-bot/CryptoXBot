@@ -34,7 +34,7 @@ scripts/           # migrate_sqlite_to_supabase.py
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (971 passed, 8 skipped)
+tests/             # pytest (1066 passed, 8 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -106,7 +106,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1057 passed, 8 skipped em ~2min23s
+pytest tests/ -q                    # 1066 passed, 8 skipped em ~2min50s
 # ATENCAO: test_melhorias.py::TestRetreinamentoAutomatico::
 #   test_retreinar_nao_crasha_sem_dados chama main._retreinar_modelos() DE VERDADE
 #   (treina XGBoost+MLP baixando klines) e leva >10min sozinho. Para uma rodada
@@ -239,15 +239,28 @@ A latência conta do **início do ciclo** (antes do fetch de klines), não do en
 da ordem: o que interessa é sinal→fill inteiro (fetch + indicadores + ML + risco
 + ordem).
 
-**Saída — discrepância MEDIDA, não corrigida:** `fechar_posicao` calcula o PnL
-sobre `preco` (a referência que o monitor observou), não sobre o fill real. Os
-dois diferem **mesmo em simulação**: um SELL MARKET chega em `_enviar_ordem`
-sem preço, e o ramo de simulação cai em `preco or self.get_preco()` → lê preço
-fresco. Logo o `pnl_usdt` gravado (o mesmo que `relatorio_gate.py` usa para
-profit factor na Etapa 2) é otimista por exatamente o que
-`exec_desvio_saida_ref_fill_pct` mede. Trocar a base do PnL muda a
-contabilidade do registro de paper trading — decisão explícita do usuário,
-travada por `test_pnl_segue_usando_a_referencia`.
+**PnL sai do FILL, não da referência** (corrigido 2026-07-26, registrado em
+`docs/GATE_GO_LIVE.md`). `fechar_posicao` calculava PnL e gravava
+`sinais.preco_saida` sobre `preco` — a referência que o monitor observou — e não
+sobre o preço executado. Os dois diferem **mesmo em simulação** (SELL MARKET
+chega em `_enviar_ordem` sem preço → ramo simulado lê preço fresco), então o
+viés existia no registro de paper trading, não só em modo real. Como `pnl_usdt`
+é a coluna que `relatorio_gate.py` usa para profit factor na Etapa 2, o registro
+era otimista pelo slippage de saída.
+
+A **decisão** de fechar segue em `avaliar_tick_monitor` sobre `preco`: decide-se
+no que se vê, contabiliza-se no que se executa.
+
+`executor.preco_medio_fill(resp, fallback)` é a fonte única do preço executado,
+usada nas **duas** pernas. Não lê `resp["price"]` cegamente — numa MARKET a
+Binance devolve `price: "0.00000000"`, então a ordem de preferência é
+`cummulativeQuoteQty/executedQty` → média ponderada de `fills[]` → `price` se
+> 0 → fallback. Sem isso a correção valeria só em simulação e cairia no fallback
+em modo real. Na entrada isso também corrigiu o uso do preço-*limite* em vez do
+fill médio (subestimava lucro num LIMIT que cruza e preenche melhor).
+
+**Trades fechados antes de 2026-07-26 têm `pnl_usdt` otimista** — a série antiga
+não é comparável com a nova.
 
 ## Modelos ML
 

@@ -626,12 +626,15 @@ Gauges em `/metrics`: `exec_desvio_ref_mercado_pct`, `exec_desvio_ref_fill_pct`,
 `exec_desvio_saida_ref_fill_pct`. Eventos `execucao_entrada`/`execucao_saida`
 em `bot_events`.
 
-**Achado ao instrumentar (registrado, não corrigido):** `fechar_posicao`
-calcula o PnL sobre a referência que o monitor observou, não sobre o fill —
+**Achado ao instrumentar, e já corrigido (2026-07-26):** `fechar_posicao`
+calculava o PnL sobre a referência que o monitor observou, não sobre o fill —
 inclusive em simulação, porque um SELL MARKET lê preço fresco no ramo simulado.
-O `pnl_usdt` gravado é otimista por exatamente
-`exec_desvio_saida_ref_fill_pct`. Relevante porque é a mesma coluna que a
-Etapa 2 do `GATE_GO_LIVE.md` usa para profit factor.
+O `pnl_usdt` gravado era otimista por exatamente
+`exec_desvio_saida_ref_fill_pct`, na mesma coluna que a Etapa 2 do
+`GATE_GO_LIVE.md` usa para profit factor. Agora PnL e `sinais.preco_saida` saem
+do preço executado (`executor.preco_medio_fill`), nas duas pernas. Registrado
+como correção de infra no gate; trades fechados antes dessa data não são
+comparáveis com os de depois.
 
 ## Nota de amostragem (por que o trend sozinho não basta)
 

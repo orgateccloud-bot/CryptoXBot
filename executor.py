@@ -186,6 +186,49 @@ def avaliar_tick_monitor(
     return acao
 
 
+def preco_medio_fill(resp, fallback):
+    """Preco medio REALMENTE executado de uma resposta de ordem da Binance.
+
+    Nao da para simplesmente ler `resp["price"]`: numa ordem MARKET a Binance
+    devolve `price: "0.00000000"` (o campo e o preco *pedido*, e MARKET nao pede
+    preco). Num LIMIT que cruza o book, `price` e o limite, mas o fill sai nos
+    precos do book — normalmente MELHOR que o limite. Nos dois casos a fonte de
+    verdade e `cummulativeQuoteQty / executedQty`: quanto de quote girou dividido
+    por quanto de base executou = preco medio ponderado, ja incluindo fills
+    fracionados em niveis diferentes.
+
+    Ordem de preferencia:
+      1. cummulativeQuoteQty / executedQty  (autoritativo; MARKET e LIMIT reais)
+      2. media ponderada de `fills[]`       (fallback se a exchange omitir cqq)
+      3. `price`, se > 0                    (simulacao e o preco_medio ja
+                                             calculado por _entrar_maker)
+      4. `fallback`                         (preco de referencia do chamador)
+    """
+    if not isinstance(resp, dict):
+        return float(fallback)
+
+    def _f(valor):
+        try:
+            return float(valor or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    exec_qty = _f(resp.get("executedQty"))
+    cqq = _f(resp.get("cummulativeQuoteQty"))
+    if exec_qty > 0 and cqq > 0:
+        return cqq / exec_qty
+
+    fills = resp.get("fills")
+    if isinstance(fills, list) and fills:
+        qty_total = sum(_f(f.get("qty")) for f in fills)
+        custo = sum(_f(f.get("qty")) * _f(f.get("price")) for f in fills)
+        if qty_total > 0 and custo > 0:
+            return custo / qty_total
+
+    preco = _f(resp.get("price"))
+    return preco if preco > 0 else float(fallback)
+
+
 class Executor:
     def __init__(self, simulacao=True, symbol="BTCUSDT", modo_trend=False):
         self.simulacao = simulacao
@@ -735,7 +778,12 @@ class Executor:
             print(f"[EXEC] Ordem nao preenchida: {resp}")
             return False
 
-        preco_exec = float(resp.get("price", preco_entrada))
+        # Mesma regra da saida: o preco medio REALMENTE executado. Num LIMIT que
+        # cruza o book, `resp["price"]` e o limite — o fill sai nos precos do
+        # book, normalmente MELHOR que o limite, entao ler o limite subestimava o
+        # lucro. (_entrar_maker ja devolve o medio ponderado que calculou; o
+        # helper o preserva via o ramo `price`.)
+        preco_exec = preco_medio_fill(resp, preco_entrada)
 
         # Maker pode preencher PARCIAL: posição e stop devem usar o qty REAL
         # executado, senão o stop cobriria mais do que se comprou.
@@ -905,28 +953,28 @@ class Executor:
                     self.posicao["oco_list_id"] = prot["oco_list_id"]
             self._persistir_posicao()
 
-        # Telemetria de EXECUCAO na SAIDA. `preco` e a referencia que o monitor
-        # observou quando decidiu fechar; `resp["price"]` e o preco em que o
-        # SELL realmente preencheu. Eles NAO sao iguais nem em simulacao: um
-        # SELL MARKET entra em _enviar_ordem sem preco, e o ramo de simulacao
-        # cai em `preco or self.get_preco()` -> le um preco FRESCO. A diferenca
-        # e slippage de latencia real (o monitor le, o tempo passa, o preco anda).
+        # `preco` e a REFERENCIA que o monitor observou ao decidir fechar;
+        # `preco_saida` e o preco medio em que o SELL realmente preencheu. Eles
+        # nao sao iguais nem em simulacao: um SELL MARKET entra em _enviar_ordem
+        # sem preco, e o ramo simulado cai em `preco or self.get_preco()` -> le
+        # um preco FRESCO. A diferenca e slippage de latencia real (o monitor le,
+        # o tempo passa, o preco anda).
         #
-        # ATENCAO (medido, nao corrigido aqui): o pnl abaixo usa `preco`, a
-        # REFERENCIA -- nao o fill. Logo o pnl_usdt gravado no banco (o mesmo que
-        # relatorio_gate.py usa para profit factor na Etapa 2 do gate) e
-        # otimista por exatamente o desvio que este gauge mede. Trocar a base do
-        # pnl muda a contabilidade do registro de paper trading, entao fica como
-        # decisao explicita do usuario -- por ora, fica MEDIDO e visivel.
-        preco_fill_saida = float(resp.get("price") or preco)
-        desvio_saida = (preco_fill_saida - preco) / preco * 100 if preco else 0.0
+        # O PnL e a contabilidade usam o FILL, nunca a referencia: era otimista
+        # por exatamente o desvio abaixo, e e a mesma coluna que
+        # relatorio_gate.py usa para profit factor na Etapa 2 do gate.
+        # A DECISAO de fechar segue sendo tomada sobre `preco` (em
+        # avaliar_tick_monitor) -- decide-se no que se ve, contabiliza-se no que
+        # se executa.
+        preco_saida = preco_medio_fill(resp, preco)
+        desvio_saida = (preco_saida - preco) / preco * 100 if preco else 0.0
         try:
             health.set_gauge("exec_desvio_saida_ref_fill_pct", desvio_saida)
             if abs(desvio_saida) > 0.0001:
                 database.salvar_bot_event(
                     "execucao_saida",
                     f"{self.symbol} {'parcial' if parcial else 'total'}: "
-                    f"ref={preco:.2f} fill={preco_fill_saida:.2f} "
+                    f"ref={preco:.2f} fill={preco_saida:.2f} "
                     f"desvio={desvio_saida:+.4f}% motivo={motivo}",
                     service="executor",
                     symbol=self.symbol,
@@ -935,11 +983,12 @@ class Executor:
         except Exception:
             pass
 
-        pnl_pct = (preco - pos["entrada"]) / pos["entrada"] * 100
-        pnl_usdt = qty * (preco - pos["entrada"])
+        pnl_pct = (preco_saida - pos["entrada"]) / pos["entrada"] * 100
+        pnl_usdt = qty * (preco_saida - pos["entrada"])
 
         print(
-            f"[EXEC] {'PARCIAL' if parcial else 'TOTAL'} FECHADO @ ${preco:,.2f} | "
+            f"[EXEC] {'PARCIAL' if parcial else 'TOTAL'} FECHADO @ ${preco_saida:,.2f} "
+            f"(ref ${preco:,.2f}, {desvio_saida:+.3f}%) | "
             f"PnL: {'+' if pnl_usdt>=0 else ''}{pnl_usdt:.2f} USDT ({pnl_pct:+.2f}%) | "
             f"Motivo: {motivo}"
         )
@@ -947,7 +996,7 @@ class Executor:
         gestao_risco.registrar_resultado(pnl_usdt)
         database.salvar_sinal(
             "FECHAR_LONG" if pnl_usdt >= 0 else "STOP",
-            preco,
+            preco_saida,  # o preco EXECUTADO, nao a referencia do monitor
             f"{motivo} | PnL: {pnl_pct:+.2f}%",
             symbol=self.symbol,
             source="executor",
@@ -979,7 +1028,7 @@ class Executor:
             try:
                 database.atualizar_sinal_fechamento(
                     pos.get("sinal_id"),
-                    preco,
+                    preco_saida,  # preco_saida da coluna = fill, nao referencia
                     round(pnl_usdt_total, 2),
                     round(pnl_pct_total, 4),
                     _classificar_barreira(motivo),

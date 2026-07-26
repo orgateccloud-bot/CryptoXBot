@@ -574,9 +574,13 @@ def test_fechar_total_pnl_positivo_label_fechar_long(ex_sim, gestao_risco_mock, 
     ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0)
     entrada = ex_sim.posicao["entrada"]
     tam = ex_sim.posicao["tamanho_btc"]
+    # O PnL e contabilizado sobre o preco em que o SELL PREENCHEU, nao sobre a
+    # referencia que o monitor observou ao decidir. Em simulacao um SELL MARKET
+    # cai em `preco or self.get_preco()` -> le preco fresco; fixando get_preco
+    # aqui, o fill fica deterministico e a diferenca fica explicita.
+    ex_sim.get_preco = lambda: 59900.0  # fill 0.17% abaixo da decisao
     ex_sim.fechar_posicao(60000.0, "Take Profit Final", parcial=False)
-    # PnL positivo registrado
-    pnl_esperado = tam * (60000.0 - entrada)
+    pnl_esperado = tam * (59900.0 - entrada)
     assert gestao_risco_mock.resultados[0] == pytest.approx(pnl_esperado)
     assert pnl_esperado > 0
     # label do sinal salvo deve ser FECHAR_LONG (pnl >= 0)
@@ -600,6 +604,7 @@ def test_fechar_parcial_pnl_calculado_sobre_metade(ex_sim, gestao_risco_mock):
     ex_sim.abrir_long(50000.0, 0.002, 49000.0, 51000.0)
     entrada = ex_sim.posicao["entrada"]
     tam_inicial = ex_sim.posicao["tamanho_btc"]
+    ex_sim.get_preco = lambda: 55000.0  # fill da saida = referencia (sem desvio)
     ex_sim.fechar_posicao(55000.0, "Take Profit Parcial", parcial=True)
     # PnL parcial sobre METADE da quantidade
     pnl_esperado = (tam_inicial / 2) * (55000.0 - entrada)
@@ -748,12 +753,15 @@ def test_abrir_long_sem_sinal_id_nao_quebra(ex_sim, database_mock):
 
 def test_fechar_total_classifica_barreira_stop(ex_sim, database_mock):
     ex_sim.abrir_long(50000.0, 0.001, 49000.0, 51000.0, sinal_id=7)
+    # Stop dispara em 49000 mas preenche em 48850 (slippage de stop, o caso real
+    # que mais dói). A coluna preco_saida tem que gravar o EXECUTADO.
+    ex_sim.get_preco = lambda: 48850.0
     ex_sim.fechar_posicao(49000.0, "Stop Loss", parcial=False)
     args, kwargs = database_mock.chamadas_atualizar_fechamento[0]
     sinal_id, preco_saida, pnl_usdt, pnl_pct, barreira = args
     assert sinal_id == 7
-    assert barreira == "STOP"
-    assert preco_saida == 49000.0
+    assert barreira == "STOP"  # classificado pelo MOTIVO, nao pelo preco
+    assert preco_saida == 48850.0
 
 
 def test_fechar_total_classifica_barreira_target(ex_sim, database_mock):
@@ -783,10 +791,14 @@ def test_fechar_final_soma_pnl_parcial_acumulado(ex_sim, database_mock):
     # total ligado ao sinal deve ser a SOMA das duas pernas, nao so a final.
     ex_sim.abrir_long(50000.0, 0.002, 49000.0, 51000.0, sinal_id=9)
     entrada = ex_sim.posicao["entrada"]
+    # Cada perna preenche no seu proprio preco (get_preco fixado por perna): o
+    # PnL de cada uma sai do FILL, e o total tem que ser a soma dos dois fills.
+    ex_sim.get_preco = lambda: 55000.0
     ex_sim.fechar_posicao(55000.0, "Take Profit Parcial (50%)", parcial=True)
     pnl_parcial_esperado = 0.001 * (55000.0 - entrada)
     assert ex_sim.posicao["pnl_usdt_parcial_acumulado"] == pytest.approx(pnl_parcial_esperado)
 
+    ex_sim.get_preco = lambda: 56000.0
     ex_sim.fechar_posicao(56000.0, "Take Profit Final", parcial=False)
     pnl_final_esperado = 0.001 * (56000.0 - entrada)
     pnl_total_esperado = pnl_parcial_esperado + pnl_final_esperado

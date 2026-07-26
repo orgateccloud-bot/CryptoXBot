@@ -115,6 +115,39 @@ Medição: `python relatorio_gate.py` (fonte única de verdade — nada de conta
 de cabeça). **Qualquer mudança de estratégia/parâmetro durante os 90 dias
 zera o relógio.** Correção de bug de infra não zera, mas deve ser registrada.
 
+### Correção de infra registrada (2026-07-26) — PnL passa a usar o FILL
+
+O `GATE_GO_LIVE.md` exige que correção de bug de infra seja **registrada** (não
+zera o relógio da Etapa 2). Registro:
+
+`executor.fechar_posicao` calculava `pnl_usdt`/`pnl_pct` sobre `preco` — a
+**referência** que o monitor observou ao decidir fechar — e não sobre o preço em
+que o SELL preencheu. Também gravava essa referência em `sinais.preco_saida`.
+Como `pnl_usdt` é exatamente a coluna que `relatorio_gate.py` usa para **profit
+factor** e **PnL total** nesta Etapa 2, o registro era otimista pelo slippage de
+saída.
+
+Os dois preços diferem **mesmo em simulação**: um SELL MARKET chega em
+`_enviar_ordem` sem preço, e o ramo simulado cai em `preco or self.get_preco()`
+→ lê preço fresco. Logo o viés existia no registro de paper trading, não só em
+modo real.
+
+Corrigido: PnL, `sinais.preco_saida` e o label `FECHAR_LONG`/`STOP` passam a sair
+do preço executado, via `executor.preco_medio_fill()`. A **decisão** de fechar
+segue sendo tomada sobre `preco` em `avaliar_tick_monitor` — decide-se no que se
+vê, contabiliza-se no que se executa.
+
+`preco_medio_fill()` não lê `resp["price"]` cegamente: numa ordem MARKET a
+Binance devolve `price: "0.00000000"`, então a fonte de verdade é
+`cummulativeQuoteQty / executedQty`. Sem isso, a correção valeria só em
+simulação e em modo real cairia no fallback silenciosamente. A mesma regra passou
+a valer na **entrada**, que em modo real usava o preço-*limite* em vez do fill
+médio (subestimava o lucro num LIMIT que cruza o book e preenche melhor).
+
+**Consequência para o registro:** qualquer trade fechado ANTES desta data tem
+`pnl_usdt` otimista pelo slippage de saída. Trades a partir daqui são
+comparáveis entre si; a série anterior não é comparável com a nova.
+
 ### O `--modo-trend` NÃO conta como Etapa 2 (2026-07-25)
 
 `python main.py --modo-trend --simulacao` roda o sistema Donchian 20/10 em
