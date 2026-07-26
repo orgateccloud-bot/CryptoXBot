@@ -91,11 +91,21 @@ Write-Host "PID antes: $pidAntes"
 Write-Host "`n-> nssm restart $Servico"
 nssm restart $Servico 2>&1 | ForEach-Object { Write-Host "   $_" }
 
-# PID igual = o restart nao pegou. AppExit Default=Restart garante que matar o
-# processo o traz de volta com o codigo atual.
-Start-Sleep -Seconds 3
-if ((Get-ServicoPid -Nome $Servico) -eq $pidAntes) {
-    Write-Host "`nPID nao mudou -> matando o processo (NSSM ressuscita)" -ForegroundColor Yellow
+# Da tempo ao `nssm restart` ANTES de concluir que nao pegou. Nao use sleep
+# fixo curto: o boot deste bot leva ~10s (relatorio_completo bate na API de
+# Futures, regime, fear&greed) e o stop do processo velho tambem demora. Com uma
+# janela curta o CIM ainda reporta o PID antigo, o script mata um processo que o
+# NSSM ja estava parando, e o AppExit=Restart corre com o start do proprio nssm
+# -> double-start e restart espurio. Espera o PID MUDAR (ou o servico sair do ar)
+# por ate 30s; so entao usa o Stop-Process como plano B.
+$esperaRestart = (Get-Date).AddSeconds(30)
+do {
+    Start-Sleep -Seconds 2
+    $pidAgora = Get-ServicoPid -Nome $Servico
+} until ($pidAgora -ne $pidAntes -or (Get-Date) -gt $esperaRestart)
+
+if ($pidAgora -eq $pidAntes) {
+    Write-Host "`nPID nao mudou em 30s -> matando o processo (NSSM ressuscita)" -ForegroundColor Yellow
     Stop-Process -Id $pidAntes -Force -ErrorAction Continue
 }
 
