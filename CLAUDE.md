@@ -34,7 +34,7 @@ scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 (restar
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (1066 passed, 8 skipped)
+tests/             # pytest (1081 passed, 8 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -120,7 +120,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1066 passed, 8 skipped em ~2min50s
+pytest tests/ -q                    # 1081 passed, 8 skipped em ~2min11s
 # ATENCAO: test_melhorias.py::TestRetreinamentoAutomatico::
 #   test_retreinar_nao_crasha_sem_dados chama main._retreinar_modelos() DE VERDADE
 #   (treina XGBoost+MLP baixando klines) e leva >10min sozinho. Para uma rodada
@@ -322,6 +322,22 @@ não é comparável com a nova.
   loops assíncronos (`_ws_loop`/`_ws_loop_depth`). No Linux/systemd o path
   gracioso roda completo; no Windows/NSSM o processo termina prontamente
   (CVD/OBI re-acumulam do stream no restart).
+- **Shutdown não é incidente** (corrigido 2026-07-26). Todo stop limpo escrevia
+  no stderr `Erro crítico WebSocket`, `Task was destroyed but it is pending!`,
+  `Event loop is closed` e `no running event loop` — nada disso era falha, mas
+  `Erro crítico WebSocket` é justamente a string que se usaria para caçar uma
+  falha real (conexão zumbi/CVD congelado, o que o watchdog de `/ready` pega).
+  Aparecendo em toda parada, deixava de ser sinal. Três correções:
+  `_ws_encerrando()` discrimina parada pedida de falha (loga INFO e retorna, em
+  vez de logar erro e dormir num loop já fechado); o `logger.critical("Máximo
+  de tentativas atingido")` só dispara quando as tentativas realmente
+  esgotaram, não quando o `while` sai por `_shutdown_event`; e
+  `_drenar_tasks_pendentes()` cancela/drena as tasks (a `keepalive()` do
+  `websockets`, a do próprio handler) **antes** do `loop.close()`, senão o GC
+  as finaliza depois e o interpretador reclama. Medido com WS reais: 14
+  ocorrências de ruído → **0**. Cada teste em `tests/test_ws_shutdown.py` tem
+  par — shutdown não loga, e falha fora de shutdown **continua** logando; o
+  risco da correção era engolir incidente junto com o ruído.
 
 ## Segurança
 

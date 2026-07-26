@@ -177,6 +177,49 @@ def formatar_valor(v):
 # ── WebSocket Binance Assíncrono com Retry ──────────────────
 
 
+def _ws_encerrando(rotulo: str) -> bool:
+    """True se o WebSocket esta parando porque PEDIMOS (shutdown), nao porque
+    falhou. Existe para que um stop limpo nao seja logado como incidente.
+
+    Sem esta distincao, TODO shutdown gracioso escrevia "Erro critico
+    WebSocket" no stderr -- e a string que se usaria para caçar uma falha real
+    (conexao zumbi, CVD congelado, o que o watchdog de /ready existe para pegar)
+    aparecia em toda parada normal. Ruido que mascara sinal e pior que silencio.
+
+    A ordem em _encerrar() garante que isto funcione: o Event e setado ANTES de
+    parar os loops, entao quando as excecoes de loop fechado chegam aqui o
+    shutdown ja esta marcado.
+    """
+    if not _shutdown_event.is_set():
+        return False
+    ws_logger.info(f"{rotulo} encerrado a pedido (shutdown gracioso)")
+    return True
+
+
+def _drenar_tasks_pendentes(loop):
+    """Cancela e drena as tasks que sobraram, ANTES de fechar o loop.
+
+    Sem isto, loop.close() deixa tasks suspensas (a keepalive() do pacote
+    websockets, e a propria task do handler, parada num await) para o GC
+    finalizar depois -- e o interpretador cospe "Task was destroyed but it is
+    pending!" mais tracebacks de "Event loop is closed" / "no running event
+    loop" em todo shutdown limpo.
+
+    Cancelar de forma ordenada faz o CancelledError chegar no ponto de await de
+    cada task, que entao termina como cancelada em vez de virar lixo do GC.
+    Timeout curto e best-effort: shutdown nunca pode ficar preso.
+    """
+    try:
+        pendentes = [t for t in asyncio.all_tasks(loop) if not t.done()]
+        if not pendentes:
+            return
+        for t in pendentes:
+            t.cancel()
+        loop.run_until_complete(asyncio.wait(pendentes, timeout=3))
+    except Exception:
+        pass  # best-effort: nada aqui pode impedir o processo de morrer
+
+
 async def websocket_handler():
     """
     Handler assíncrono para WebSocket Binance com retry exponencial e state management.
@@ -218,6 +261,11 @@ async def websocket_handler():
             asyncio.TimeoutError,
         ) as e:
             ws_state["connected"] = False
+            # Fechar a conexao no shutdown levanta ConnectionClosed: e parada
+            # pedida, nao desconexao. Sair aqui tambem evita o asyncio.sleep(delay)
+            # abaixo rodar sobre um loop ja fechado.
+            if _ws_encerrando("WebSocket"):
+                return
             latency = (time.time() - ws_state["last_message_time"]) * 1000
             ws_state["latency_ms"] = latency
             health.increment_metric("ws_reconexoes")
@@ -243,6 +291,11 @@ async def websocket_handler():
             attempt += 1
 
         except Exception as e:
+            # RuntimeError("Event loop is closed") chega aqui quando o loop e
+            # parado debaixo de um await -> era isto que virava
+            # "Erro critico WebSocket" em todo stop limpo.
+            if _ws_encerrando("WebSocket"):
+                return
             logger.error(
                 "Erro crítico WebSocket",
                 extra={"error": str(e), "symbol": SYMBOL_WS, "attempt": attempt},
@@ -250,9 +303,14 @@ async def websocket_handler():
             attempt += 1
             await asyncio.sleep(1.0)
 
-    logger.critical(
-        "Máximo de tentativas atingido", extra={"symbol": SYMBOL_WS, "max_retries": max_retries}
-    )
+    # O while tambem termina quando _shutdown_event e setado -- nesse caso NAO
+    # esgotou tentativa nenhuma, e logar CRITICAL seria um falso alarme.
+    if _shutdown_event.is_set():
+        ws_logger.info("WebSocket finalizado (shutdown gracioso)")
+    else:
+        logger.critical(
+            "Máximo de tentativas atingido", extra={"symbol": SYMBOL_WS, "max_retries": max_retries}
+        )
 
 
 async def process_message(message):
@@ -378,6 +436,8 @@ async def websocket_handler_depth():
             asyncio.TimeoutError,
         ) as e:
             ws_state_depth["connected"] = False
+            if _ws_encerrando("WebSocket @depth"):
+                return
             latency = (time.time() - ws_state_depth["last_message_time"]) * 1000
             ws_state_depth["latency_ms"] = latency
             health.increment_metric("ws_reconexoes")
@@ -402,6 +462,8 @@ async def websocket_handler_depth():
             attempt += 1
 
         except Exception as e:
+            if _ws_encerrando("WebSocket @depth"):
+                return
             logger.error(
                 "Erro crítico WebSocket @depth",
                 extra={"error": str(e), "symbol": SYMBOL_WS, "attempt": attempt},
@@ -409,10 +471,13 @@ async def websocket_handler_depth():
             attempt += 1
             await asyncio.sleep(1.0)
 
-    logger.critical(
-        "Máximo de tentativas atingido (@depth)",
-        extra={"symbol": SYMBOL_WS, "max_retries": max_retries},
-    )
+    if _shutdown_event.is_set():
+        ws_logger.info("WebSocket @depth finalizado (shutdown gracioso)")
+    else:
+        logger.critical(
+            "Máximo de tentativas atingido (@depth)",
+            extra={"symbol": SYMBOL_WS, "max_retries": max_retries},
+        )
 
 
 async def process_depth_message(message):
@@ -480,6 +545,7 @@ def iniciar_websocket_depth_async():
         except (asyncio.CancelledError, RuntimeError):
             pass  # loop parado durante shutdown — esperado
         finally:
+            _drenar_tasks_pendentes(loop)  # antes do close, senao vira ruido no GC
             loop.close()
 
     thread = threading.Thread(target=run_async, daemon=True, name="websocket-depth-async")
@@ -504,6 +570,7 @@ def iniciar_websocket_async():
         except (asyncio.CancelledError, RuntimeError):
             pass  # loop parado durante shutdown — esperado
         finally:
+            _drenar_tasks_pendentes(loop)  # antes do close, senao vira ruido no GC
             loop.close()
 
     thread = threading.Thread(target=run_async, daemon=True, name="websocket-async")
