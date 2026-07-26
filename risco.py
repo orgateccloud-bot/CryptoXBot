@@ -9,23 +9,24 @@ Módulos:
   5. Validador de trade     — checa todas as condições antes de executar
 """
 
-import hashlib
-import hmac
 import statistics
 import threading
 import time
 from datetime import date, datetime
 
-import requests
-
+import binance_conta
 import database
 import health
 import telegram_bot
 from backtesting.metricas import cvar_historico
 from config.params_pares import PARAMS_PARES
-from config.runtime_settings import API_KEY, API_SECRET, REST_BASE_URL
+from config.runtime_settings import REST_BASE_URL
 from data.klines import obter_klines
 
+# hashlib/hmac/requests/API_KEY/API_SECRET sairam daqui em 2026-07-26: a leitura
+# de conta (unica coisa que assinava requisicao neste modulo) foi consolidada em
+# binance_conta, que tambem compensa o drift de relogio -- coisa que a versao
+# local nao fazia.
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 
 # ── Configurações de risco ────────────────────────────────────
@@ -465,50 +466,64 @@ def verificar_volatilidade(symbol="BTCUSDT"):
 # ── Saldo real da conta ────────────────────────────────────────
 
 
-def get_saldo_usdt():
-    """Retorna saldo disponível em USDT na conta Spot."""
+# Falha de leitura de saldo e ESCALADA, nao engolida (auditoria 2026-07-26) --
+# mas com debounce: get_saldo_* roda a cada ciclo de cada par, entao uma API
+# fora do ar geraria uma enxurrada de bot_events. Alerta na transicao para
+# falha e depois no maximo a cada SALDO_ALERTA_INTERVALO_S.
+SALDO_ALERTA_INTERVALO_S = 900  # 15 min
+_estado_saldo = {"em_falha": False, "ultimo_alerta": 0.0, "ultimo_erro": ""}
+_lock_saldo = threading.Lock()
+
+
+def _registrar_falha_saldo(ativo: str, erro: str) -> None:
+    """Escala a falha uma vez por episodio (+ lembrete periodico)."""
+    agora = time.time()
+    with _lock_saldo:
+        novo_episodio = not _estado_saldo["em_falha"]
+        vencido = (agora - _estado_saldo["ultimo_alerta"]) > SALDO_ALERTA_INTERVALO_S
+        if not (novo_episodio or vencido):
+            return
+        _estado_saldo["em_falha"] = True
+        _estado_saldo["ultimo_alerta"] = agora
+        _estado_saldo["ultimo_erro"] = erro
+
+    print(f"[RISCO] FALHA ao ler saldo de {ativo}: {erro} (sizing usara 0.0)")
     try:
-        # P0-4: recvWindow evita rejeicao -1021 por clock drift
-        params = {"timestamp": int(time.time() * 1000), "recvWindow": 5000}
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        sig = hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
-        params["signature"] = sig
-        r = requests.get(
-            f"{BASE_URL}/api/v3/account",
-            params=params,
-            headers={"X-MBX-APIKEY": API_KEY},
-            timeout=8,
+        database.salvar_bot_event(
+            "saldo_indisponivel",
+            f"Nao foi possivel ler o saldo de {ativo}: {erro}. "
+            f"O dimensionamento de posicao esta cego enquanto isto durar.",
+            service="worker",
+            severity="WARNING",
         )
-        balances = r.json().get("balances", [])
-        for b in balances:
-            if b["asset"] == "USDT":
-                return float(b["free"])
     except Exception:
         pass
-    return 0.0
+
+
+def _resolver_saldo(ativo: str) -> float:
+    """Saldo livre do ativo. Mantem o contrato historico (float, 0.0 em falha)
+    porque os chamadores fazem `saldo if saldo > 0 else ...`, mas agora a falha
+    e VISIVEL em vez de virar um zero indistinguivel de conta vazia."""
+    valor, erro = binance_conta.saldo(ativo)
+    if erro:
+        _registrar_falha_saldo(ativo, erro)
+        return 0.0
+    with _lock_saldo:
+        if _estado_saldo["em_falha"]:
+            _estado_saldo["em_falha"] = False
+            print(f"[RISCO] Leitura de saldo restabelecida ({ativo}).")
+    return valor
+
+
+def get_saldo_usdt():
+    """Saldo disponível em USDT na conta Spot (0.0 se indisponível — ver
+    binance_conta.saldo() quando a distinção zero-vs-erro importar)."""
+    return _resolver_saldo("USDT")
 
 
 def get_saldo_btc():
-    """Retorna saldo disponível em BTC na conta Spot."""
-    try:
-        # P0-4: recvWindow evita rejeicao -1021 por clock drift
-        params = {"timestamp": int(time.time() * 1000), "recvWindow": 5000}
-        query = "&".join(f"{k}={v}" for k, v in params.items())
-        sig = hmac.new(API_SECRET.encode(), query.encode(), hashlib.sha256).hexdigest()
-        params["signature"] = sig
-        r = requests.get(
-            f"{BASE_URL}/api/v3/account",
-            params=params,
-            headers={"X-MBX-APIKEY": API_KEY},
-            timeout=8,
-        )
-        balances = r.json().get("balances", [])
-        for b in balances:
-            if b["asset"] == "BTC":
-                return float(b["free"])
-    except Exception:
-        pass
-    return 0.0
+    """Saldo disponível em BTC na conta Spot."""
+    return _resolver_saldo("BTC")
 
 
 # ── Validador completo ────────────────────────────────────────

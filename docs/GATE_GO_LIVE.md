@@ -178,6 +178,41 @@ Só inicia se a Etapa 2 aprovar.
 - Aprovação final: divergência real-vs-paper pequena E métricas da Etapa 2
   sustentadas → escalar gradualmente. Divergência grande → voltar à Etapa 2.
 
+### Pré-condições de CONTA — verificadas em 2026-07-26, **nenhuma satisfeita**
+
+Auditoria da conta real (investigação do "saldo zerado" no dashboard) mostrou
+que, além dos gates de código, existem três condições de **conta/chave** que
+nunca estiveram escritas aqui. Sem elas o `--real` não falha no boot — falha na
+primeira ordem, ou pior, dimensiona sobre um número errado.
+
+| Pré-condição | Como verificar | Estado em 2026-07-26 |
+|---|---|---|
+| Chave com `enableSpotAndMarginTrading` | `python binance_conta.py` → `restricoes_chave` | ❌ **False** — chave é read-only |
+| USDT suficiente na Spot (é a moeda de entrada) | idem → `saldos` | ❌ **0.00000075** (pó). O valor está em BTC (0.0207 ≈ $1.339) |
+| `ipRestrict` ligado na chave | idem → `restrito_por_ip` | ❌ **False** |
+
+Notas que custaram tempo para descobrir e não devem ser redescobertas:
+
+- **`canTrade` de `/api/v3/account` é da CONTA, não da CHAVE.** Ele estava
+  `True` enquanto a chave era read-only. A fonte correta é
+  `/sapi/v1/account/apiRestrictions` → `enableSpotAndMarginTrading`
+  (`binance_conta.restricoes_chave()`).
+- **Com chave read-only, toda ordem volta `-2015`** (Invalid API-key... for
+  action). É falha visível em log, não silenciosa — mas só na hora da ordem.
+- **O capital está do lado errado do par.** O bot compra com USDT
+  (`abrir_long` → BUY); a conta está long BTC sem moeda de cotação. Mesmo com
+  chave de trading, o sizing sai abaixo do `minQty` e `_enviar_ordem` recusa
+  localmente.
+- **`saldo > 0` não protege**: `main.py` faz `saldo if saldo > 0 else 100`, e
+  `7.5e-07 > 0` é verdadeiro — o fallback de $100 **não** dispara, passa-se o pó
+  adiante. Não confiar nesse guard para detectar conta vazia.
+- **Drift de relógio medido: −675 ms** (mediana de 6 amostras corrigidas por
+  RTT). Dentro da tolerância (a Binance rejeita `timestamp > serverTime + 1000`;
+  atrasado só falha além do `recvWindow` de 5000 ms). Desde 2026-07-26 todas as
+  chamadas assinadas de conta passam por `binance_conta.timestamp_ms()`, que
+  compensa — antes só `executor.py` compensava e `risco.py` assinava com relógio
+  cru.
+
 ## Correções da régua de medição (2026-07-23, pré-medição)
 
 Verificação adversarial (workflow de 3 lentes independentes + juiz, antes de

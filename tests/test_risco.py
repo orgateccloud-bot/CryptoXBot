@@ -398,11 +398,19 @@ class TestValidarTrade:
         assert "zerado" in r["motivo"].lower()
 
     def test_nao_acessa_rede_nem_banco(self, monkeypatch):
-        # Garante hermeticidade: se requests for usado, falha o teste.
+        """validar_trade decide sobre o que recebe -- não pode ir buscar nada.
+
+        O alvo do patch desceu para binance_conta em 2026-07-26: risco.py não
+        importa mais `requests` (a única coisa que assinava requisição ali, a
+        leitura de conta, foi consolidada lá). Patchar o módulo errado
+        transformaria este guarda de hermeticidade em teste vazio.
+        """
+        import binance_conta
+
         def _boom(*a, **k):
             raise AssertionError("Acesso de rede não deveria ocorrer")
 
-        monkeypatch.setattr(risco.requests, "get", _boom)
+        monkeypatch.setattr(binance_conta.requests, "get", _boom)
         r = risco.validar_trade("COMPRA", 68000, 1000)
         assert r["pode"] is True
 
@@ -413,11 +421,39 @@ class TestValidarTrade:
 
 
 class _FakeResp:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     def json(self):
         return self._payload
+
+
+def _mock_conta(monkeypatch, payload_ou_erro):
+    """Mocka a leitura de conta no NOVO ponto de costura.
+
+    A assinatura da requisição saiu de risco.py e foi para binance_conta em
+    2026-07-26 (fonte única + compensação de drift de relógio). Estes testes
+    seguem valendo — o contrato de get_saldo_* não mudou (float, 0.0 em falha) —
+    mas o mock precisa descer uma camada, senão testariam um `requests` que o
+    módulo não usa mais.
+    """
+    import binance_conta
+
+    monkeypatch.setattr(binance_conta, "_offset_em", 0.0)
+    monkeypatch.setattr(binance_conta, "API_KEY", "k" * 64)
+    monkeypatch.setattr(binance_conta, "API_SECRET", "s" * 64)
+    risco._estado_saldo.update({"em_falha": False, "ultimo_alerta": 0.0})
+    monkeypatch.setattr(risco.database, "salvar_bot_event", lambda *a, **k: None)
+
+    def fake(url, **kw):
+        if "/api/v3/time" in url:
+            return _FakeResp({"serverTime": 1_700_000_000_000})
+        if isinstance(payload_ou_erro, Exception):
+            raise payload_ou_erro
+        return payload_ou_erro
+
+    monkeypatch.setattr(binance_conta.requests, "get", fake)
 
 
 class TestGetSaldoUsdt:
@@ -429,24 +465,19 @@ class TestGetSaldoUsdt:
                 {"asset": "USDT", "free": "1234.56"},
             ]
         }
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
+        _mock_conta(monkeypatch, _FakeResp(payload))
         assert risco.get_saldo_usdt() == pytest.approx(1234.56)
 
     def test_sem_usdt_nas_balances_retorna_zero(self, monkeypatch):
-        payload = {"balances": [{"asset": "BTC", "free": "0.5"}]}
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
-        # Loop não encontra USDT -> cai no return 0.0 final
+        _mock_conta(monkeypatch, _FakeResp({"balances": [{"asset": "BTC", "free": "0.5"}]}))
         assert risco.get_saldo_usdt() == 0.0
 
     def test_erro_de_rede_retorna_zero(self, monkeypatch):
-        def _boom(*a, **k):
-            raise ConnectionError("sem rede")
-
-        monkeypatch.setattr(risco.requests, "get", _boom)
+        _mock_conta(monkeypatch, ConnectionError("sem rede"))
         assert risco.get_saldo_usdt() == 0.0
 
     def test_resposta_sem_balances_retorna_zero(self, monkeypatch):
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp({}))
+        _mock_conta(monkeypatch, _FakeResp({}))
         assert risco.get_saldo_usdt() == 0.0
 
 
@@ -464,23 +495,19 @@ class TestGetSaldoBtc:
                 {"asset": "BTC", "free": "0.12345678"},
             ]
         }
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
+        _mock_conta(monkeypatch, _FakeResp(payload))
         assert risco.get_saldo_btc() == pytest.approx(0.12345678)
 
     def test_sem_btc_nas_balances_retorna_zero(self, monkeypatch):
-        payload = {"balances": [{"asset": "USDT", "free": "500.0"}]}
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp(payload))
+        _mock_conta(monkeypatch, _FakeResp({"balances": [{"asset": "USDT", "free": "500.0"}]}))
         assert risco.get_saldo_btc() == 0.0
 
     def test_erro_de_rede_retorna_zero(self, monkeypatch):
-        def _boom(*a, **k):
-            raise ConnectionError("sem rede")
-
-        monkeypatch.setattr(risco.requests, "get", _boom)
+        _mock_conta(monkeypatch, ConnectionError("sem rede"))
         assert risco.get_saldo_btc() == 0.0
 
     def test_resposta_sem_balances_retorna_zero(self, monkeypatch):
-        monkeypatch.setattr(risco.requests, "get", lambda *a, **k: _FakeResp({}))
+        _mock_conta(monkeypatch, _FakeResp({}))
         assert risco.get_saldo_btc() == 0.0
 
 

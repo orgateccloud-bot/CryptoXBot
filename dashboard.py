@@ -645,10 +645,7 @@ def api_risco():
 @app.route("/api/conexao")
 def api_conexao():
     """Status de conectividade com a Binance: REST spot, REST futures, auth e modo."""
-    import hashlib
-    import hmac as _hmac
-
-    from config.runtime_settings import ALLOW_REAL_TRADING, API_KEY, API_SECRET, DRY_RUN
+    from config.runtime_settings import ALLOW_REAL_TRADING, API_KEY, DRY_RUN
 
     def _ping(url: str) -> dict:
         t0 = time.time()
@@ -674,26 +671,18 @@ def api_conexao():
     auth_err = None
 
     if key_ok and rest_spot["ok"]:
-        try:
-            ts = int(time.time() * 1000)
-            params = f"timestamp={ts}&recvWindow=5000"  # P0-4
-            sig = _hmac.new(API_SECRET.encode(), params.encode(), hashlib.sha256).hexdigest()
-            r = requests.get(
-                f"{BASE_URL}/api/v3/account",
-                params={"timestamp": ts, "recvWindow": 5000, "signature": sig},
-                headers={"X-MBX-APIKEY": API_KEY},
-                timeout=8,
-            )
-            if r.status_code == 200:
-                auth_ok = True
-                for b in r.json().get("balances", []):
-                    if b["asset"] == "USDT":
-                        saldo_usdt = float(b["free"])
-                        break
-            else:
-                auth_err = r.json().get("msg", f"HTTP {r.status_code}")
-        except Exception as exc:
-            auth_err = str(exc)[:80]
+        # Consolidado em binance_conta (auditoria 2026-07-26): esta rota tinha
+        # uma copia da leitura de conta, e era a copia BOA -- separava
+        # autenticado/erro/saldo, enquanto risco.py devolvia 0.0 para tudo.
+        # Agora as duas usam a mesma implementacao (a informada), com o offset
+        # de relogio que faltava no lado do risco.
+        import binance_conta
+
+        conta = binance_conta.ler_conta()
+        auth_ok = conta["autenticado"]
+        auth_err = conta["erro"]
+        if conta["ok"]:
+            saldo_usdt = conta["saldos"].get("USDT", 0.0)
 
     # Frescor dos dados por par (última atualização)
     with _lock:

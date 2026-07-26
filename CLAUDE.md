@@ -34,11 +34,12 @@ scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 (restar
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (1081 passed, 8 skipped)
+tests/             # pytest (1101 passed, 8 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
-Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `database.py`,
+Raiz: `main.py` (orquestrador), `executor.py`, `risco.py`, `binance_conta.py`
+(fonte única de saldo/permissões), `database.py`,
 `logger.py`, `ensemble.py`/`ml_filtro.py`/`lstm_modelo.py`/
 `score.py`/`regime.py`/`fear_greed.py`, `dashboard.py`, `health.py`,
 `telegram_bot.py`, `monitor_fluxo.py`, `indicadores.py`, `suporte.py`.
@@ -120,7 +121,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1081 passed, 8 skipped em ~2min11s
+pytest tests/ -q                    # 1101 passed, 8 skipped em ~2min55s
 # ATENCAO: test_melhorias.py::TestRetreinamentoAutomatico::
 #   test_retreinar_nao_crasha_sem_dados chama main._retreinar_modelos() DE VERDADE
 #   (treina XGBoost+MLP baixando klines) e leva >10min sozinho. Para uma rodada
@@ -338,6 +339,30 @@ não é comparável com a nova.
   ocorrências de ruído → **0**. Cada teste em `tests/test_ws_shutdown.py` tem
   par — shutdown não loga, e falha fora de shutdown **continua** logando; o
   risco da correção era engolir incidente junto com o ruído.
+
+## Leitura de conta / saldo
+
+`binance_conta.py` é a **fonte única** de saldo e de permissões (auditoria
+2026-07-26). Antes havia duas implementações: `risco.py` fazia
+`except Exception: pass; return 0.0` — chave revogada, drift, geo-block e rate
+limit viravam todos "saldo zero", indistinguível de conta vazia, e quem consome
+esse número é o **sizing de posição**. `dashboard.py` tinha uma cópia melhor,
+que separava `autenticado`/`erro`/`saldo`: quem só exibia era informado, quem
+decidia era cego.
+
+- `saldo(ativo) -> (valor, erro)`: `(0.0, None)` = conta zerada;
+  `(0.0, "...")` = não foi possível saber. `risco.get_saldo_*` mantém o contrato
+  histórico (float, 0.0 em falha) mas agora **escala** a falha —
+  `bot_events/saldo_indisponivel` + log, com debounce de 15 min (roda por ciclo
+  por par; sem debounce viraria flood).
+- **Relógio**: toda chamada assinada usa `binance_conta.timestamp_ms()`, que
+  compensa o drift com TTL de 5 min e re-sincroniza no erro `-1021`. Antes só
+  `executor.py` compensava; `risco.py` assinava com `time.time()` cru.
+- `restricoes_chave()` lê `/sapi/v1/account/apiRestrictions`. **`canTrade` de
+  `/api/v3/account` é da CONTA, não da CHAVE** — pode vir `True` com a chave
+  read-only. Para saber se o bot consegue mandar ordem, o campo é
+  `enableSpotAndMarginTrading`.
+- Diagnóstico rápido: `python binance_conta.py`.
 
 ## Segurança
 
