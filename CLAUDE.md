@@ -30,7 +30,7 @@ config/            # runtime_settings (env > local > default) + params por par
 data/              # cvd_calculator + klines (fetch consolidado, cache TTL) — artefatos (*.db/*.pkl) gitignored
 deploy/            # systemd units, Caddyfile, setup.sh
 estrategias/       # Estratégias de trading (otimizada)
-scripts/           # migrate_sqlite_to_supabase.py
+scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 (restart NSSM com prova)
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
@@ -54,13 +54,27 @@ iniciam no boot). Registrados via `nssm install` em **PowerShell Administrador**
 - `BXBotDashboard` → `python dashboard.py` (porta 5000)
 
 ```powershell
-# Controle (SEMPRE em janela "Administrador:" — LocalSystem exige elevação;
-# sem elevação, nssm/Stop-Process falham SILENCIOSAMENTE com access-denied)
+# Restart com PROVA (auto-eleva via UAC, confirma pelo PID, cai no Stop-Process
+# se o nssm restart não pegar). Use este em vez do nssm na mão:
+powershell -ExecutionPolicy Bypass -File scripts\restart-servico.ps1
+powershell -ExecutionPolicy Bypass -File scripts\restart-servico.ps1 -Servico BXBotDashboard
+
 Get-Service BXBot*
-nssm restart BXBotWorker
-# Se o worker não morrer no stop: Stop-Process -Id <pid da :8080> -Force
-# (NSSM AppExit=Restart o ressuscita com o código atual)
 ```
+
+**Duas armadilhas que fazem um restart "bem-sucedido" não reiniciar nada:**
+
+1. Os serviços rodam como LocalSystem → controlá-los exige **elevação**. Sem
+   ela, `nssm restart` diz "Acesso negado" (barulhento, ok), mas
+   `Stop-Process -Force` **retorna sem erro e não mata o processo**. Quem
+   confia nesse "sucesso" segue com o código velho em memória.
+2. Estar no grupo Administradores **não basta**: com UAC ligado um shell comum
+   recebe token filtrado (o grupo aparece em `whoami /groups` como *"usado
+   apenas para negar"*). A janela parece administrativa e não é.
+
+A única prova de restart é o **PID mudar** — Python lê os `.py` no start, então
+sem PID novo nenhum deploy entrou em vigor. `scripts/restart-servico.ps1` existe
+exatamente para não repetir esse erro.
 
 Logs: `logs/worker-*.log`, `logs/dashboard-*.log`.
 
