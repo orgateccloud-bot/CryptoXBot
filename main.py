@@ -643,6 +643,55 @@ def iniciar_relatorio_diario(symbol: str):
 # ── Loop de Estratégia por Par ────────────────────────────────
 
 
+def _registrar_execucao(par, estrategia, preco_ref, preco_mercado, exec_par, t0, qty):
+    """Telemetria de EXECUCAO de uma entrada — compartilhada pelas duas
+    estrategias, para que os numeros sejam comparaveis entre elas.
+
+    Tres precos, tres perguntas diferentes:
+
+    - `preco_ref`: o preco em que a ESTRATEGIA decidiu. Na trend e o close do
+      ultimo candle FECHADO (exatamente o que o backtest assume como entrada).
+      Na otimizada e `resultado["preco"]` = `f1h[-1]`, ou seja a vela em
+      FORMACAO vinda do cache de klines (TTL 30s) — pode estar velha.
+    - `preco_mercado`: preco fresco lido no instante de mandar a ordem. Contra
+      `preco_ref` isso mede o custo de a decisao ter sido tomada sobre dado
+      velho — e ja rende numero real em paper trading, sem esperar modo real.
+    - `preco_fill`: preco em que a posicao abriu de fato.
+
+    Os gauges sao genericos (`exec_*`) porque as duas estrategias nunca rodam
+    juntas: `exec_estrategia_trend` (1/0) diz qual delas produziu a amostra.
+    """
+    preco_fill = (exec_par.posicao or {}).get("entrada", preco_mercado)
+    lat_ms = (time.time() - t0) * 1000
+    d_mercado = (preco_mercado - preco_ref) / preco_ref * 100 if preco_ref else 0.0
+    d_fill = (preco_fill - preco_ref) / preco_ref * 100 if preco_ref else 0.0
+
+    print(
+        f"\033[96m[{par}][EXEC-TELEMETRIA] ref ${preco_ref:,.2f} -> mercado "
+        f"${preco_mercado:,.2f} ({d_mercado:+.3f}%) -> fill ${preco_fill:,.2f} "
+        f"({d_fill:+.3f}%) em {lat_ms:.0f}ms\033[0m"
+    )
+    try:
+        health.set_gauge("exec_desvio_ref_mercado_pct", d_mercado)
+        health.set_gauge("exec_desvio_ref_fill_pct", d_fill)
+        health.set_gauge("exec_latencia_sinal_fill_ms", lat_ms)
+        health.set_gauge("exec_estrategia_trend", 1.0 if estrategia == "trend" else 0.0)
+    except Exception:
+        pass
+    try:
+        database.salvar_bot_event(
+            "execucao_entrada",
+            f"{par} [{estrategia}] ref={preco_ref:.2f} mercado={preco_mercado:.2f} "
+            f"fill={preco_fill:.2f} desvio_mercado={d_mercado:+.4f}% "
+            f"desvio_fill={d_fill:+.4f}% latencia={lat_ms:.0f}ms qty={qty}",
+            service="worker",
+            symbol=par,
+            severity="INFO",
+        )
+    except Exception:
+        pass
+
+
 def _bucket_candle(intervalo: str) -> int:
     """Identidade do candle atualmente em formacao (buckets da Binance sao
     alinhados ao epoch UTC: 1d = meia-noite UTC, 4h/1h idem)."""
@@ -663,6 +712,7 @@ def _ciclo_trend(par, exec_par):
     if _trend_ultimo_bucket.get(par) == bucket:
         return  # este candle ja foi avaliado
     reset = "\033[0m"
+    t0 = time.time()  # inicio do ciclo: base da latencia sinal->fill
 
     tem_posicao = bool(exec_par.posicao)
     r = sinal_trend(par, tem_posicao, intervalo=MODO_TREND_INTERVALO)
@@ -676,7 +726,7 @@ def _ciclo_trend(par, exec_par):
     )
 
     if r["sinal"] == "COMPRA":
-        _trend_abrir(par, exec_par, r)
+        _trend_abrir(par, exec_par, r, t0)
     elif r["sinal"] == "FECHAR":
         exec_par.fechar_posicao(exec_par.get_preco(), "Saida Donchian (canal M)")
     elif tem_posicao and r["canal_baixo"]:
@@ -688,9 +738,16 @@ def _ciclo_trend(par, exec_par):
             )
 
 
-def _trend_abrir(par, exec_par, r):
+def _trend_abrir(par, exec_par, r, t0=None):
     """Entrada do sistema trend: sizing por risco ate o canal Donchian-M,
-    limitado pelo tamanho que a gestao de risco autoriza."""
+    limitado pelo tamanho que a gestao de risco autoriza.
+
+    t0 e o instante em que o CICLO comecou (antes de buscar klines), nao o
+    instante de mandar a ordem: a latencia que interessa e sinal->fill inteira,
+    incluindo fetch/indicadores/risco, nao so o round-trip da ordem.
+    """
+    if t0 is None:
+        t0 = time.time()
     from backtesting.trend_following import RISCO_FRAC
 
     # Ultima linha de defesa, no proprio caminho do dinheiro: mesmo que alguem
@@ -721,37 +778,10 @@ def _trend_abrir(par, exec_par, r):
     if tamanho <= 0:
         return
 
-    t0 = time.time()
-    ok = exec_par.abrir_long(preco, tamanho, stop, float("inf"))
-    if not ok:
-        return
-
-    # Telemetria de execucao — o objetivo declarado do dry run. Compara o preco
-    # de REFERENCIA do sinal (close do candle fechado, que o backtest assume
-    # como preco de entrada) com o preco realmente executado.
-    preco_exec = (exec_par.posicao or {}).get("entrada", preco)
-    desvio_pct = (preco_exec - r["preco_ref"]) / r["preco_ref"] * 100
-    latencia_ms = (time.time() - t0) * 1000
-    print(
-        f"\033[96m[{par}][TREND][EXEC] ref ${r['preco_ref']:,.2f} -> fill "
-        f"${preco_exec:,.2f} ({desvio_pct:+.3f}%) em {latencia_ms:.0f}ms\033[0m"
-    )
-    try:
-        health.set_gauge("trend_desvio_ref_fill_pct", desvio_pct)
-        health.set_gauge("trend_latencia_entrada_ms", latencia_ms)
-    except Exception:
-        pass
-    try:
-        database.salvar_bot_event(
-            "trend_execucao",
-            f"{par} entrada: ref={r['preco_ref']:.2f} fill={preco_exec:.2f} "
-            f"desvio={desvio_pct:+.4f}% latencia={latencia_ms:.0f}ms qty={tamanho}",
-            service="worker",
-            symbol=par,
-            severity="INFO",
-        )
-    except Exception:
-        pass
+    if exec_par.abrir_long(preco, tamanho, stop, float("inf")):
+        # preco (fresco, lido acima) e o preco de mercado; r["preco_ref"] e o
+        # close do candle fechado em que a estrategia decidiu.
+        _registrar_execucao(par, "trend", r["preco_ref"], preco, exec_par, t0, tamanho)
 
 
 def loop_par(par, intervalo_min, simulacao):
@@ -973,14 +1003,25 @@ def loop_par(par, intervalo_min, simulacao):
                     except Exception:
                         pass
 
-                    exec_par.abrir_long(
+                    # Telemetria de execucao: le um preco FRESCO imediatamente
+                    # antes de mandar a ordem. `preco` (= resultado["preco"] =
+                    # f1h[-1]) veio do cache de klines (TTL 30s), logo a
+                    # diferenca entre os dois mede o quanto a decisao foi tomada
+                    # sobre dado velho. Uma chamada de rede a mais por ENTRADA
+                    # (raro: teto de 1 posicao aberta), nao por ciclo.
+                    preco_mercado = exec_par.get_preco() or preco
+                    if exec_par.abrir_long(
                         preco,
                         parcela,
                         stop,
                         target,
                         atr_relativo=atr_relativo,
                         sinal_id=resultado.get("sinal_id"),
-                    )
+                    ):
+                        _registrar_execucao(
+                            par, "otimizada", preco, preco_mercado,
+                            exec_par, t_inicio_ciclo, parcela,
+                        )
                 else:
                     print(f"\033[91m[{par}][RISCO] Trade bloqueado: {validacao['motivo']}\033[0m")
 

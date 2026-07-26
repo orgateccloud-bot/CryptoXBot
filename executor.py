@@ -905,6 +905,36 @@ class Executor:
                     self.posicao["oco_list_id"] = prot["oco_list_id"]
             self._persistir_posicao()
 
+        # Telemetria de EXECUCAO na SAIDA. `preco` e a referencia que o monitor
+        # observou quando decidiu fechar; `resp["price"]` e o preco em que o
+        # SELL realmente preencheu. Eles NAO sao iguais nem em simulacao: um
+        # SELL MARKET entra em _enviar_ordem sem preco, e o ramo de simulacao
+        # cai em `preco or self.get_preco()` -> le um preco FRESCO. A diferenca
+        # e slippage de latencia real (o monitor le, o tempo passa, o preco anda).
+        #
+        # ATENCAO (medido, nao corrigido aqui): o pnl abaixo usa `preco`, a
+        # REFERENCIA -- nao o fill. Logo o pnl_usdt gravado no banco (o mesmo que
+        # relatorio_gate.py usa para profit factor na Etapa 2 do gate) e
+        # otimista por exatamente o desvio que este gauge mede. Trocar a base do
+        # pnl muda a contabilidade do registro de paper trading, entao fica como
+        # decisao explicita do usuario -- por ora, fica MEDIDO e visivel.
+        preco_fill_saida = float(resp.get("price") or preco)
+        desvio_saida = (preco_fill_saida - preco) / preco * 100 if preco else 0.0
+        try:
+            health.set_gauge("exec_desvio_saida_ref_fill_pct", desvio_saida)
+            if abs(desvio_saida) > 0.0001:
+                database.salvar_bot_event(
+                    "execucao_saida",
+                    f"{self.symbol} {'parcial' if parcial else 'total'}: "
+                    f"ref={preco:.2f} fill={preco_fill_saida:.2f} "
+                    f"desvio={desvio_saida:+.4f}% motivo={motivo}",
+                    service="executor",
+                    symbol=self.symbol,
+                    severity="INFO",
+                )
+        except Exception:
+            pass
+
         pnl_pct = (preco - pos["entrada"]) / pos["entrada"] * 100
         pnl_usdt = qty * (preco - pos["entrada"])
 

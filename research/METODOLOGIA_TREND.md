@@ -607,6 +607,37 @@ como isto é paper trading, não se paga nada por isso; registrado para não ser
 
 ## Telemetria coletada
 
-- `bot_events` (`trend_execucao`): `ref`, `fill`, `desvio_%`, `latencia_ms`, `qty`.
-- Gauges Prometheus em `/metrics`: `trend_desvio_ref_fill_pct`,
-  `trend_latencia_entrada_ms`.
+Compartilhada com a estratégia otimizada (`main._registrar_execucao`), de
+propósito: assim os números das duas são comparáveis, e a estratégia otimizada
+— que opera em 1h/4h — fornece **dezenas de amostras por mês** contra as ~5-8
+por ano do trend diário. O trend mede fidelidade ao backtest; a otimizada
+fornece massa estatística para a mesma pergunta ("a execução come o edge?").
+
+Três preços, não dois:
+
+- `ref` — preço da decisão (trend: close do candle fechado; otimizada:
+  `f1h[-1]`, vela em formação vinda do cache com TTL de 30s).
+- `mercado` — preço fresco no instante da ordem. Contra `ref`, mede o custo de
+  ter decidido sobre dado velho.
+- `fill` — preço de abertura efetivo.
+
+Gauges em `/metrics`: `exec_desvio_ref_mercado_pct`, `exec_desvio_ref_fill_pct`,
+`exec_latencia_sinal_fill_ms`, `exec_estrategia_trend` (1/0),
+`exec_desvio_saida_ref_fill_pct`. Eventos `execucao_entrada`/`execucao_saida`
+em `bot_events`.
+
+**Achado ao instrumentar (registrado, não corrigido):** `fechar_posicao`
+calcula o PnL sobre a referência que o monitor observou, não sobre o fill —
+inclusive em simulação, porque um SELL MARKET lê preço fresco no ramo simulado.
+O `pnl_usdt` gravado é otimista por exatamente
+`exec_desvio_saida_ref_fill_pct`. Relevante porque é a mesma coluna que a
+Etapa 2 do `GATE_GO_LIVE.md` usa para profit factor.
+
+## Nota de amostragem (por que o trend sozinho não basta)
+
+`MAX_POSICOES_ABERTAS = 1` é teto **global** (`risco.py:37`), não por par. Com
+3 pares em `PARES_ATIVOS` e ~3 entradas/ano/moeda no trend diário, as três
+moedas competem por uma vaga única: na prática **5-8 fills/ano**. Amostra fraca
+para estimar latência e slippage — daí instrumentar também a otimizada, em vez
+de mudar o trend para 4h (o que quebraria a paridade com o sistema testado, e o
+4h já havia reprovado na Rodada 1).

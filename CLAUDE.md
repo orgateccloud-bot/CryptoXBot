@@ -106,7 +106,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1047 passed, 8 skipped em ~2min13s
+pytest tests/ -q                    # 1057 passed, 8 skipped em ~2min23s
 # ATENCAO: test_melhorias.py::TestRetreinamentoAutomatico::
 #   test_retreinar_nao_crasha_sem_dados chama main._retreinar_modelos() DE VERDADE
 #   (treina XGBoost+MLP baixando klines) e leva >10min sozinho. Para uma rodada
@@ -215,8 +215,39 @@ o preço de referência da decisão e o fill real, e estabilidade em 24/7.
 - **Divergência declarada:** o backtest sai no close abaixo do canal; ao vivo o
   stop na exchange dispara intrabar → saídas ao vivo ≤ backtest em timing.
   Medir esse gap é objetivo do experimento.
-- Telemetria: `bot_events` (`trend_execucao`) + gauges
-  `trend_desvio_ref_fill_pct` / `trend_latencia_entrada_ms` em `/metrics`.
+- Telemetria: a mesma das duas estratégias — ver seção abaixo.
+
+## Telemetria de execução (as duas estratégias)
+
+`main._registrar_execucao()` é compartilhada por trend e otimizada, para que os
+números sejam comparáveis. Mede **três** preços, não dois:
+
+| Preço | Origem | O que a diferença revela |
+|---|---|---|
+| `ref` | preço em que a estratégia decidiu — trend: close do candle fechado; otimizada: `f1h[-1]`, a vela **em formação** vinda do cache (TTL 30s) | — |
+| `mercado` | `get_preco()` fresco no instante de mandar a ordem | custo de decidir sobre **dado velho** (já rende número real em paper) |
+| `fill` | `posicao["entrada"]` | custo total vs. o que o backtest assume |
+
+Gauges em `/metrics` (genéricos porque as duas estratégias nunca rodam juntas;
+`exec_estrategia_trend` = 1/0 diz qual gerou a amostra):
+`exec_desvio_ref_mercado_pct`, `exec_desvio_ref_fill_pct`,
+`exec_latencia_sinal_fill_ms`, `exec_estrategia_trend`,
+`exec_desvio_saida_ref_fill_pct`. Eventos: `execucao_entrada` / `execucao_saida`
+em `bot_events`.
+
+A latência conta do **início do ciclo** (antes do fetch de klines), não do envio
+da ordem: o que interessa é sinal→fill inteiro (fetch + indicadores + ML + risco
++ ordem).
+
+**Saída — discrepância MEDIDA, não corrigida:** `fechar_posicao` calcula o PnL
+sobre `preco` (a referência que o monitor observou), não sobre o fill real. Os
+dois diferem **mesmo em simulação**: um SELL MARKET chega em `_enviar_ordem`
+sem preço, e o ramo de simulação cai em `preco or self.get_preco()` → lê preço
+fresco. Logo o `pnl_usdt` gravado (o mesmo que `relatorio_gate.py` usa para
+profit factor na Etapa 2) é otimista por exatamente o que
+`exec_desvio_saida_ref_fill_pct` mede. Trocar a base do PnL muda a
+contabilidade do registro de paper trading — decisão explícita do usuário,
+travada por `test_pnl_segue_usando_a_referencia`.
 
 ## Modelos ML
 
