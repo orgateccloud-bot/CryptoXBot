@@ -206,7 +206,12 @@ class HealthHandler(BaseHTTPRequestHandler):
         if self.path == "/ready" and self.role == "worker":
             extra = extra or {}
             extra["obi_stream_ok"] = ws_depth_ok
-        body = _payload("ok" if pronto else "degraded", self.role, db_ok, extra)
+        # `ready` tem de refletir a MESMA decisao do status HTTP. Passava-se
+        # db_ok neste parametro posicional, entao o corpo de um 503 por
+        # WebSocket morto dizia "ready": true, e um probe que le o JSON concluia
+        # o oposto do codigo HTTP. Medido em 2026-07-31: HTTP 503 com
+        # {"ready": true, "error": " ws_stale=1785532757s"}.
+        body = _payload("ok" if pronto else "degraded", self.role, pronto, extra)
 
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")

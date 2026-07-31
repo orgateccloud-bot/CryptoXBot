@@ -29,6 +29,50 @@ from config.runtime_settings import DATABASE_BACKEND, DATABASE_URL, DB_PATH
 # Logger estruturado padrão (stdlib) usado para mensagens operacionais.
 _stdlog = logging.getLogger("botbinance")
 
+
+class _FormatterComExtra(logging.Formatter):
+    """Anexa à mensagem os campos passados em `extra=`.
+
+    Sem handler próprio, o stdlib cai no `lastResort`, que imprime SÓ a mensagem
+    e DESCARTA o `extra`. Como todo o diagnóstico de WebSocket vive no extra
+    (error, attempt, latency_ms, next_retry_in_s), o log ficava assim:
+
+        Erro crítico WebSocket
+        Máximo de tentativas atingido
+
+    — sem o erro, sem a tentativa, sem nada. Foi o que impediu diagnosticar uma
+    queda de 8h40 em julho e, de novo, a queda de 2026-07-31.
+    """
+
+    _PADRAO = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {
+        "message", "asctime", "taskName",
+    }
+
+    def format(self, record):
+        base = super().format(record)
+        extras = {
+            k: v for k, v in record.__dict__.items()
+            if k not in self._PADRAO and not k.startswith("_")
+        }
+        if extras:
+            base += " | " + " ".join(f"{k}={v}" for k, v in sorted(extras.items()))
+        return base
+
+
+def _configurar_stdlog() -> None:
+    """Instala um handler que PRESERVA o extra. Idempotente."""
+    if any(getattr(h, "_bxbot", False) for h in _stdlog.handlers):
+        return
+    h = logging.StreamHandler()
+    h.setFormatter(_FormatterComExtra("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    h._bxbot = True  # marca para não duplicar em reimport/reload
+    _stdlog.addHandler(h)
+    _stdlog.setLevel(logging.INFO)
+    _stdlog.propagate = False  # evita eco no root
+
+
+_configurar_stdlog()
+
 _TABELAS_EXPORT = {"log_avaliacoes", "log_trades", "log_performance"}
 
 

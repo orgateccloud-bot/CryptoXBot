@@ -196,6 +196,85 @@ def _ws_encerrando(rotulo: str) -> bool:
     return True
 
 
+# ── Politica de retry dos WebSockets (compartilhada pelos dois) ──
+# Incidente de 2026-07-31, e antes dele uma queda de 8h40 em julho: `attempt`
+# era inicializado FORA do while e nunca resetado numa conexao bem-sucedida, e
+# o loop era `while attempt < 10`. Ou seja, 10 falhas ao longo de TODA a vida do
+# processo esgotavam o orcamento -- num servico 24/7, isso e certeza matematica.
+# Pior, o ramo `except Exception` generico dormia 1s fixo, queimando as 10
+# tentativas em ~8 segundos numa falha rapida e repetida.
+#
+# A politica correta para processo 24/7 e: NUNCA desistir, saturar o backoff num
+# teto, e ESCALAR quando a falha persiste. O que se limita e a frequencia de
+# tentativa, nao a quantidade.
+WS_DELAY_TETO_S = 300.0
+WS_FALHAS_PARA_ESCALAR = 5  # ~1 min de indisponibilidade com o backoff abaixo
+
+
+def _ws_delay_backoff(falhas_seguidas: int, base: float = 1.0, jitter: float = 0.1) -> float:
+    """Backoff exponencial com jitter, saturando em WS_DELAY_TETO_S.
+
+    O expoente e limitado a 12 para 2**n nao estourar em processo de vida longa
+    (2**12 * 1s ja passa do teto de 300s de qualquer forma).
+    """
+    d = min(base * (2 ** min(max(falhas_seguidas, 0), 12)), WS_DELAY_TETO_S)
+    d += random.uniform(-jitter * d, jitter * d)
+    return max(0.1, d)
+
+
+_ws_escalado = {}
+
+
+def _ws_escalar_se_persistente(rotulo: str, falhas_seguidas: int, erro: str) -> None:
+    """Escala UMA vez por episodio quando a indisponibilidade persiste.
+
+    Sem isto o worker fica cego em silencio: ele segue avaliando sinal e
+    dimensionando ordem com CVD/tape congelados, e o unico vestigio e o 503 de
+    /ready, que nao tem probe nenhum lendo.
+    """
+    if falhas_seguidas < WS_FALHAS_PARA_ESCALAR or _ws_escalado.get(rotulo):
+        return
+    _ws_escalado[rotulo] = True
+    logger.critical(
+        f"{rotulo} indisponivel de forma persistente",
+        extra={"falhas_seguidas": falhas_seguidas, "error": erro},
+    )
+    try:
+        database.salvar_bot_event(
+            "ws_indisponivel",
+            f"{rotulo}: {falhas_seguidas} falhas seguidas de conexao. Ultimo erro: {erro}. "
+            f"O bot segue avaliando sinal com dado POSSIVELMENTE CONGELADO.",
+            service="worker",
+            severity="CRITICAL",
+        )
+    except Exception:
+        pass
+    try:
+        telegram_bot.alerta_circuit_breaker(
+            f"{rotulo} caiu: {falhas_seguidas} tentativas seguidas falharam. Dado congelado."
+        )
+    except Exception:
+        pass
+
+
+def _ws_marcar_recuperado(rotulo: str, falhas_seguidas: int) -> None:
+    """Rearma o alerta e registra a recuperacao (senao o proximo episodio passa
+    silencioso, que e pior do que nao alertar)."""
+    if not _ws_escalado.get(rotulo):
+        return
+    _ws_escalado[rotulo] = False
+    ws_logger.info(f"{rotulo} reconectado apos {falhas_seguidas} falhas seguidas")
+    try:
+        database.salvar_bot_event(
+            "ws_recuperado",
+            f"{rotulo} reconectado apos {falhas_seguidas} falhas seguidas.",
+            service="worker",
+            severity="WARNING",
+        )
+    except Exception:
+        pass
+
+
 def _drenar_tasks_pendentes(loop):
     """Cancela e drena as tasks que sobraram, ANTES de fechar o loop.
 
@@ -226,20 +305,21 @@ async def websocket_handler():
     """
     # P0-1: mesmo mercado da execucao (spot por padrao, via WS_BASE_URL).
     url = f"{WS_BASE_URL}/ws/{SYMBOL_WS}@aggTrade"
-    max_retries = 10
-    base_delay = 1.0  # segundos
-    max_delay = 300.0  # 5 minutos
-    jitter_factor = 0.1
 
-    attempt = 0
-    while attempt < max_retries and not _shutdown_event.is_set():
+    falhas = 0  # SEGUIDAS, zeradas a cada conexao bem-sucedida
+    while not _shutdown_event.is_set():  # 24/7: nunca desiste, so espaca
         try:
             async with websockets.connect(url, ping_interval=30, ping_timeout=10) as websocket_conn:
                 ws_state["connected"] = True
                 ws_state["last_message_time"] = time.time()
                 ws_logger.info(
-                    "WebSocket conectado", extra={"symbol": SYMBOL_WS, "attempt": attempt}
+                    "WebSocket conectado", extra={"symbol": SYMBOL_WS, "falhas_previas": falhas}
                 )
+                # ESTE reset e a correcao central: antes o contador so subia, e
+                # 10 falhas espalhadas por dias encerravam o WebSocket para
+                # sempre sem que nada reconectasse.
+                _ws_marcar_recuperado("WebSocket", falhas)
+                falhas = 0
 
                 async for message in websocket_conn:
                     try:
@@ -270,25 +350,20 @@ async def websocket_handler():
             ws_state["latency_ms"] = latency
             health.increment_metric("ws_reconexoes")
 
-            # Backoff exponencial com jitter
-            delay = min(base_delay * (2**attempt), max_delay)
-            jitter = random.uniform(-jitter_factor * delay, jitter_factor * delay)
-            delay += jitter
-            delay = max(0.1, delay)  # mínimo 100ms
-
+            falhas += 1
+            delay = _ws_delay_backoff(falhas)
             logger.warning(
                 "WebSocket desconectado",
                 extra={
                     "error": str(e),
                     "symbol": SYMBOL_WS,
-                    "attempt": attempt,
+                    "falhas_seguidas": falhas,
                     "latency_ms": latency,
-                    "next_retry_in_s": delay,
+                    "next_retry_in_s": round(delay, 1),
                 },
             )
-
+            _ws_escalar_se_persistente("WebSocket", falhas, str(e))
             await asyncio.sleep(delay)
-            attempt += 1
 
         except Exception as e:
             # RuntimeError("Event loop is closed") chega aqui quando o loop e
@@ -296,21 +371,28 @@ async def websocket_handler():
             # "Erro critico WebSocket" em todo stop limpo.
             if _ws_encerrando("WebSocket"):
                 return
+            ws_state["connected"] = False
+            health.increment_metric("ws_reconexoes")
+            falhas += 1
+            # MESMO backoff do ramo de rede. Antes eram 1,0s fixos aqui, o que
+            # queimava o orcamento inteiro de tentativas em ~8 segundos quando a
+            # falha era imediata e repetida -- foi assim que os dois WebSockets
+            # morreram em 2026-07-31 logo apos o boot.
+            delay = _ws_delay_backoff(falhas)
             logger.error(
                 "Erro crítico WebSocket",
-                extra={"error": str(e), "symbol": SYMBOL_WS, "attempt": attempt},
+                extra={
+                    "error": f"{type(e).__name__}: {e}",
+                    "symbol": SYMBOL_WS,
+                    "falhas_seguidas": falhas,
+                    "next_retry_in_s": round(delay, 1),
+                },
             )
-            attempt += 1
-            await asyncio.sleep(1.0)
+            _ws_escalar_se_persistente("WebSocket", falhas, f"{type(e).__name__}: {e}")
+            await asyncio.sleep(delay)
 
-    # O while tambem termina quando _shutdown_event e setado -- nesse caso NAO
-    # esgotou tentativa nenhuma, e logar CRITICAL seria um falso alarme.
-    if _shutdown_event.is_set():
-        ws_logger.info("WebSocket finalizado (shutdown gracioso)")
-    else:
-        logger.critical(
-            "Máximo de tentativas atingido", extra={"symbol": SYMBOL_WS, "max_retries": max_retries}
-        )
+    # So se chega aqui por shutdown -- o loop nao tem mais saida por esgotamento.
+    ws_logger.info("WebSocket finalizado (shutdown gracioso)")
 
 
 async def process_message(message):
@@ -401,20 +483,19 @@ async def websocket_handler_depth():
     nao derruba a outra).
     """
     url = f"{WS_BASE_URL}/ws/{SYMBOL_WS}@depth{OBI_DEPTH_LEVELS}@100ms"
-    max_retries = 10
-    base_delay = 1.0
-    max_delay = 300.0
-    jitter_factor = 0.1
 
-    attempt = 0
-    while attempt < max_retries and not _shutdown_event.is_set():
+    falhas = 0  # SEGUIDAS, zeradas a cada conexao bem-sucedida
+    while not _shutdown_event.is_set():  # 24/7: nunca desiste, so espaca
         try:
             async with websockets.connect(url, ping_interval=30, ping_timeout=10) as websocket_conn:
                 ws_state_depth["connected"] = True
                 ws_state_depth["last_message_time"] = time.time()
                 ws_logger.info(
-                    "WebSocket @depth conectado", extra={"symbol": SYMBOL_WS, "attempt": attempt}
+                    "WebSocket @depth conectado",
+                    extra={"symbol": SYMBOL_WS, "falhas_previas": falhas},
                 )
+                _ws_marcar_recuperado("WebSocket @depth", falhas)
+                falhas = 0
 
                 async for message in websocket_conn:
                     try:
@@ -442,42 +523,41 @@ async def websocket_handler_depth():
             ws_state_depth["latency_ms"] = latency
             health.increment_metric("ws_reconexoes")
 
-            delay = min(base_delay * (2**attempt), max_delay)
-            jitter = random.uniform(-jitter_factor * delay, jitter_factor * delay)
-            delay += jitter
-            delay = max(0.1, delay)
-
+            falhas += 1
+            delay = _ws_delay_backoff(falhas)
             logger.warning(
                 "WebSocket @depth desconectado",
                 extra={
                     "error": str(e),
                     "symbol": SYMBOL_WS,
-                    "attempt": attempt,
+                    "falhas_seguidas": falhas,
                     "latency_ms": latency,
-                    "next_retry_in_s": delay,
+                    "next_retry_in_s": round(delay, 1),
                 },
             )
-
+            _ws_escalar_se_persistente("WebSocket @depth", falhas, str(e))
             await asyncio.sleep(delay)
-            attempt += 1
 
         except Exception as e:
             if _ws_encerrando("WebSocket @depth"):
                 return
+            ws_state_depth["connected"] = False
+            health.increment_metric("ws_reconexoes")
+            falhas += 1
+            delay = _ws_delay_backoff(falhas)
             logger.error(
                 "Erro crítico WebSocket @depth",
-                extra={"error": str(e), "symbol": SYMBOL_WS, "attempt": attempt},
+                extra={
+                    "error": f"{type(e).__name__}: {e}",
+                    "symbol": SYMBOL_WS,
+                    "falhas_seguidas": falhas,
+                    "next_retry_in_s": round(delay, 1),
+                },
             )
-            attempt += 1
-            await asyncio.sleep(1.0)
+            _ws_escalar_se_persistente("WebSocket @depth", falhas, f"{type(e).__name__}: {e}")
+            await asyncio.sleep(delay)
 
-    if _shutdown_event.is_set():
-        ws_logger.info("WebSocket @depth finalizado (shutdown gracioso)")
-    else:
-        logger.critical(
-            "Máximo de tentativas atingido (@depth)",
-            extra={"symbol": SYMBOL_WS, "max_retries": max_retries},
-        )
+    ws_logger.info("WebSocket @depth finalizado (shutdown gracioso)")
 
 
 async def process_depth_message(message):

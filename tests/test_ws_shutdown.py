@@ -86,8 +86,16 @@ class TestWsEncerrando:
 
 
 class TestFimDoLoopNaoEFalsoAlarme:
-    """`while attempt < max_retries and not _shutdown_event.is_set()` sai por
-    DOIS motivos. O CRITICAL só vale para um deles."""
+    """O loop só sai por SHUTDOWN.
+
+    Quando estes testes foram escritos, a condição era
+    `while attempt < max_retries and not _shutdown_event.is_set()` e o ponto era
+    que o CRITICAL de "Máximo de tentativas" não podia disparar na saída por
+    shutdown. Em 2026-07-31 descobriu-se que a OUTRA saída era o defeito:
+    `max_retries` valia para a vida inteira do processo e os dois WebSockets
+    morreram em definitivo. Hoje o esgotamento não existe mais — o que se
+    limita é a frequência de tentativa.
+    """
 
     def _rodar(self, handler):
         loop = asyncio.new_event_loop()
@@ -107,23 +115,34 @@ class TestFimDoLoopNaoEFalsoAlarme:
         self._rodar(main.websocket_handler_depth)
         assert logs["critical"] == []
 
-    def test_tentativas_esgotadas_de_verdade_ainda_loga_critical(self, logs, monkeypatch):
-        """Falha real repetida (sem shutdown) tem que continuar gritando."""
+    def test_falha_de_rede_repetida_loga_warning_e_NAO_desiste(self, logs, monkeypatch):
+        """Contrato invertido de propósito: antes este teste exigia
+        `critical("Máximo de tentativas")` após 10 falhas. Esse era o defeito."""
+        n = {"v": 0}
+
         # `def`, não `async def`: websockets.connect() é usado como
         # `async with connect(...)`, ou seja devolve um context manager, não uma
         # coroutine. Um mock `async def` faria o `async with` estourar
         # AttributeError('__aenter__') -- uma Exception qualquer, que cai no ramo
         # GENÉRICO e não no de rede. O teste passaria medindo a coisa errada.
         def conectar_falhando(*a, **k):
+            n["v"] += 1
+            if n["v"] >= 25:  # bem acima do antigo teto de 10
+                main._shutdown_event.set()  # única saída válida hoje
             raise main.websockets.exceptions.WebSocketException("conexao recusada")
 
         monkeypatch.setattr(main.websockets, "connect", conectar_falhando)
         monkeypatch.setattr(main.asyncio, "sleep", _sem_espera)  # sem backoff real
+        monkeypatch.setattr(main.database, "salvar_bot_event", lambda *a, **k: None)
+        monkeypatch.setattr(main.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: None)
         self._rodar(main.websocket_handler)
 
-        assert len(logs["critical"]) == 1
-        assert "Máximo de tentativas" in logs["critical"][0]
-        assert len(logs["warning"]) == 10  # uma por tentativa
+        assert n["v"] >= 25, "desistiu antes do shutdown"
+        # 24 e não 25: na tentativa que dispara o shutdown, _ws_encerrando()
+        # retorna ANTES de logar — falha coincidente com parada pedida é
+        # classificada como shutdown, não como incidente. É o comportamento
+        # correto, e a razão de o ruído de stderr ter sumido.
+        assert len(logs["warning"]) >= n["v"] - 1  # uma por tentativa, sem teto
         assert logs["error"] == []  # falha de rede != erro crítico
 
 
@@ -158,15 +177,28 @@ class TestErroCriticoSoQuandoEhCritico:
         assert any("shutdown" in m.lower() for m in logs["info"])
 
     def test_erro_inesperado_fora_de_shutdown_ainda_loga(self, logs, monkeypatch):
-        """Sem shutdown, RuntimeError IDÊNTICO é incidente e tem que logar."""
+        """Sem shutdown, RuntimeError IDÊNTICO é incidente e tem que logar.
+
+        Este é o ramo em que caiu o ConnectionResetError de 2026-07-31 — e onde
+        o sleep fixo de 1s queimava as 10 tentativas em ~8 segundos. Hoje o
+        ramo usa o mesmo backoff do de rede e não desiste.
+        """
+        n = {"v": 0}
+        monkeypatch.setattr(main.database, "salvar_bot_event", lambda *a, **k: None)
+        monkeypatch.setattr(main.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: None)
+
         def conectar(*a, **k):
+            n["v"] += 1
+            if n["v"] >= 20:
+                main._shutdown_event.set()
             raise RuntimeError("Event loop is closed")
 
         self._rodar(main.websocket_handler, conectar, monkeypatch)
 
-        assert len(logs["error"]) == 10, "erro real tem que logar por tentativa"
+        assert n["v"] >= 20, "desistiu antes do shutdown"
+        # n-1: a tentativa que dispara o shutdown sai por _ws_encerrando sem logar.
+        assert len(logs["error"]) >= n["v"] - 1, "erro real tem que logar por tentativa"
         assert all("rítico" in m for m in logs["error"])
-        assert len(logs["critical"]) == 1  # e ainda esgota as tentativas
 
     def test_desconexao_em_shutdown_nao_vira_warning(self, logs, monkeypatch):
         """Fechar a conexão no stop levanta ConnectionClosed -- é parada pedida,
