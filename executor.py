@@ -1158,16 +1158,87 @@ class Executor:
     # inverso (DB com posicao ja fechada fora do bot) tambem nao era detectado.
     # RECONCILIAR_BOOT_EXCHANGE=true liga essas checagens (default False).
 
+    # Divergencia maxima tolerada entre a entrada persistida e o preco de
+    # mercado no boot. 50% e folgado de proposito: cobre gap real e posicao
+    # velha legitima, mas nao cobre ordem de magnitude.
+    DIVERGENCIA_MAX_REIDRATACAO = 0.50
+
+    def _posicao_e_plausivel(self, pos_salva):
+        """Sanidade antes de readotar uma posicao do banco. Devolve (ok, motivo).
+
+        Existe por um incidente real (2026-07-31): a suite de testes gravava
+        posicao de fixture no banco de PRODUCAO -- entrada 100.0, order_id
+        "SIM-1", abertura "x" -- e o boot a readotava sem validar nada. Com BTC
+        a ~64.000 o monitor via preco >> target1 e "fechava" no primeiro tick,
+        gravando PnL de +62.658% e +64.429% em `sinais`. Aconteceu tres vezes.
+        Com capital real teria enviado um SELL de BTC que a estrategia nunca
+        comprou.
+
+        O conftest.py da raiz fecha a ORIGEM; isto e a segunda camada, para o
+        banco que chega sujo por outro caminho (restore, edicao manual,
+        migracao).
+        """
+        if not isinstance(pos_salva, dict):
+            return False, "registro nao e dict"
+        entrada = pos_salva.get("entrada")
+        if not isinstance(entrada, (int, float)) or entrada <= 0:
+            return False, f"entrada invalida: {entrada!r}"
+
+        # Marcas de fixture: order_id sintetico do ramo de simulacao e campos
+        # que o codigo de producao nunca produz.
+        order_id = str(pos_salva.get("order_id") or "")
+        if not self.simulacao and order_id.startswith("SIM-"):
+            return False, f"order_id de simulacao ({order_id}) num boot REAL"
+        abertura = str(pos_salva.get("abertura") or "")
+        if abertura and "T" not in abertura:
+            return False, f"abertura nao e timestamp ISO: {abertura!r}"
+
+        preco = self.get_preco()
+        if preco <= 0:
+            # Sem preco nao da para julgar. Nao bloqueia: recusar posicao real
+            # por API fora e pior do que aceitar uma suja aqui.
+            return True, "preco indisponivel — plausibilidade nao verificada"
+        divergencia = abs(preco - entrada) / preco
+        if divergencia > self.DIVERGENCIA_MAX_REIDRATACAO:
+            return False, (
+                f"entrada {entrada:,.2f} diverge {divergencia * 100:.0f}% do mercado "
+                f"{preco:,.2f} (limite {self.DIVERGENCIA_MAX_REIDRATACAO * 100:.0f}%)"
+            )
+        return True, "ok"
+
     def reidratar_posicao(self, pos_salva):
         """Restaura uma posicao (persistida ou reconstruida) e religa o
         monitor. Usado tanto pelo caminho legado (RECONCILIAR_BOOT_EXCHANGE=
         false) quanto pelos casos 'concordam'/'orfa recuperada' de
-        reconciliar_boot()."""
+        reconciliar_boot().
+
+        Retorna True se readotou. RECUSA posicao implausivel em vez de religar o
+        monitor sobre ela -- ver _posicao_e_plausivel.
+        """
+        ok, motivo = self._posicao_e_plausivel(pos_salva)
+        if not ok:
+            print(
+                f"[EXEC] RECUSADA a reidratacao de posicao em {self.symbol}: {motivo}. "
+                f"Monitor NAO religado; registro mantido no banco para inspecao."
+            )
+            try:
+                database.salvar_bot_event(
+                    "reidratacao_recusada",
+                    f"{self.symbol}: {motivo}. Posicao persistida NAO foi readotada.",
+                    service="executor",
+                    symbol=self.symbol,
+                    severity="CRITICAL",
+                )
+            except Exception:
+                pass
+            return False
+
         with self._lock:
             self.posicao = pos_salva
             self._ativo = True
         self._monitor = threading.Thread(target=self._monitorar, daemon=True)
         self._monitor.start()
+        return True
 
     def _saldo_ativo_base(self):
         """Saldo livre+travado do ativo-base (ex.: BTC em BTCUSDT). So usado

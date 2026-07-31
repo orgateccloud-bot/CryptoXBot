@@ -30,11 +30,11 @@ config/            # runtime_settings (env > local > default) + params por par
 data/              # cvd_calculator + klines (fetch consolidado, cache TTL) — artefatos (*.db/*.pkl) gitignored
 deploy/            # systemd units, Caddyfile, setup.sh
 estrategias/       # Estratégias de trading (otimizada)
-scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 (restart NSSM com prova)
+scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 + purgar_fixtures_producao.py
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (1101 passed, 8 skipped)
+tests/             # pytest (1115 passed, 8 skipped) — isolado de producao via conftest.py da raiz
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -121,12 +121,14 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1101 passed, 8 skipped em ~2min55s
-# ATENCAO: test_melhorias.py::TestRetreinamentoAutomatico::
-#   test_retreinar_nao_crasha_sem_dados chama main._retreinar_modelos() DE VERDADE
-#   (treina XGBoost+MLP baixando klines) e leva >10min sozinho. Para uma rodada
-#   rapida, desselecione-o:
-#   pytest tests/ -q --deselect "tests/test_melhorias.py::TestRetreinamentoAutomatico::test_retreinar_nao_crasha_sem_dados"
+pytest tests/ -q                    # 1115 passed, 8 skipped em ~2min36s
+# A suite e ISOLADA do estado de producao pelo conftest.py da RAIZ: banco em
+# tmp + guard que FALHA o teste se alguem abrir data/btc_data.db. Leia o
+# cabecalho de conftest.py antes de mexer nele — ate 2026-07-31 `pytest tests/`
+# gravava posicao de fixture NO BANCO VIVO, que o boot readotava e "fechava"
+# com PnL de +62.658%, tres vezes. Nao remova o conftest para destravar teste.
+#   (O teste de retreino levava >10min porque treinava sobre os dados REAIS de
+#    producao; com o banco isolado roda em ~6s, que e o que o nome dele diz.)
 # BXBOT_TEST_PG_URL=postgresql://... pytest tests/test_logger_postgres.py -v
 
 # Migração de dados SQLite -> Supabase (idempotente)

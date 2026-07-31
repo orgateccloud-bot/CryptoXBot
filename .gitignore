@@ -100,3 +100,8 @@ tmp/
 
 # Edge lab — cache de matriz de features (recomputavel)
 research/.cache/
+
+# Backups de banco gerados por scripts/purgar_fixtures_producao.py e afins
+# (345 MB cada — nunca versionar)
+data/*.bak-*
+*.db.bak-*
