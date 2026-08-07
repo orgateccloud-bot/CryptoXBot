@@ -1,0 +1,363 @@
+<title>Scorecard de módulos — CryptoXbot</title>
+<style>
+  :root {
+    --cobre:#C87A3F; --cobre-fraco:#E2A876;
+    --crit:#FF4422; --aten:#D99A2B; --ok:#2E7BE6;
+    --bg:#F5F3F1; --sup:#FFFFFF; --sup2:#FAF8F6;
+    --txt:#1C1815; --mut:#6E645C; --linha:#E3DDD7;
+    --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --r:3px;
+  }
+  @media (prefers-color-scheme:dark) {
+    :root { --bg:#14100D; --sup:#1D1815; --sup2:#231D19; --txt:#F0EBE6;
+             --mut:#9A8C80; --linha:#332B25; --cobre:#D89457; --cobre-fraco:#8A5A2E; }
+  }
+  :root[data-theme="dark"] { --bg:#14100D; --sup:#1D1815; --sup2:#231D19; --txt:#F0EBE6;
+             --mut:#9A8C80; --linha:#332B25; --cobre:#D89457; --cobre-fraco:#8A5A2E; }
+  :root[data-theme="light"] { --bg:#F5F3F1; --sup:#FFFFFF; --sup2:#FAF8F6; --txt:#1C1815;
+             --mut:#6E645C; --linha:#E3DDD7; --cobre:#C87A3F; --cobre-fraco:#E2A876; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:var(--sans);
+          line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1180px; margin:0 auto; padding:0 24px 96px; }
+
+  /* ---- cabecalho: chrome de cobre ---- */
+  header.top { border-bottom:2px solid var(--cobre); padding:40px 0 22px; margin-bottom:34px;
+                display:flex; flex-wrap:wrap; gap:22px; align-items:flex-end; justify-content:space-between; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+              color:var(--cobre); margin:0 0 10px; }
+  h1 { font-family:var(--mono); font-weight:700; font-size:clamp(26px,4.2vw,42px);
+        letter-spacing:-.02em; margin:0; text-wrap:balance; line-height:1.1; }
+  .sub { color:var(--mut); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  .verdict { border:2px solid var(--crit); border-radius:var(--r); padding:14px 18px; min-width:190px; }
+  .verdict .g { font-family:var(--mono); font-size:44px; font-weight:700; line-height:1;
+                 color:var(--crit); font-variant-numeric:tabular-nums; }
+  .verdict .g small { font-size:17px; color:var(--mut); font-weight:400; }
+  .verdict .lbl { font-family:var(--mono); font-size:10.5px; letter-spacing:.14em;
+                   text-transform:uppercase; color:var(--crit); margin-top:7px; font-weight:700; }
+
+  h2 { font-family:var(--mono); font-size:12px; letter-spacing:.16em; text-transform:uppercase;
+        color:var(--cobre); margin:0 0 16px; padding-bottom:8px; border-bottom:1px solid var(--linha); }
+  section { margin-bottom:52px; }
+
+  /* ---- portoes em serie ---- */
+  .gates { list-style:none; padding:0; margin:0; display:grid; gap:0; }
+  .gate { display:flex; gap:18px; padding:20px 0; border-bottom:1px solid var(--linha); position:relative; }
+  .gate:last-child { border-bottom:none; }
+  .gate-mark { flex:0 0 46px; height:46px; border:2px solid var(--crit); border-radius:50%;
+                display:grid; place-items:center; font-family:var(--mono); font-weight:700;
+                color:var(--crit); position:relative; }
+  .gate-mark::after { content:""; position:absolute; left:50%; top:100%; width:2px; height:20px;
+                       background:var(--crit); opacity:.4; }
+  .gate:last-child .gate-mark::after { display:none; }
+  .gate-body h3 { font-family:var(--mono); font-size:15px; margin:8px 0 8px; display:flex;
+                   align-items:center; gap:10px; flex-wrap:wrap; }
+  .gate-state { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--crit);
+                 border:1px solid var(--crit); border-radius:999px; padding:2px 9px; font-weight:700; }
+  .gate-body p { margin:0 0 6px; font-size:14.5px; max-width:74ch; }
+  .gate-worse { color:var(--mut); font-size:13.5px !important; }
+  .gate-body code { font-family:var(--mono); font-size:.9em; background:var(--sup2);
+                     padding:1px 5px; border-radius:2px; }
+
+  /* ---- painel de numeros ---- */
+  .panel { display:grid; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); gap:1px;
+            background:var(--linha); border:1px solid var(--linha); border-radius:var(--r); overflow:hidden; }
+  .cell { background:var(--sup); padding:16px 18px; }
+  .cell .v { font-family:var(--mono); font-size:27px; font-weight:700; font-variant-numeric:tabular-nums;
+              line-height:1.15; }
+  .cell .k { font-family:var(--mono); font-size:10px; letter-spacing:.11em; text-transform:uppercase;
+              color:var(--mut); margin-top:5px; }
+  .cell.bad .v { color:var(--crit); }
+
+  .layers { list-style:none; padding:0; margin:22px 0 0; display:grid; gap:7px; }
+  .layers li { display:grid; grid-template-columns:112px 1fr 40px 34px; gap:12px; align-items:center;
+                font-size:13.5px; }
+  .lay-name { color:var(--mut); }
+  .lay-bar { height:7px; background:var(--sup2); border:1px solid var(--linha); border-radius:999px; overflow:hidden; }
+  .lay-bar i { display:block; height:100%; background:var(--crit); }
+  .lay-num { font-family:var(--mono); font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+  .lay-n { font-family:var(--mono); font-size:11px; color:var(--mut); text-align:right; }
+
+  /* ---- controles ---- */
+  .controls { display:flex; flex-wrap:wrap; gap:9px; align-items:center; margin-bottom:16px; }
+  .chip { font-family:var(--mono); font-size:11.5px; letter-spacing:.05em; padding:6px 12px;
+           border:1px solid var(--linha); background:var(--sup); color:var(--mut);
+           border-radius:999px; cursor:pointer; transition:.14s; }
+  .chip:hover { border-color:var(--cobre); color:var(--txt); }
+  .chip[aria-pressed="true"] { background:var(--cobre); border-color:var(--cobre);
+           color:var(--bg); font-weight:700; }
+  input[type="search"] { font-family:var(--mono); font-size:12.5px; padding:7px 12px; flex:1; min-width:190px;
+           border:1px solid var(--linha); background:var(--sup); color:var(--txt); border-radius:var(--r); }
+  input[type="search"]:focus-visible, .chip:focus-visible, .row:focus-visible {
+           outline:2px solid var(--cobre); outline-offset:2px; }
+  .count { font-family:var(--mono); font-size:11.5px; color:var(--mut); }
+
+  /* ---- grade de modulos ---- */
+  .grid { border:1px solid var(--linha); border-radius:var(--r); overflow:hidden; }
+  .row { display:grid; grid-template-columns:5px 44px minmax(0,1fr) 66px 82px 70px;
+          align-items:center; gap:14px; padding:0 16px 0 0; background:var(--sup);
+          border-bottom:1px solid var(--linha); cursor:pointer; text-align:left;
+          width:100%; border-left:0; border-right:0; border-top:0; font:inherit; color:inherit; }
+  .row:last-of-type { border-bottom:none; }
+  .row:hover { background:var(--sup2); }
+  .stripe { height:100%; min-height:54px; }
+  .sev-1 .stripe, .sev-2 .stripe, .sev-3 .stripe { background:var(--crit); }
+  .sev-4 .stripe, .sev-5 .stripe, .sev-6 .stripe { background:var(--aten); }
+  .sev-7 .stripe { background:var(--ok); }
+  .score { font-family:var(--mono); font-size:21px; font-weight:700; text-align:center;
+            font-variant-numeric:tabular-nums; }
+  .sev-1 .score, .sev-2 .score, .sev-3 .score { color:var(--crit); }
+  .sev-4 .score, .sev-5 .score, .sev-6 .score { color:var(--aten); }
+  .sev-7 .score { color:var(--ok); }
+  .mod { font-family:var(--mono); font-size:13.5px; min-width:0; overflow-wrap:anywhere; padding:13px 0; }
+  .mod .dp { display:block; font-family:var(--sans); font-size:12.5px; color:var(--mut);
+              margin-top:3px; overflow:hidden; text-overflow:ellipsis; display:-webkit-box;
+              -webkit-line-clamp:1; -webkit-box-orient:vertical; }
+  .loc { font-family:var(--mono); font-size:12px; color:var(--mut); text-align:right;
+          font-variant-numeric:tabular-nums; }
+  .tag { font-family:var(--mono); font-size:10px; letter-spacing:.07em; text-transform:uppercase;
+          color:var(--mut); text-align:center; }
+  .trk { font-family:var(--mono); font-size:10px; letter-spacing:.07em; text-transform:uppercase;
+          text-align:right; color:var(--cobre); }
+  .detail { background:var(--sup2); border-bottom:1px solid var(--linha); padding:0 20px 0 63px;
+             max-height:0; overflow:hidden; transition:max-height .22s ease, padding .22s ease; }
+  .detail.open { max-height:640px; padding:16px 20px 20px 63px; }
+  .detail p { margin:0 0 10px; font-size:13.5px; max-width:88ch; }
+  .detail .lbl { font-family:var(--mono); font-size:10px; letter-spacing:.13em; text-transform:uppercase;
+                  color:var(--cobre); margin-bottom:4px; }
+
+  ul.plain { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+  ul.plain li { font-size:13.5px; padding-left:15px; position:relative; max-width:92ch; }
+  ul.plain li::before { content:""; position:absolute; left:0; top:.62em; width:6px; height:6px;
+                         border-radius:50%; background:var(--cobre); }
+  .two { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:36px; }
+  footer { border-top:1px solid var(--linha); margin-top:14px; padding-top:20px;
+            font-family:var(--mono); font-size:11.5px; color:var(--mut); }
+  @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+  @media (max-width:680px) {
+    .row { grid-template-columns:5px 40px minmax(0,1fr) 58px; }
+    .tag, .trk { display:none; }
+    .detail { padding-left:20px; } .detail.open { padding-left:20px; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Auditoria multiagente · 07.08.2026</p>
+      <h1>Scorecard de módulos</h1>
+      <p class="sub">45 módulos, 16,517 LOC. Cada lote mapeado por um agente e
+      refutado por um cético independente. Nota = aptidão para operar com dinheiro
+      real, não elegância.</p>
+    </div>
+    <div class="verdict">
+      <div class="g">2<small>/10</small></div>
+      <div class="lbl">Não apto a<br>capital real</div>
+    </div>
+  </header>
+
+  <section>
+    <h2>Os quatro portões — todos fechados ao mesmo tempo</h2>
+    <p class="sub" style="margin:0 0 18px">Prontidão é conjunção, não soma: o resultado é o
+    <strong>mínimo</strong> dos portões em série, não a média das notas. Por isso a média
+    aritmética de 3,0 engana e a nota global é 2.</p>
+    <ol class="gates">
+      <li class="gate">
+        <div class="gate-mark" aria-hidden="true"><span>A</span></div>
+        <div class="gate-body">
+          <h3>Edge<span class="gate-state">fechado</span></h3>
+          <p>Cinco hipóteses reprovadas com critério pré-registrado; Etapa 1 do gate reprovada em 4 de 5.</p>
+          <p class="gate-worse">A régua que reprovou mede stop/target 2%/4% — produção roda 1,5%/5%. Está errada nas duas direções, então nem uma futura aprovação valeria.</p>
+        </div>
+      </li>
+      <li class="gate">
+        <div class="gate-mark" aria-hidden="true"><span>B</span></div>
+        <div class="gate-body">
+          <h3>Sinal<span class="gate-state">fechado</span></h3>
+          <p>Regime idêntico entre pares em 2.278 de 2.278 ciclos. 38 dos 100 pontos de score de dois terços dos pares vêm de outro ativo.</p>
+          <p class="gate-worse">Resultado registrado em log: COMPRA de ETH com stop acima da entrada, de forma determinística.</p>
+        </div>
+      </li>
+      <li class="gate">
+        <div class="gate-mark" aria-hidden="true"><span>C</span></div>
+        <div class="gate-body">
+          <h3>Risco<span class="gate-state">fechado</span></h3>
+          <p>O tamanho aprovado é calculado contra um stop sintético de 1,5% que não é o que o executor instala.</p>
+          <p class="gate-worse">MAX_DRAWDOWN_TOTAL nunca é avaliado, kelly é fail-open no teto, e não existe kill-switch em nenhum arquivo do repositório.</p>
+        </div>
+      </li>
+      <li class="gate">
+        <div class="gate-mark" aria-hidden="true"><span>D</span></div>
+        <div class="gate-body">
+          <h3>Execução<span class="gate-state">fechado</span></h3>
+          <p>O núcleo puro roda em paper todo dia, mas 10 métodos bifurcam por <code>if self.simulacao</code>: o grafo que receberia capital tem zero execuções.</p>
+          <p class="gate-worse">Falha composta no primeiro trade: comissão em BTC não descontada → stop rejeitado por -2010 → abrir_long retorna True com a posição nua.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Panorama</h2>
+    <div class="panel">
+      <div class="cell bad"><div class="v">32<small style="font-size:15px;color:var(--mut)">/45</small></div><div class="k">Módulos nota ≤ 3</div></div>
+      <div class="cell bad"><div class="v">71%</div><div class="k">do código em nota ≤ 3</div></div>
+      <div class="cell"><div class="v">1</div><div class="k">Módulo nota ≥ 7</div></div>
+      <div class="cell"><div class="v">0</div><div class="k">Kill-switch no repo</div></div>
+      <div class="cell bad"><div class="v">0<small style="font-size:15px;color:var(--mut)">/8</small></div><div class="k">Alertas entregues</div></div>
+    </div>
+    <ul class="layers">
+        <li>
+          <span class="lay-name">Superfícies</span>
+          <span class="lay-bar"><i style="width:23%"></i></span>
+          <span class="lay-num">2.3</span>
+          <span class="lay-n">3</span>
+        </li>
+        <li>
+          <span class="lay-name">Sinal</span>
+          <span class="lay-bar"><i style="width:26%"></i></span>
+          <span class="lay-num">2.6</span>
+          <span class="lay-n">9</span>
+        </li>
+        <li>
+          <span class="lay-name">Ferramentas</span>
+          <span class="lay-bar"><i style="width:29%"></i></span>
+          <span class="lay-num">2.9</span>
+          <span class="lay-n">7</span>
+        </li>
+        <li>
+          <span class="lay-name">Execução</span>
+          <span class="lay-bar"><i style="width:30%"></i></span>
+          <span class="lay-num">3.0</span>
+          <span class="lay-n">2</span>
+        </li>
+        <li>
+          <span class="lay-name">Config</span>
+          <span class="lay-bar"><i style="width:30%"></i></span>
+          <span class="lay-num">3.0</span>
+          <span class="lay-n">4</span>
+        </li>
+        <li>
+          <span class="lay-name">Pesquisa</span>
+          <span class="lay-bar"><i style="width:33%"></i></span>
+          <span class="lay-num">3.3</span>
+          <span class="lay-n">11</span>
+        </li>
+        <li>
+          <span class="lay-name">Dados</span>
+          <span class="lay-bar"><i style="width:33%"></i></span>
+          <span class="lay-num">3.3</span>
+          <span class="lay-n">7</span>
+        </li>
+        <li>
+          <span class="lay-name">Risco</span>
+          <span class="lay-bar"><i style="width:40%"></i></span>
+          <span class="lay-num">4.0</span>
+          <span class="lay-n">2</span>
+        </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Módulos</h2>
+    <div class="controls">
+      <button class="chip" data-f="camada" data-v="" aria-pressed="true">todas as camadas</button>
+      <button class="chip" data-f="nota" data-v="crit" aria-pressed="false">só nota ≤ 3</button>
+      <button class="chip" data-f="trilha" data-v="infra" aria-pressed="false">infra</button>
+      <button class="chip" data-f="trilha" data-v="edge" aria-pressed="false">edge</button>
+      <input type="search" id="q" placeholder="filtrar por nome ou defeito…" aria-label="Filtrar módulos">
+      <span class="count" id="count"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section class="two">
+    <div>
+      <h2>Os piores</h2>
+      <ul class="plain">
+        <li>backtesting/otimizador.py (1) — look-ahead de 47,4h em 100% das barras + grid de 8000 sem OOS, e a saída disso governa o trading ao vivo via config/params_pares.py</li>
+        <li>backtesting/motor.py (1) — sobrescreve a posição 12.749 vezes e mockou 9 de 11 componentes do score; alcançável por `main.py --backtest`</li>
+        <li>backtesting/motor_vectorbt.py (1) — 391 LOC que nem importam (dependência ausente), com paridade quebrada em sizing e escala de retorno</li>
+        <li>backtesting/motor_otimizado.py (1) — código morto confirmado com look-ahead num filtro que é gate booleano; aposentar para _legado/</li>
+        <li>estrategias/otimizada.py (2) — o override de stop pelo suporte de BTC (207-210) produz stop acima da entrada em 100% das compras de ETH/SOL</li>
+        <li>suporte.py (2) — causa raiz do stop 34x (SYMBOL fixo em 29 e detectar_suportes sem par em 104), com testes que codificam o hardcode como contrato</li>
+        <li>telegram_bot.py (2) — único canal de escalonamento do sistema, com 10 call sites reais e 0 de 8 alertas entregues, falhando em silêncio absoluto</li>
+        <li>testar_api.py (2) — a ferramenta que o guia manda rodar antes de operar declara 'chaves validadas' lendo a permissão da CONTA, não da CHAVE</li>
+        <li>data/cvd_calculator.py (2) — componente de 7% do score matematicamente incapaz de sair de 50/51, com testes que mockam valores irreais</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Os melhores</h2>
+      <ul class="plain">
+        <li>backtesting/metricas.py (7) — biblioteca pura, determinística, com testes de propriedade e não só de valor; a única do lote cujos pontos fortes sobreviveram integralmente à refutação</li>
+        <li>validacao.py (6) — purge/embargo aritmeticamente corretos contra o rótulo real, sem I/O, sem estado, consumido pelo caminho de retreino</li>
+        <li>binance_conta.py (5) — contrato de erro explícito (float, str|None), offset de relógio que não se auto-zera em falha, -1021 com re-sync; adotado pela metade</li>
+        <li>data/klines.py (5) — lock único correto, chave normalizada, timestamp só em sucesso, REST_BASE_URL respeitado; consolidação real de 4 dos 7 fetchers</li>
+        <li>backtesting/trend_following.py (5) — causalidade do Donchian provada por teste, contabilidade verificada numericamente, custo de spot honesto (0,10%/lado, único do diretório)</li>
+        <li>research/edge_lab.py (5) — pré-registro datado, corte anti-vazamento conservador, e 18 testes que provam que o harness NÃO fabrica edge falso sob null autocorrelacionado</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    31 agentes · 5,6M tokens · toda afirmação com evidência arquivo:linha ·
+    fonte completa em <span style="color:var(--cobre)">docs/RELATORIO_MODULOS.md</span>
+  </footer>
+</div>
+
+<script>
+const DADOS = {"modulos": [{"m": "backtesting/motor.py", "loc": 407, "n": 1, "c": "Pesquisa", "t": "edge", "j": "Alcançável por `main.py --backtest`. Chama o score de produção, mas com 9 de 11 componentes constantes (piso imutável de 55,77 de 100, só ema e rsi variam) e CVD com sinal invertido que só sobe. Os -99,24% que ele imprime não medem estratégia nenhuma — medem o harness.", "d": "Não há guard `if posicao is None` antes da entrada: a posição aberta é sobrescrita silenciosamente 12.749 vezes em 17.512 barras, com o trade anterior apagado sem PnL. O motor irmão TEM o guard (motor_ensemble.py:445) — a divergência entre os dois é o próprio bug."}, {"m": "backtesting/otimizador.py", "loc": 391, "n": 1, "c": "Pesquisa", "t": "edge", "j": "Seis vieses independentes, todos na direção favorável: look-ahead, bloqueios de regime/volatilidade anulados por recálculo do fator, taxa de futuros, F&G travado em 100, Sharpe bruto de taxa anualizado por sqrt(252) sobre retornos por trade, e posição aberta descartada no fim. Zero teste.", "d": "Look-ahead médio de 47,4h em 100% das barras (idx_1h//4, linha 64) num grid de até 8000 combinações sem hold-out, walk-forward ou correção de multiplicidade — e a saída disso está hardcoded em config/params_pares.py, lida no caminho vivo por otimizada.py:70."}, {"m": "backtesting/motor_vectorbt.py", "loc": 391, "n": 1, "c": "Pesquisa", "t": "infra", "j": "56 linhas de docstring documentando decisões de engenharia para código inerte, que ainda reproduz fielmente o look-ahead do legado e apresenta essa fidelidade como virtude. Velocidade sem correção só amplifica o data snooping.", "d": "Nunca executou: `import vectorbt` no topo (linha 64) com a dependência não instalada, sem venv no repo, teste de paridade sempre skipped e CI que nunca instala requirements-backtest. Se rodasse, a paridade quebra em duas dimensões (fator 0,5 virou booleano; retorno líquido vs bruto)."}, {"m": "backtesting/motor_otimizado.py", "loc": 291, "n": 1, "c": "Pesquisa", "t": "manutencao", "j": "291 LOC sem importador, sem teste, sem CLI, com SYMBOL fixo e DB_PATH relativo. Acoplamento de entrada zero torna a aposentadoria barata: mover para _legado/ não quebra nada. A ideia útil (contagem de aprovação por filtro) vale ser reimplementada dentro do walk_forward.", "d": "Código morto confirmado: grep em todo o repositório devolve uma única referência fora do arquivo (uma linha de doc). Carrega o mesmo look-ahead de ~47h num filtro que aqui é GATE booleano duro, invalidando o único propósito do módulo — medir a contribuição de cada filtro."}, {"m": "dashboard.py", "loc": 801, "n": 2, "c": "Superfícies", "t": "infra", "j": "Bind local, CSP, rate limit e delegação a binance_conta são reais. Mas o painel não é uma janela para o worker: é uma segunda instância da estratégia que contamina o dataset, não expõe posição nem ordem (zero rotas mutantes em todo o repo), tem token inerte em produção e mostra painel de risco congelado no primeiro request.", "d": "O processo de UI executa a estratégia e GRAVA no banco de produção: dashboard.py:318 chama otimizada.analisar a cada 30s por par e otimizada.py:276 persiste em `sinais`. Medido: ~96% das linhas de sinal de BTCUSDT têm a cadência de 30s do dashboard, e nas últimas 24h 100% das linhas de `trades` vieram dele sem trade_id."}, {"m": "logger.py", "loc": 537, "n": 2, "c": "Dados", "t": "infra", "j": "Das nove operações analíticas, UMA tem call site de produção e funciona (registrar_avaliacao). log_trades e log_performance têm 0 linhas em 4 meses; a única leitura de produção está quebrada e mente na direção tranquilizadora. O fix operacional legítimo (_FormatterComExtra) não tem uma assertiva de teste.", "d": "dados_relatorio_diario filtra `timestamp LIKE 'AAAA-MM-DD%'` (logger.py:468-484) enquanto otimizada.py:222 grava 'dd/mm/aaaa': medido no banco vivo, 0 linhas casam contra 15 reais. O `or 0.0` de logger.py:496-502 converte None em zero e o alerta diário reporta um sistema saudável que não está sendo lido."}, {"m": "suporte.py", "loc": 428, "n": 2, "c": "Sinal", "t": "edge", "j": "60+ testes verdes sobre partes puras que não podem pegar nenhum dos dois bloqueantes: a fixture mocka `_klines(intervalo, limite)` codificando o hardcode como contrato, e um teste PINA a ausência de guarda de teto do ScaleIn. E o ScaleIn nunca passa da parcela 1, reaproveitando o tamanho do trade anterior nos seguintes.", "d": "SYMBOL='BTCUSDT' fixo (suporte.py:29) e detectar_suportes não aceita símbolo (104) — causa raiz do stop de $63.521 num trade de ETH, e o chamador não tem como contornar sem editar o arquivo."}, {"m": "estrategias/otimizada.py", "loc": 358, "n": 2, "c": "Sinal", "t": "edge", "j": "É a estratégia que roda em produção e tem duas suítes e2e, mas produz o defeito mais caro do sistema, chama a análise duas vezes por ciclo (gravando linha órfã em `sinais`), decide todos os pares com regime e ensemble do BTC, e dos 11 filtros anunciados apenas 2 gateiam — um deles vacuamente verdadeiro fora do BTC.", "d": "otimizada.py:207-210 sobrescreve o stop percentual pelo suporte_forte sempre que este for maior, e sup.detectar_suportes('1h') (193) sempre consulta BTCUSDT — com BTC ~64k e ETH ~2k a condição é verdadeira em 100% das compras de ETH/SOL: stop acima da entrada, ordem de proteção rejeitada, posição nua."}, {"m": "ai/ollama_client.py", "loc": 312, "n": 2, "c": "Ferramentas", "t": "manutencao", "j": "312 LOC de peso morto com dependência de serviço externo e dois dos quatro métodos públicos sem consumidor sequer hipotético (não há fonte de notícias no repo). Robustez de código que nunca executou não é crédito; o caminho para subir a nota é _legado/, não mais código.", "d": "Zero importadores de produção — a busca no repo devolve apenas a própria docstring e quatro linhas de teste — enquanto docs/Modulos/ML e Sinais.md classifica o módulo como maturidade 'Alta'. Não existe sequer flag para ligá-lo."}, {"m": "lstm_modelo.py", "loc": 302, "n": 2, "c": "Sinal", "t": "edge", "j": "Herda o skew de dist_vwap e o fossiliza no StandardScaler (47 das 517 entradas colapsam em ~-1,06 na inferência). BTCUSDT hardcoded em três pontos e aplicado aos 3 pares com 45% do peso do ensemble. Zero testes: nenhum arquivo tests/test_lstm*.", "d": "O artefato em produção tem n_iter_=19 com max_iter=200 e n_iter_no_change=15 — a rede parou na ~4ª época útil. Um MLP de 517 entradas praticamente não treinado, cv_auc 0,5685, é promovido sem gate (lstm_modelo.py:211-225 grava incondicionalmente e de forma não atômica)."}, {"m": "research/carry_lab.py", "loc": 253, "n": 2, "c": "Pesquisa", "t": "infra", "j": "Aritmética correta e testada (custo cobrado uma vez, capital 1,25x, variante primária com zero parâmetros — impossível de sobreajustar). Mas a regra de decisão (imprimir, com os 5 critérios) não tem um teste, --holdout não tem trava nenhuma, e o substrato desapareceu.", "d": "Não executa: `python research/carry_lab.py` termina em sqlite3.OperationalError 'no such table: funding', e a tabela não existe no banco vivo nem nos dois backups POSTERIORES à medição documentada. O FAIL de carry existe apenas como prosa em METODOLOGIA_CARRY.md."}, {"m": "ensemble.py", "loc": 220, "n": 2, "c": "Sinal", "t": "infra", "j": "É o funil por onde todo o ML entra na decisão e perde justamente a dimensão symbol. pode_operar e confianca são decorativos (otimizada.py:168-172 não os consulta), a degradação para um modelo só não renormaliza nem alerta, e o FSRS documentado no CLAUDE.md não existe — o arquivo foi deletado.", "d": "prever() não aceita symbol (ensemble.py:44) e o guard `hasattr(ens_mod,'symbol')` de main.py:1014 é permanentemente False — ETH e SOL recebem a probabilidade e o regime do BTCUSDT nos 20 pontos de maior peso do score, com o guard fazendo o bug parecer tratado em code review."}, {"m": "telegram_bot.py", "loc": 166, "n": 2, "c": "Superfícies", "t": "infra", "j": "Os 10 call sites são reais e estão no caminho de produção — o canal não é órfão, está morto. O detector de placeholder correto já existe no repo (binance_conta.py:44) e nunca foi aplicado aqui, e nove monkeypatches foram escritos para contornar o sintoma em vez de corrigir a causa.", "d": "A guarda testa vazio em vez de validade (telegram_bot.py:31) e o .env traz 'your_telegram_bot_token_here', que é truthy: o POST vai para uma URL inválida, recebe 404 e a linha 45 devolve False sem print, sem log e sem bot_event. 0 de 8 alertas entregues, incluindo 'posição sem registro no banco'."}, {"m": "monitor_fluxo.py", "loc": 149, "n": 2, "c": "Ferramentas", "t": "manutencao", "j": "Interpretação do campo `m` do aggTrade correta e persistência protegida por try/except. Mas é um processo cuja indisponibilidade não afeta nada porque nada consome sua saída, e que grava trades sem trade_id, anulando o índice único de deduplicação.", "d": "100% da saída persistida é write-only: cvd_historico não tem um único SELECT no repo, e `trades` só é lida por database.resumo_trades, que não tem chamador nenhum. Além disso run_forever sem `reconnect` — o padrão de reconexão existe no próprio repo (dashboard.py:492-497) e não foi copiado."}, {"m": "estrategias/trend_live.py", "loc": 123, "n": 2, "c": "Sinal", "t": "edge", "j": "Melhor engenharia do lote de estratégias (anti-look-ahead explícito, paridade com o backtest por identidade de função, trava em duas camadas com SystemExit, 284 linhas de teste). Nota baixa mede aptidão, não elegância: o edge está REPROVADO com hold-out queimado e o código está dormente.", "d": "Nenhum call site ativo: MODO_TREND=False (main.py:87) e o serviço roda `main.py --simulacao --intervalo 15` sem --modo-trend — nem o dry run de validação de EXECUÇÃO, única razão declarada do módulo, está rodando."}, {"m": "data/cvd_calculator.py", "loc": 104, "n": 2, "c": "Dados", "t": "edge", "j": "Aritmética do cumsum correta e convenção de sinal certa, com call site provado ponta a ponta — e é exatamente por isso que dói: o único módulo do lote com cadeia rastreável até o score entrega uma constante. Os testes de _score_cvd mockam calculate_cvd com valores que a implementação real jamais produz.", "d": "divergence_score = tanh(slope/std) tem teto matemático de 0,0693 com window_size=50, contra o limiar de 0,1 exigido em score.py:147. Medido em 1000 amostras reais: cvd_trend=0 em 1000/1000 e _score_cvd=51 em 1000/1000 — o componente de 7% é uma constante disfarçada de sinal."}, {"m": "config/settings.py", "loc": 81, "n": 2, "c": "Config", "t": "infra", "j": "Não está commitado (gitignore:2, git log vazio) e o ramo de credencial hardcoded está inerte com ENV=production. Sobra um arquivo untracked, por máquina e sem review, que decide endpoint de mercado para 13 módulos, mais duas linhas de erro de GCP em todo boot dos dois serviços.", "d": "REST_BASE_URL='https://fapi.binance.com' e WS_BASE_URL='wss://fstream...' em nível de módulo (linhas 59-60) têm PRECEDÊNCIA sobre o default SPOT via runtime_settings.py:73-74 — remover duas linhas do .env migra executor, risco, klines e binance_conta para Futuros em bloco, sem um único log."}, {"m": "testar_api.py", "loc": 68, "n": 2, "c": "Ferramentas", "t": "infra", "j": "É a ferramenta que o guia de chave manda rodar antes de operar, e ela emite uma declaração falsa de sanidade: com chave read-only diz que está tudo certo. Ainda filtra saldo por free>0, então poeira de 0,00000075 USDT aparece como 'Saldos disponíveis'. Duplicata degradada de um módulo canônico.", "d": "Responde à pergunta de go-live com o campo errado: imprime `permissions` de /api/v3/account, que é da CONTA, e conclui 'Chaves de API validadas com sucesso!' (linhas 51-53). A armadilha está documentada no próprio gate e a versão correta já existe pronta em binance_conta.restricoes_chave()."}, {"m": "executor.py", "loc": 1506, "n": 3, "c": "Execução", "t": "infra", "j": "Núcleo puro é correto e coberto (preco_medio_fill, snapping Decimal, avaliar_tick_monitor, _posicao_e_plausivel) e executa em paper todo dia. Mas 10 métodos bifurcam por `if self.simulacao`: o grafo que vai receber capital tem ZERO execuções, e nele a falha é composta e previsível já no dia 1. Sem kill-switch em todo o repo.", "d": "Comissão no ativo-base não é descontada: `tamanho_btc = executedQty` bruto (executor.py:791-793) dimensiona proteção (810) e saída (919-923); o stop toma -2010, `_colocar_stop_exchange` devolve None e `abrir_long` não checa (810 vs `return True` em 889) — posição real aberta e DESPROTEGIDA no primeiro trade."}, {"m": "main.py", "loc": 1422, "n": 3, "c": "Execução", "t": "infra", "j": "A camada de infraestrutura é real e verificável (retry dos WS sem teto, shutdown signal-safe, travas de boot com SystemExit, 71 testes verdes). O caminho do dinheiro — loop_par — não tem UM teste, tem corrida no teto de posições, scale-in que avança na falha e nunca no sucesso, e grava duas linhas em `sinais` por decisão.", "d": "Nenhuma validação de `0 < stop < preco < target` antes de abrir_long (main.py:1084-1167), enquanto o caminho trend valida (main.py:909-911). Combinado com suporte BTC-hardcoded, 2 de 3 pares emitem COMPRA com stop ~30x acima da entrada de forma DETERMINÍSTICA, não eventual."}, {"m": "risco.py", "loc": 756, "n": 3, "c": "Risco", "t": "infra", "j": "Os gates 1, 2, 4 e 5 executam a cada ciclo e o vol targeting está fiado ponta a ponta. Mas dos 3 call sites, só 1 roda hoje; kelly é fail-open no teto; o saldo 0.0 vira 100 USDT fantasma no chamador; ~165 linhas de correlação são inalcançáveis. Nenhum número que ele produz descreve a ordem que sai.", "d": "validar_trade dimensiona contra um stop SINTÉTICO de 1,5% (risco.py:637) que não é o stop que o executor instala — `risco_usdt` e `tamanho_btc` não descrevem o risco da ordem. MAX_DRAWDOWN_TOTAL só aparece no payload de display (35 vs 734) e não existe kill-switch em todo o repo."}, {"m": "backtesting/motor_ensemble.py", "loc": 697, "n": 3, "c": "Pesquisa", "t": "edge", "j": "Os defeitos B1/B4/B5 estão DIAGNOSTICADOS POR ESCRITO no próprio repo (walk_forward.py:17-41) e foram corrigidos só lá — o motor que o usuário vê ficou intacto. Cobertura executada de rodar() e _score_backtest é literalmente zero (o único teste é sempre skipped). Não desce mais porque o gate já reprovou a montante.", "d": "Servido ao vivo por GET /api/backtest com look-ahead de 44-46h no filtro MTF (idx//4, linha 350) e taxa de futuros 0,04% num bot SPOT (linha 37). Reproduzido: os +2,54% / PF 1,01 exibidos viram -42,67% / PF 0,75 / capital $573 ao corrigir as duas linhas."}, {"m": "scripts/migrate_sqlite_to_supabase.py", "loc": 411, "n": 3, "c": "Ferramentas", "t": "infra", "j": "Quatro modos bem escolhidos e dry-run que valida a conexão de verdade. Mas o schema é reimplementado à mão fora de database.py e já dessincronizou, o commit final roda mesmo com erros coletados, e imprime 40-50 caracteres da DATABASE_URL — que numa URL Supabase alcança o início da senha.", "d": "A docstring declara idempotência que só risk_state tem: 4 tabelas fazem INSERT puro e `trades` só dedupe por trade_id, que o único produtor grava NULL. E o insert de `sinais` omite preco_saida/pnl_usdt/pnl_pct/barreira_tocada — migrar apaga o resultado de todo trade fechado."}, {"m": "ml_filtro.py", "loc": 354, "n": 3, "c": "Sinal", "t": "edge", "j": "Executa em produção e tem virtudes reais (escrita atômica do pickle, retry com backoff, purged CV wired, 59 testes). Mas o vetor servido não é o vetor treinado, o rótulo usa o máximo dos FECHAMENTOS sem barreira inferior, a base está congelada em 2026-04-03 e o retreino semanal reproduz AUC bit-idêntico.", "d": "Skew treino/inferência em dist_vwap (2ª feature mais importante): ind.vwap é CUMULATIVO, o treino passa ~17.500 velas e prever() passa 100 (ml_filtro.py:72 vs 303). Medido na mesma barra: -0,1964 vs -0,0062, e o pickle devolve 0,4787 contra 0,2220 — 25,7 p.p. de erro vindo de janela, não de mercado."}, {"m": "regime.py", "loc": 265, "n": 3, "c": "Sinal", "t": "edge", "j": "ADX correto do zero com suavização de Wilder e degradação sem exceção. Mas perdeu 2 das 3 proteções que alega: o hardcode e o gate VOLATILIDADE, que medi em 2 anos de klines e NUNCA disparou (0 de 22.555 janelas de BTCUSDT, máximo 2.49 contra limiar 2.5). Sobra o bloqueio LATERAL.", "d": "SYMBOL='BTCUSDT' é constante de módulo (regime.py:23) e detectar() não aceita símbolo (151): medido em log_avaliacoes, o regime foi IDÊNTICO entre pares em 2.278 de 2.278 ciclos, divergente em zero. O componente macro de 18% de ETH e SOL é a leitura do BTC."}, {"m": "health.py", "loc": 236, "n": 3, "c": "Superfícies", "t": "infra", "j": "Código limpo, thread-safe e com /ready genuinamente correto (a regressão do 503 está corrigida). Mas o watchdog de 120s do @aggTrade — a única lógica com valor de dinheiro — só dispara se um humano fizer curl. Observabilidade completa sem observador.", "d": "Nenhum dos três endpoints tem consumidor: o único match de '/health' em deploy/ é um echo em setup.sh:76, o unit só tem Restart=on-failure, e /metrics é servido em 0.0.0.0 sem auth (health.py:234) expondo pnl_dia e drawdown. /health é 200 incondicional (158-162)."}, {"m": "scripts/purgar_fixtures_producao.py", "loc": 215, "n": 3, "c": "Ferramentas", "t": "infra", "j": "Ergonomia destrutiva exemplar (dry-run padrão, backup, imprime as decisões de MANTER, reconcilia o contador). Mas o único mecanismo de reversão está quebrado: shutil.copy2 sem o -wal num banco em journal_mode=wal com o worker vivo copia um backup sem as transações recentes.", "d": "O critério `order_id.startswith('SIM-')` é INCONDICIONAL (linha 70), mas no modo operacional atual o próprio Executor gera 'SIM-<epoch>' para toda ordem legítima (executor.py:405): `--confirmar` apaga posições reais de paper. O executor gateia o mesmo teste com `not self.simulacao` e há teste exigindo o oposto."}, {"m": "backtesting/coletar_dados.py", "loc": 193, "n": 3, "c": "Dados", "t": "infra", "j": "Entregou o substrato de todo o projeto com ZERO buracos (17.562 deltas de 1h, todos exatamente 3.600.000 ms). Mas o conjunto é a união cumulativa não-registrada das coletas de um .db com caminho RELATIVO, o contador conta tentativas em vez de rowcount, e não há um teste do mapeamento k[1..5].", "d": "A janela termina em datetime.now(), então a última vela baixada é a AINDA ABERTA, e INSERT OR IGNORE garante que nunca será corrigida: medi 3 velas parciais congeladas em BTCUSDT/1h (detectadas por quebra da cadeia abertura[i+1]==fechamento[i]) e TODAS estão dentro do hold-out."}, {"m": "fear_greed.py", "loc": 186, "n": 3, "c": "Sinal", "t": "infra", "j": "reducao_alvo é wired e testado e2e — o único output que muda o comportamento do bot. O resto é fachada: pode_operar é computado, exibido e nunca gateia a compra (otimizada.py:169-172), há quatro tabelas de faixa divergentes para o mesmo índice, e nenhum teste executa uma linha do módulo.", "d": "`except Exception` sem log devolve valor=50 (fear_greed.py:126-137) e score.py:234 mapeia 50 para 100 — é o único componente cujo modo-falha PREMIA, e ele apaga os dois bloqueios de sentimento. O módulo não importa logging nem health: a falha é absolutamente muda."}, {"m": "research/coletar_funding.py", "loc": 128, "n": 3, "c": "Dados", "t": "infra", "j": "Schema idempotente correto (UNIQUE + INSERT OR IGNORE + índice), caminho derivado de __file__, guarda anti-loop. Mas é o fornecedor único de dados de um FAIL pré-registrado, tem zero testes, nenhuma validação de continuidade, e grava num .db gitignored em vez de artefato versionável.", "d": "criar_tabela() é chamado incondicionalmente antes de qualquer download (linha 117) e a tabela `funding` não existe em nenhuma das três cópias do banco — não há evidência de que este coletor tenha produzido um artefato sobrevivente. Erro de rede faz break e grava parcial com exit 0."}, {"m": "config/params_pares.py", "loc": 54, "n": 3, "c": "Config", "t": "edge", "j": "Código trivial e correto, com fallback conservador e call sites reais; score_operar/score_cheio chegam intactos ao caminho de dinheiro. O problema é a procedência dos valores e a ausência de qualquer validação de invariante (stop<target, rsi_min<rsi_max, score_operar<=score_cheio).", "d": "Os números vêm de grid search de 144 a 8000 combinações por par sem hold-out nem walk-forward (Sharpe 3,24 reportado contradiz a Etapa 1 reprovada), e o stop_pct por par — a principal razão de existir do arquivo — é ANULADO para ETH e SOL em otimizada.py:207-210."}, {"m": "config/settings_template.py", "loc": 26, "n": 3, "c": "Config", "t": "manutencao", "j": "Inerte: zero importadores, nenhum caminho de execução, endpoints já corrigidos para SPOT. Mas divergiu do .env.example em 10+ variáveis (não menciona DRY_RUN, ALLOW_REAL_TRADING, OCO_BRACKET, RECONCILIAR_BOOT_EXCHANGE) e seus placeholders não casam com o detector do próprio repo.", "d": "Ensina a criar o config/settings.py que arma o fallback silencioso de mercado (runtime_settings.py:20,61-85) e propaga DB_PATH='data/btc_data.db' — o mesmo caminho do banco vivo que produziu o incidente de contaminação documentado em conftest.py."}, {"m": "database.py", "loc": 1027, "n": 4, "c": "Dados", "t": "infra", "j": "O caminho SQLite carrega a produção de fato (WAL + busy_timeout 30s sustentando dois processos, 41 testes herméticos, crash recovery com call site real). O preço são 22 ramos Postgres DOA sem cobertura, idempotência de trades que hoje protege 0% das escritas, e ~355 MB em três tabelas sem nenhum leitor.", "d": "`row[0]` sobre linha entregue como dict pelo pool com row_factory=dict_row (database.py:581 e 990): salvar_sinal e historico_cv_auc_modelo levantam KeyError em TODA chamada no backend Postgres — o alvo de deploy documentado. Em executor.py:997 a chamada não tem try/except e roda depois de registrar_resultado."}, {"m": "backtesting/walk_forward.py", "loc": 625, "n": 4, "c": "Pesquisa", "t": "infra", "j": "É a régua que reprovou a Etapa 1, e é honesta nos vieses que ela mesma documenta: B1 corrigido com teste de propriedade, contiguidade que ABORTA, purge treino/teste correto, censura final, stop antes de target. O problema é o alvo da medição — e o input do fix B6 (fng_historico.json) nem existe no disco.", "d": "Mede uma estratégia que não existe: STOP_PCT/TARGET_PCT hardcoded em 2,0%/4,0% (linhas 75-76) contra 1,5%/5,0% de produção, sem take-profit parcial, sem breakeven, sem trailing, com score de 9 componentes e features cujo dist_vwap diverge por ordem de grandeza do que roda ao vivo."}, {"m": "score.py", "loc": 502, "n": 4, "c": "Sinal", "t": "edge", "j": "Executa de verdade e move dinheiro (tamanho_fator multiplica a ordem em main.py:1107), pesos somam 100 com guard, e a cobertura unitária é a melhor do repo. Mas 15% do score é constante para 2 de 3 pares, _score_atr é 100 em 98,9-99,8% das janelas medidas, e log_avaliacoes não guarda score por componente — não há auditoria pós-morte.", "d": "Os bloqueios absolutos não cobrem o que o projeto declara evitar: com F&G=23 (fear_greed.py:91 diz pode_operar=False) o log registra 16 sinais COMPRA, e com regime=TENDENCIA_BAIXA registra 20 — porque score.py:372-375 usa 20/80 e score.py:370 não lista BAIXA nem INDEFINIDO."}, {"m": "indicadores.py", "loc": 235, "n": 4, "c": "Dados", "t": "edge", "j": "Folha pura, determinística, sem I/O nem estado global, e o indicador que efetivamente gateia a compra está correto. Mas macd() é 100% NaN com teste que consagra o defeito, ema(x, len(x)) devolve SMA — e é exatamente a chamada das features 0 e 1 do XGBoost — e nenhum teste compara contra implementação de referência.", "d": "Duas definições incompatíveis de VWAP no mesmo sistema: o vivo usa ind.vwap CUMULATIVO (otimizada.py:97, suporte.py:140, ml_filtro.py:72) e todo o backtest usa vwap_rolling(20) — os parâmetros de params_pares.py foram calibrados com uma e o bot opera com a outra."}, {"m": "relatorio_gate.py", "loc": 234, "n": 4, "c": "Ferramentas", "t": "infra", "j": "Comportamento observado hoje é conservador (0 trades fechados → REPROVADO com exit 1; benchmark ausente força aprovado=False). Mas é a ferramenta declarada fonte única de verdade do gate, com PF fail-open, duração medida por delta entre trades em vez de uptime, e ZERO testes.", "d": "O ramo de veredito (linhas 225-230) imprime 'GATE: APROVADO — prosseguir à Etapa 3' e sai com código 0 sem nenhum interlock com o estado da Etapa 1, que o contrato pré-registrado exige (GATE_GO_LIVE.md:103) e que REPROVOU em 4 de 5 critérios."}, {"m": "analise_mercado.py", "loc": 185, "n": 4, "c": "Ferramentas", "t": "infra", "j": "Call site real e provado, try/except deliberado contra crash-loop e teste hermético da classificação. Mas bate exclusivamente em fapi (mercado que o bot não opera), e toda a saída — funding, open interest, liquidez — é print descartado enquanto as colunas correspondentes de snapshots_mercado ficam zeradas.", "d": "Seis requests.get sem timeout no boot (linhas 18,32,58,75,79,85), executados ANTES do crash recovery de posição (main.py:1368 vs 949-960): um socket pendurado deixa posição persistida sem readoção e sem monitor, com /health já respondendo 200 e o NSSM sem motivo para reiniciar."}, {"m": "config/runtime_settings.py", "loc": 165, "n": 4, "c": "Config", "t": "infra", "j": "Precedência env > local > default correta e o único módulo com suíte de endurecimento (CORS efetivamente ligado). Mas o fallback silencioso para config/settings.py pode reintroduzir endpoints de FUTUROS, as coerções engolem ValueError sem log no caminho de dinheiro, e SECRET_KEY endurecido é ramo morto neste deploy.", "d": "DRY_RUN é uma trava fantasma: documentada em SETE artefatos versionados como a garantia de paper trading 'mesmo com chaves reais', e lida apenas pelo payload de /api/conexao (dashboard.py:648,709-711). A decisão real é main.py:1251 (`simulacao = not args.real`)."}, {"m": "backtesting/trend_following.py", "loc": 594, "n": 5, "c": "Pesquisa", "t": "edge", "j": "Núcleo causal provado por 11 testes, contabilidade fixada numericamente, e o único motor do diretório com taxa de spot honesta. Mas ~400 das 594 LOC — incluindo toda a lógica de aprovação/reprovação pré-registrada — não têm um teste, e RISCO_FRAC nunca dimensionou uma ordem real.", "d": "O backtest sai por CLOSE abaixo do canal (linha 110) enquanto ao vivo o canal vira STOP na exchange, que dispara em pavio intrabar — são dois sistemas, e o mais penalizado por whipsaw é o que receberia capital. Agravante: --holdout é silenciosamente IGNORADO no ramo default da CLI (linha 590)."}, {"m": "research/edge_lab.py", "loc": 517, "n": 5, "c": "Pesquisa", "t": "edge", "j": "Pré-registro datado, corte anti-vazamento conservador (preparar_para_ic mascara as últimas H linhas em vez de espiar), permutação por rotação circular semeada, e 18 testes que provam calibração sob null autocorrelacionado. Mas o veredito não é reproduzível: o banco não é versionado e as duas funções que produziram as evidências decisivas não têm call site.", "d": "O hold-out é uma FRAÇÃO de tabela mutável (HOLDOUT_FRAC sobre len(f), edge_lab.py:47,226), não um intervalo de datas: toda coleta move a fronteira. O hold-out virgem de hoje começa em 2025-07-21 e engole período que já foi pesquisado — o único hold-out sobrevivente está contaminado por construção."}, {"m": "binance_conta.py", "loc": 222, "n": 5, "c": "Risco", "t": "infra", "j": "O melhor código do repo em contrato de erro: (float, str|None) explícito, nada levanta, offset de relógio preservado em falha de sync, -1021 com re-sync forçado, 302 linhas de teste. Adotado pela metade: o executor mantém um segundo relógio pior no caminho das ordens e o gate de go-live nunca pergunta a permissão da chave.", "d": "restricoes_chave() — a função que responde 'esta chave pode mandar ordem?' — não tem call site de produção (definida em 175, único chamador no __main__ da linha 221), e chave_configurada() (44,51-56) não reconhece como placeholder a única chave concreta do projeto, que o dashboard reconhece."}, {"m": "data/klines.py", "loc": 91, "n": 5, "c": "Dados", "t": "infra", "j": "Projetado, não acumulado: lock único correto, chave normalizada nas duas pontas, timestamp só em sucesso, REST_BASE_URL respeitado, 11 testes herméticos. Mas 'ponto único' é falso (ml_filtro, lstm_modelo e dashboard mantêm fetchers próprios) e a vela em formação é repassada sem sinalização a 4 dos 5 consumidores.", "d": "O fallback de dado antigo (klines.py:91) não tem teto de idade nem flag: risco.verificar_volatilidade — o circuit breaker — mede a variação de uma hora atrás sem saber. Fail-open na função cujo propósito é ser fail-closed, e o módulo não importa logging: nenhuma falha deixa rastro."}, {"m": "validacao.py", "loc": 146, "n": 6, "c": "Pesquisa", "t": "edge", "j": "Funções puras, sem I/O, sem estado, com purge/embargo verificados contra o rótulo real do ml_filtro (sem off-by-one) e 18 testes. O melhor código do repositório em disciplina. O que falha é o rótulo do resultado e a ausência de qualquer cobertura de covariate shift — o buraco por onde passou o dist_vwap.", "d": "O número rotulado 'AUC honesto (purged CV)' vem de np.array_split sem restrição de anterioridade (validacao.py:42-43): em 4 de 5 folds o treino contém dados posteriores ao teste. E detectar_drift nunca disparou — com base congelada o histórico é bit-idêntico e o alerta iria para bot_events, que tem 14 writers e zero leitor."}, {"m": "backtesting/metricas.py", "loc": 143, "n": 7, "c": "Pesquisa", "t": "manutencao", "j": "143 linhas, zero I/O, zero estado, guardas em todo ponto de divisão, E[max SR] com o termo SR_bar completo, ~40 testes incluindo propriedades (equivariância, monotonia em N). É o teto da escala neste repositório — e mesmo ele tem seu único caminho de produção inerte.", "d": "deflated_sharpe_ratio devolve PSR puro quando sharpes_trials é None, com o mesmo tipo e faixa, e 4 de 5 callers gravam o resultado sob a chave 'dsr'. E cvar_historico — único consumidor de produção — nunca executa: sinais_executados devolve lista vazia (0 de 5.255 sinais têm pnl)."}]};
+const grid = document.getElementById('grid');
+const cnt = document.getElementById('count');
+const q = document.getElementById('q');
+let fCamada = '', fNota = '', fTrilha = '';
+
+const escapar = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function render() {
+  const termo = q.value.trim().toLowerCase();
+  const vis = DADOS.modulos.filter(m => {
+    if (fCamada && m.c !== fCamada) return false;
+    if (fNota === 'crit' && m.n > 3) return false;
+    if (fTrilha && m.t !== fTrilha) return false;
+    if (termo && !(m.m + ' ' + m.d).toLowerCase().includes(termo)) return false;
+    return true;
+  });
+  cnt.textContent = vis.length + ' de ' + DADOS.modulos.length;
+  grid.innerHTML = vis.map((m, i) => `
+    <button class="row sev-${Math.min(m.n,7)}" aria-expanded="false" data-i="${i}">
+      <span class="stripe"></span>
+      <span class="score">${m.n}</span>
+      <span class="mod">${escapar(m.m)}<span class="dp">${escapar(m.d)}</span></span>
+      <span class="loc">${m.loc}</span>
+      <span class="tag">${escapar(m.c)}</span>
+      <span class="trk">${escapar(m.t)}</span>
+    </button>
+    <div class="detail" id="d${i}">
+      <div class="lbl">Avaliação</div><p>${escapar(m.j)}</p>
+      <div class="lbl">Defeito principal</div><p>${escapar(m.d)}</p>
+    </div>`).join('');
+}
+
+grid.addEventListener('click', e => {
+  const b = e.target.closest('.row'); if (!b) return;
+  const d = document.getElementById('d' + b.dataset.i);
+  const aberto = d.classList.toggle('open');
+  b.setAttribute('aria-expanded', aberto);
+});
+
+document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+  const f = c.dataset.f, v = c.dataset.v;
+  if (f === 'nota') { fNota = fNota === v ? '' : v; c.setAttribute('aria-pressed', fNota === v); }
+  if (f === 'trilha') {
+    fTrilha = fTrilha === v ? '' : v;
+    document.querySelectorAll('[data-f="trilha"]').forEach(o =>
+      o.setAttribute('aria-pressed', o.dataset.v === fTrilha));
+  }
+  render();
+}));
+q.addEventListener('input', render);
+render();
+</script>
