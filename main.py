@@ -986,6 +986,15 @@ def loop_par(par, intervalo_min, simulacao):
     while True:
         time.sleep(intervalo_min * 60)
         try:
+            # I-8: a trava permanente e consultada ANTES de qualquer avaliacao.
+            # Redundante com o gate 0 de validar_trade de proposito: assim o bot
+            # travado nao gasta chamada de API, nao grava sinal e nao produz
+            # linha de log que pareca operacao normal.
+            travado, motivo_trava = gestao_risco.esta_travado()
+            if travado:
+                print(f"\033[91m[{par}][TRAVADO] {motivo_trava} — avaliacao suspensa.\033[0m")
+                continue
+
             if MODO_TREND:
                 # Caminho totalmente separado: o sistema Donchian nao usa score,
                 # ensemble, CVD/OBI nem scale-in. Misturar os dois caminhos
@@ -1193,6 +1202,90 @@ def loop_par(par, intervalo_min, simulacao):
 # ── Ponto de entrada ───────────────────────────────────────────
 
 
+def _decidir_modo(real: bool, dry_run: bool) -> bool:
+    """Decide simulacao vs real. Devolve True para SIMULACAO. (I-8)
+
+    Funcao separada e pura porque e a decisao mais consequente do boot e precisa
+    ser testavel sem subir o bot.
+
+    Antes desta frente, `DRY_RUN` era um gate FANTASMA: definido em
+    runtime_settings, documentado em 6 arquivos como cinto de seguranca, e lido
+    em lugar nenhum do caminho de execucao — os unicos leitores eram duas linhas
+    do dashboard, para desenhar um rotulo. O operador podia manter DRY_RUN=true
+    e ter ordens reais saindo.
+
+    `--real` junto com `DRY_RUN=true` e contradicao explicita e ABORTA, em vez de
+    ser resolvida em silencio para um dos lados: resolver para real trairia o
+    operador que confia na variavel; resolver para paper esconderia que a
+    configuracao esta incoerente.
+    """
+    if real and dry_run:
+        print("[BOOT ERROR] --real com DRY_RUN=true e contradicao explicita.")
+        print("  DRY_RUN=true significa 'nao envie ordem real'. --real significa o oposto.")
+        print("  Resolva no .env (DRY_RUN=false) ou remova --real. Abortando por seguranca.")
+        raise SystemExit(1)
+    return (not real) or dry_run
+
+
+def _validar_postura_da_chave(simulacao: bool) -> None:
+    """I-8: verifica no boot o que a CHAVE pode fazer, nao o que a CONTA pode.
+
+    `canTrade` de /api/v3/account e da CONTA e ficou True nesta conta enquanto a
+    chave era read-only — essa confusao ja custou tempo numa investigacao. A
+    fonte correta e /sapi/v1/account/apiRestrictions, exposta em
+    binance_conta.restricoes_chave(), que existia testada e sem nenhum chamador
+    de producao.
+
+    Aborta o boot quando:
+      - a chave pode SACAR (risco desproporcional para um bot de trading);
+      - estamos em modo real e a chave NAO pode negociar spot (falharia na
+        primeira ordem com -2015, depois de o sinal ja ter sido consumido).
+    Em simulacao a ausencia de permissao de trade e apenas informada.
+    """
+    try:
+        import binance_conta
+    except Exception as e:  # pragma: no cover - defensivo
+        print(f"[AVISO] Nao foi possivel verificar a postura da chave: {e}")
+        return
+
+    if not binance_conta.chave_configurada():
+        if not simulacao:
+            print("[BOOT ERROR] Modo real sem chave utilizavel (ausente ou placeholder).")
+            raise SystemExit(1)
+        return
+
+    r = binance_conta.restricoes_chave()
+    if not r.get("ok"):
+        # Nao aborta em paper por indisponibilidade da API — mas em modo real,
+        # operar sem saber a postura da chave e pior do que nao operar.
+        msg = f"nao foi possivel ler as restricoes da chave: {r.get('erro')}"
+        if not simulacao:
+            print(f"[BOOT ERROR] Modo real exige verificacao da chave — {msg}")
+            raise SystemExit(1)
+        print(f"[AVISO] {msg}")
+        return
+
+    if r.get("pode_sacar"):
+        print("[BOOT ERROR] A chave de API tem permissao de SAQUE habilitada.")
+        print("  Um bot de trading nunca precisa sacar. Desabilite 'Enable Withdrawals'")
+        print("  no painel da Binance antes de rodar. Abortando.")
+        raise SystemExit(1)
+
+    if not simulacao and not r.get("pode_negociar_spot"):
+        print("[BOOT ERROR] Modo real pedido, mas a chave NAO pode negociar spot")
+        print("  (enableSpotAndMarginTrading=false). Toda ordem voltaria -2015.")
+        raise SystemExit(1)
+
+    if not r.get("restrito_por_ip"):
+        print("[AVISO] A chave nao tem restricao de IP (ipRestrict=false).")
+
+    print(
+        f"[SEGURANCA] Chave verificada: spot={r.get('pode_negociar_spot')} "
+        f"saque={r.get('pode_sacar')} futures={r.get('pode_futures')} "
+        f"ip_restrito={r.get('restrito_por_ip')}"
+    )
+
+
 def _validar_trend_so_em_simulacao(modo_trend: bool, simulacao: bool) -> None:
     """TRAVA DE SEGURANCA — nao e convencao, e SystemExit.
 
@@ -1248,7 +1341,9 @@ def main():
     global MODO_TREND
     MODO_TREND = args.modo_trend
 
-    simulacao = not args.real
+    from config.runtime_settings import DRY_RUN
+
+    simulacao = _decidir_modo(real=args.real, dry_run=DRY_RUN)  # I-8
     # Trava ANTES do downgrade por ALLOW_REAL_TRADING: recusa a INTENCAO de
     # rodar trend com dinheiro real, nao so o efeito. Senao, quem hoje e
     # rebaixado para paper por falta da env passaria a operar trend com capital
@@ -1281,6 +1376,13 @@ def main():
                 "Abortando. Use --simulacao para paper trading ou configure as variaveis de ambiente."
             )
             raise SystemExit(1)
+
+    # I-8: postura da CHAVE verificada no boot. binance_conta.restricoes_chave()
+    # existia, estava testada, e o unico chamador era o __main__ do proprio
+    # arquivo -- ou seja, o bot nunca perguntou "esta chave pode sacar?" antes de
+    # operar. E `canTrade` de /api/v3/account NAO responde isso: e da CONTA, e
+    # ficou True nesta conta enquanto a chave era read-only.
+    _validar_postura_da_chave(simulacao)
 
     # Definir pares a operar
     if args.par:
@@ -1336,6 +1438,25 @@ def main():
     print("  BOTBINANCE v2 — INICIANDO")
     print(f"  {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
     print(f"  Modo: {'SIMULACAO (Paper Trading)' if simulacao else 'REAL'}")
+    # I-8: publica o modo EFETIVO num canal que outro processo consegue ler. O
+    # rotulo do dashboard era calculado a partir do ambiente do PROPRIO processo
+    # do dashboard (DRY_RUN/ALLOW_REAL_TRADING), estruturalmente incapaz de
+    # refletir o args.real do worker — podia exibir SIMULACAO com ordens reais
+    # saindo, e REAL com o worker em paper. Mente nas duas direcoes.
+    try:
+        health.set_gauge("modo_simulacao", 1.0 if simulacao else 0.0)
+    except Exception:
+        pass
+    try:
+        database.salvar_bot_event(
+            "modo_efetivo",
+            f"worker iniciado em modo {'SIMULACAO' if simulacao else 'REAL'} "
+            f"(--real={args.real}, DRY_RUN={DRY_RUN}, ALLOW_REAL_TRADING={ALLOW_REAL_TRADING})",
+            service="worker",
+            severity="WARNING" if not simulacao else "INFO",
+        )
+    except Exception:
+        pass
     print(f"  Pares: {', '.join(pares)}")
     print("=" * 56)
     print("  Modulos ativos:")

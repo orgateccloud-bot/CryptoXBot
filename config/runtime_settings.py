@@ -16,14 +16,35 @@ from dotenv import load_dotenv
 # - so preenche a lacuna quando o processo roda direto (python main.py).
 load_dotenv()
 
-try:  # Local-only, ignored by git. Do not require it in production.
-    from config import settings as _local_settings  # type: ignore
-except Exception:  # pragma: no cover - depends on developer machine
-    _local_settings = None
+# I-8 (2026-08-07): o fallback para config/settings.py foi REMOVIDO.
+#
+# Ele era um import protegido por try/except, invisivel a qualquer varredura
+# ingenua de dependencias, e tinha PRECEDENCIA sobre os defaults deste arquivo.
+# Duas consequencias medidas:
+#
+#   1. API_KEY/API_SECRET caiam para valores hardcoded em config/settings.py
+#      quando o .env nao os definia — credencial resolvida por arquivo local nao
+#      versionado, sem nenhum aviso no boot.
+#   2. REST_BASE_URL/WS_BASE_URL caiam para fapi.binance.com / fstream, ou seja
+#      FUTUROS, sobrepondo o default SPOT que o P0-1 estabeleceu justamente para
+#      eliminar a divergencia sinal-execucao. Isso ficava mascarado por duas
+#      linhas do .env: bastava remove-las para o bot silenciosamente passar a ler
+#      Futures enquanto executava Spot.
+#
+# Agora a precedencia e apenas: variavel de ambiente > default deste arquivo.
+# Configuracao local se faz por .env (ver .env.example), que load_dotenv() ja le.
+# config/settings.py continua existindo na maquina do desenvolvedor (gitignored)
+# e simplesmente deixou de ser consultado.
 
 
-def _local(name: str, default: Any = None) -> Any:
-    return getattr(_local_settings, name, default) if _local_settings else default
+def _local(name: str, default: Any = None) -> Any:  # noqa: ARG001 - assinatura preservada
+    """Mantida por compatibilidade de chamada; NAO le mais config/settings.py.
+
+    As ~30 chamadas `_env("X", _local("X", padrao))` continuam validas e agora
+    resolvem direto para o padrao. Preservar a assinatura evita um diff de 30
+    linhas num arquivo que 13 modulos importam.
+    """
+    return default
 
 
 def _env(name: str, default: Any = None) -> Any:

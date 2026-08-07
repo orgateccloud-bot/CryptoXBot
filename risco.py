@@ -72,7 +72,22 @@ _estado_risco = {
     # o alerta Telegram. Nao e persistido deliberadamente (um restart no meio
     # do episodio so re-dispara 1 alerta a mais, sem risco).
     "circuit_breaker_ativo": False,
+    # ── I-8: trava PERMANENTE, distinta de "bloqueado" ────────────
+    # `bloqueado` e diario e _resetar_se_novo_dia o limpa na virada do dia. Isso
+    # e correto para o drawdown DIARIO, e era o buraco para todo o resto: cinco
+    # dias de -4,9% (-22% de equity) nao disparavam nada, porque a unica trava
+    # existente se auto-revogava a cada meia-noite.
+    # `travado` NUNCA e limpo por virada de dia nem por restart -- so por
+    # `destravar(confirmacao=...)`, que exige acao humana explicita. E o gate 0
+    # de validar_trade e a condicao de parada de loop_par.
+    "travado": False,
+    "motivo_travamento": "",
+    "travado_em": None,
 }
+
+# Frase exata exigida por destravar(): impede que um `destravar()` acidental
+# num REPL ou num teste mal escrito reabra o caminho do dinheiro.
+CONFIRMACAO_DESTRAVAR = "LIBERAR APOS REVISAO MANUAL"
 _estado_carregado = False
 # main.py roda 1 thread por par (loop_par) e todas compartilham este mesmo
 # modulo/_estado_risco -- sem lock, abrir/fechar posicoes em pares
@@ -119,8 +134,110 @@ def _resetar_se_novo_dia():
         _estado_risco["pnl_dia"] = 0.0
         _estado_risco["bloqueado"] = False
         _estado_risco["motivo_bloqueio"] = ""
-        # Não reseta capital — mantém histórico
+        # Não reseta capital — mantém histórico.
+        # E NAO reseta `travado`: a trava permanente sobrevive a virada de dia
+        # por desenho. Era exatamente esse reset que permitia perder 5% por dia
+        # indefinidamente com o bot religando sozinho toda meia-noite.
         persistir_estado()
+
+
+# ── I-8: trava permanente (kill-switch) ───────────────────────
+
+
+def travar(motivo: str, *, alertar: bool = True) -> None:
+    """Arma a trava PERMANENTE. Idempotente: re-armar nao re-alerta.
+
+    Diferente de `bloqueado`, esta trava nao se auto-revoga — nem na virada do
+    dia, nem no restart (e persistida). So `destravar()` a remove.
+    """
+    _carregar_estado_persistido()
+    if _estado_risco.get("travado"):
+        return
+    _estado_risco["travado"] = True
+    _estado_risco["motivo_travamento"] = motivo
+    _estado_risco["travado_em"] = datetime.now().isoformat()
+    persistir_estado()
+
+    print(f"[RISCO] *** BOT TRAVADO *** {motivo}")
+    print(f"[RISCO] Nenhum trade novo sera aberto. Para liberar: risco.destravar('{CONFIRMACAO_DESTRAVAR}')")
+    if not alertar:
+        return
+    try:
+        database.salvar_bot_event(
+            "bot_travado",
+            f"TRAVA PERMANENTE ARMADA: {motivo}. Nenhum trade novo sera aberto ate "
+            f"liberacao manual explicita.",
+            service="worker",
+            severity="CRITICAL",
+        )
+    except Exception:
+        pass
+    try:
+        telegram_bot.alerta_circuit_breaker(f"BOT TRAVADO — {motivo}")
+    except Exception:
+        pass
+
+
+def destravar(confirmacao: str) -> bool:
+    """Remove a trava permanente. Exige a frase exata CONFIRMACAO_DESTRAVAR.
+
+    A confirmacao por frase existe porque esta funcao e o unico caminho de volta
+    ao mercado depois de uma perda acumulada ou de um kill-switch: nao pode ser
+    disparada por engano num REPL, num teste ou num retry automatico.
+    """
+    if confirmacao != CONFIRMACAO_DESTRAVAR:
+        print(f"[RISCO] destravar() RECUSADO: confirmacao incorreta. Esperado: {CONFIRMACAO_DESTRAVAR!r}")
+        return False
+    _carregar_estado_persistido()
+    motivo = _estado_risco.get("motivo_travamento", "")
+    _estado_risco["travado"] = False
+    _estado_risco["motivo_travamento"] = ""
+    _estado_risco["travado_em"] = None
+    persistir_estado()
+    print("[RISCO] Trava removida por confirmacao manual.")
+    try:
+        database.salvar_bot_event(
+            "bot_destravado",
+            f"Trava removida manualmente. Motivo original: {motivo}",
+            service="worker",
+            severity="WARNING",
+        )
+    except Exception:
+        pass
+    return True
+
+
+def esta_travado() -> tuple[bool, str]:
+    """(travado, motivo). Lido pelo gate 0 e pelo topo de loop_par."""
+    _carregar_estado_persistido()
+    return bool(_estado_risco.get("travado")), _estado_risco.get("motivo_travamento", "")
+
+
+def _verificar_drawdown_acumulado() -> None:
+    """Compara a perda ACUMULADA contra MAX_DRAWDOWN_TOTAL e trava.
+
+    MAX_DRAWDOWN_TOTAL existia desde sempre com o comentario "desliga o bot ate
+    revisao manual" e era lido em exatamente UM lugar: o payload de display de
+    status(). Nunca foi comparado com nada. Este e o freio que o comentario
+    prometia.
+
+    Base de comparacao: capital_inicio_dia como proxy de equity inicial. E
+    imperfeito (ver I-5/E-8: hoje ele pode carregar o fallback fabricado), mas
+    travar sobre proxy imperfeito e melhor que nao travar -- e a direcao do erro
+    e conservadora, porque um capital subestimado trava MAIS cedo.
+    """
+    cap = _estado_risco.get("capital_inicio_dia")
+    if not cap or cap <= 0:
+        return
+    pnl = _estado_risco.get("pnl_dia") or 0.0
+    if pnl >= 0:
+        return
+    dd = abs(pnl) / cap
+    if dd >= MAX_DRAWDOWN_TOTAL:
+        travar(
+            f"drawdown acumulado de {dd*100:.1f}% atingiu o limite de "
+            f"{MAX_DRAWDOWN_TOTAL*100:.0f}% (perda {pnl:.2f} USDT sobre capital {cap:.2f})"
+        )
 
 
 def registrar_resultado(pnl_usdt):
@@ -128,6 +245,9 @@ def registrar_resultado(pnl_usdt):
     _resetar_se_novo_dia()
     _estado_risco["pnl_dia"] += pnl_usdt
     persistir_estado()
+    # I-8: o freio de perda ACUMULADA e avaliado aqui, no unico ponto por onde
+    # toda perda passa. Antes MAX_DRAWDOWN_TOTAL nunca era comparado com nada.
+    _verificar_drawdown_acumulado()
 
 
 # ── Kelly Criterion ───────────────────────────────────────────
@@ -565,6 +685,17 @@ def validar_trade(
     posicoes_abertas_detalhe for populado de verdade em producao.
     """
     _resetar_se_novo_dia()
+
+    # 0. TRAVA PERMANENTE (I-8). Vem antes de tudo, inclusive do gate 1: e a
+    # unica que sobrevive a virada de dia e a restart. Nao existe caminho que a
+    # contorne -- loop_par tambem a consulta antes de avaliar sinal.
+    travado, motivo_trava = esta_travado()
+    if travado:
+        return {
+            "pode": False,
+            "motivo": f"BOT TRAVADO: {motivo_trava} (liberar so manualmente)",
+            "tamanho_btc": 0,
+        }
 
     # 1. Bot bloqueado?
     if _estado_risco["bloqueado"]:

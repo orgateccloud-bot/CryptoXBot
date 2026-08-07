@@ -658,13 +658,15 @@ def api_conexao():
     rest_spot = _ping(f"{BASE_URL}/api/v3/ping")
     rest_fut = _ping(f"{BASE_FAPI}/fapi/v1/ping")
 
-    # Valida se as chaves parecem configuradas (não são placeholder)
-    _placeholders = {
-        "",
-        "your_binance_api_key_here",
-        "nk6ge30Z9XAdARwqE0V8575xKdmST2DzRv0hTXrGqmAstjlQD1ocjEMpdo9P9A2h",
-    }
-    key_ok = bool(API_KEY and API_KEY not in _placeholders and len(API_KEY) > 20)
+    # I-8 (2026-08-07): havia uma chave de API de 64 caracteres LITERAL nesta
+    # lista de placeholders — versionada desde 3c0fc70. Removida daqui; a
+    # deteccao passa a ser a de binance_conta.chave_configurada(), que ja
+    # reconhece placeholder por padrao de substring e nao precisa enumerar
+    # segredo nenhum no fonte.
+    # ATENCAO: a chave removida continua no HISTORICO do git. Revogar na Binance.
+    import binance_conta
+
+    key_ok = binance_conta.chave_configurada()
 
     auth_ok = False
     saldo_usdt = None
