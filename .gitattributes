@@ -1,0 +1,21 @@
+# I-11: o snapshot de pesquisa e verificado por sha256 (research/snapshot.py).
+#
+# Sem esta regra, `core.autocrlf=true` (o padrao nesta maquina) converte LF ->
+# CRLF NO CHECKOUT, e o hash do arquivo em disco deixa de bater com o que o
+# manifest registra. Efeito: num clone novo em Windows, `--verificar` acusaria
+# TODAS as series como corrompidas e `carregar_serie` recusaria a leitura — ou
+# seja, o mecanismo que existe para provar integridade passaria a produzir
+# alarme falso permanente.
+#
+# Medido em 2026-08-08 (manifest.json):
+#     sha256 com LF   = 92c7f57dd01de47b9d756183...
+#     sha256 com CRLF = bd78eba51cfb0545689d582b...
+#
+# `-text` desliga qualquer conversao de fim de linha para estes caminhos. O
+# criterio de saida de I-11 fala em "re-deriva em duas maquinas diferentes"; sem
+# isto, Windows e Linux nunca concordariam.
+data/snapshots/** -text
+
+# Os vereditos re-derivados (JSON) sao comparados campo a campo, nao por hash,
+# mas mante-los estaveis evita diff ruidoso entre plataformas.
+research/vereditos/** -text
