@@ -649,3 +649,57 @@ class TestManifestVersionado:
         for s in m["series"]:
             with open(os.path.join(base, s["arquivo"]), encoding="utf-8", newline="") as fp:
                 assert sum(1 for _ in csv.DictReader(fp)) == s["n"]
+
+
+# ══════════════════════════════════════════════════════════════════
+# 10. Contrato entre edge_lab e reproduzir
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestContratoDoPerm:
+    """`reproduzir.derivar` lê chaves do dict que `teste_permutacao_max` devolve.
+
+    Este teste existe por um erro concreto: a primeira versão de `derivar` leu
+    `perm["p"]` quando a chave é `perm["p_valor"]`. O `KeyError` só apareceu
+    DEPOIS de 35 minutos construindo a matriz de features (O(n²) sobre 17.563
+    velas) — o custo de descobrir um nome de chave errado foi meia hora de CPU.
+
+    Fixar o contrato entre os dois módulos custa milissegundos e roda em toda
+    suíte.
+    """
+
+    CHAVES = ("obs_max", "p_valor", "melhor_feature_idx", "melhor_horizonte", "ics_obs")
+
+    @pytest.mark.parametrize("chave", CHAVES)
+    def test_perm_devolve_a_chave(self, chave):
+        import numpy as np
+
+        from research.edge_lab import teste_permutacao_max
+
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(300, 11))
+        labels = {8: rng.normal(size=300)}
+        validos = {8: np.ones(300, dtype=bool)}
+        r = teste_permutacao_max(X, labels, validos, n_perm=5, seed=1)
+        assert chave in r
+
+    def test_derivar_le_apenas_chaves_existentes(self):
+        """Varre o fonte de `derivar` procurando acessos `perm["..."]` e exige
+        que cada um esteja no contrato acima."""
+        import inspect
+        import re
+
+        from research import reproduzir
+
+        acessadas = set(re.findall(r'perm\["(\w+)"\]', inspect.getsource(reproduzir.derivar)))
+        assert acessadas, "nenhum acesso encontrado — o regex deixou de casar"
+        assert acessadas <= set(self.CHAVES), f"chaves fora do contrato: {acessadas - set(self.CHAVES)}"
+
+    def test_rodar_pesquisa_devolve_perm_e_n_amostras(self):
+        import inspect
+
+        from research import edge_lab
+
+        fonte = inspect.getsource(edge_lab.rodar_pesquisa)
+        assert '"perm": perm' in fonte
+        assert '"n_amostras"' in fonte

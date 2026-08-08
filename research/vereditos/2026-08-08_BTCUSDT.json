@@ -1,0 +1,53 @@
+{
+  "criterios": {
+    "sobreviveu_permutacao": false,
+    "supera_piso_economico": true
+  },
+  "gerado_em": "2026-08-08T20:42:44Z",
+  "medicoes": {
+    "ic_max_abs": 0.061529335485036314,
+    "ics": {
+      "atr_rel|H24": 0.03054450229220409,
+      "atr_rel|H8": 0.02419897418965377,
+      "bb_pos|H24": -0.04005533299017648,
+      "bb_pos|H8": -0.019725341331070345,
+      "boll_rel|H24": 0.03036024903868904,
+      "boll_rel|H8": 0.010591252052652433,
+      "dist_ema20|H24": -0.04203598908901974,
+      "dist_ema20|H8": -0.027291373439373344,
+      "dist_ema50|H24": -0.01141512679792789,
+      "dist_ema50|H8": -0.036141930923244046,
+      "dist_vwap|H24": -0.04643251995327502,
+      "dist_vwap|H8": -0.034514829419300036,
+      "rsi|H24": -0.02879894841793713,
+      "rsi|H8": -0.01637795957480848,
+      "var_1|H24": -0.019151721359167272,
+      "var_1|H8": -0.015514118834561136,
+      "var_24|H24": -0.0370589702059519,
+      "var_24|H8": -0.061529335485036314,
+      "var_4|H24": -0.02250073908843739,
+      "var_4|H8": -0.0031288633331486393,
+      "vol_rel_norm|H24": -0.0011098282853813143,
+      "vol_rel_norm|H8": -0.00443913640511243
+    },
+    "melhor_feature": "var_24",
+    "melhor_horizonte": 8,
+    "n_amostras": 11367,
+    "p_permutacao": 0.3086913086913087
+  },
+  "parametros": {
+    "holdout_inicio_ms": 1753142400000,
+    "ic_piso_economico": 0.03,
+    "seed": 42,
+    "symbol": "BTCUSDT"
+  },
+  "snapshot": {
+    "rotulo": "2026-08-08",
+    "sha256_por_serie": {
+      "BTCUSDT/1h": "a8167d9e1ae18dcb3a0b39446923fe52854b7f1f10a34922898abfb7fcbda9df",
+      "ETHUSDT/1h": "ad48cfe7a71f9dd074135ea051044ec82c85812ddd0cc98d88d89e44fa76fdb0",
+      "SOLUSDT/1h": "61674a19317b4a5ff68e5187abccad95025adfcab081e107d77cba0b315c8548"
+    }
+  },
+  "veredito": "FAIL"
+}

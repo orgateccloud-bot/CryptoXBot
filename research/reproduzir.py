@@ -86,7 +86,12 @@ def derivar(symbol: str = "BTCUSDT", seed: int = 42, rotulo: str | None = None) 
     # Mesma regra de decisão pré-registrada em METODOLOGIA.md: sobreviver ao
     # teste de permutação E superar o piso econômico. Reproduzida aqui como
     # CÓDIGO para que o veredito seja um valor comparável, não uma leitura.
-    sobreviveu_permutacao = bool(perm["p"] < 0.05)
+    #
+    # `p_valor`, não `p`: a primeira versão deste módulo assumiu o nome errado e
+    # só descobriu DEPOIS de 35 minutos construindo features. Daí o
+    # test_contrato_do_perm em tests/test_substrato_reproduzivel.py — fixar o
+    # contrato entre os dois módulos custa milissegundos.
+    sobreviveu_permutacao = bool(perm["p_valor"] < 0.05)
     supera_piso = bool(ic_max >= IC_PISO_ECONOMICO)
     veredito = "EDGE_CANDIDATO" if (sobreviveu_permutacao and supera_piso) else "FAIL"
 
@@ -109,7 +114,7 @@ def derivar(symbol: str = "BTCUSDT", seed: int = 42, rotulo: str | None = None) 
             "melhor_feature": FEATURE_NAMES[fi],
             "melhor_horizonte": int(H),
             "ic_max_abs": ic_max,
-            "p_permutacao": float(perm["p"]),
+            "p_permutacao": float(perm["p_valor"]),
             # ICs de TODA a família — é o que permite dizer "diferença 0.0 em
             # todos os IC", e não só no vencedor.
             "ics": {
