@@ -186,6 +186,35 @@ def avaliar_tick_monitor(
     return acao
 
 
+def _incoerencia_long(preco_entrada, stop_loss, take_profit):
+    """Devolve str descrevendo a incoerencia de uma entrada LONG, ou None.
+
+    Invariante: 0 < stop_loss < preco_entrada < take_profit.
+
+    Por que esta funcao e uma REPLICA de estrategias/otimizada._incoerencia_de_precos
+    em vez de um import: `executor` nao pode depender de `estrategias`, senao a
+    camada de execucao passa a arrastar regime/suporte/ensemble/xgboost inteiros
+    para dentro de si (e o grafo de import fica ciclico via main.py). A escolha
+    deliberada e duplicar a regra e provar por TESTE que as duas nunca divergem —
+    tests/test_coerencia_precos.py compara as duas implementacoes em 1.000 casos
+    aleatorios, entao uma alteracao em so uma delas quebra a suite.
+
+    Fica aqui, no nivel do executor, porque este e o unico ponto que nenhum
+    chamador consegue contornar.
+    """
+    if preco_entrada is None or preco_entrada <= 0:
+        return f"preco de entrada invalido: {preco_entrada}"
+    if stop_loss is None or take_profit is None:
+        return f"stop/target ausentes (stop={stop_loss}, target={take_profit})"
+    if stop_loss <= 0 or take_profit <= 0:
+        return f"stop/target nao positivos (stop={stop_loss}, target={take_profit})"
+    if not stop_loss < preco_entrada:
+        return f"LONG com stop {stop_loss} >= entrada {preco_entrada}"
+    if not preco_entrada < take_profit:
+        return f"LONG com target {take_profit} <= entrada {preco_entrada}"
+    return None
+
+
 def preco_medio_fill(resp, fallback):
     """Preco medio REALMENTE executado de uma resposta de ordem da Binance.
 
@@ -759,6 +788,36 @@ class Executor:
     ):
         if self.posicao:
             print("[EXEC] Ja existe posicao aberta. Aguardar fechamento.")
+            return False
+
+        # ── E-7: invariante de coerencia, fail-closed ─────────────
+        # A mesma checagem existe na origem do sinal (estrategias/otimizada.py) e
+        # no caminho trend. Esta aqui e a que importa: e o ULTIMO ponto antes de
+        # a ordem existir, e nenhum chamador — presente ou futuro — consegue
+        # contorna-la. O bloco de producao com entrada ~$1.858 e stop $63.521,65
+        # atravessou a estrategia inteira porque nada neste nivel dizia nao.
+        #
+        # Com stop >= entrada, o desfecho e um destes dois, nenhum aceitavel:
+        #   (a) a Binance rejeita o STOP_LOSS_LIMIT (stopPrice acima do mercado) e
+        #       a posicao real fica DESPROTEGIDA; ou
+        #   (b) o monitor local (_monitorar) a liquida no primeiro tick, pagando
+        #       spread + duas taxas por nada.
+        incoerencia = _incoerencia_long(preco_entrada, stop_loss, take_profit)
+        if incoerencia:
+            print(f"\033[91m[EXEC] ORDEM RECUSADA — precos incoerentes: {incoerencia}\033[0m")
+            try:
+                database.salvar_bot_event(
+                    "ordem_recusada_incoerente",
+                    f"{self.symbol}: abrir_long recusado — {incoerencia}. "
+                    f"entrada={preco_entrada} stop={stop_loss} target={take_profit} "
+                    f"qty={tamanho_btc} sinal_id={sinal_id}.",
+                    service="worker",
+                    symbol=self.symbol,
+                    severity="CRITICAL",
+                )
+            except Exception:
+                pass
+            health.increment_metric("ordens_erro")
             return False
 
         # Validar risco antes de executar

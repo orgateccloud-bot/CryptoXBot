@@ -57,14 +57,14 @@ def _serie_sintetica(n=100):
 def patch_klines(monkeypatch):
     """Mocka suporte._klines para devolver serie sintetica (sem rede)."""
     serie = _serie_sintetica(100)
-    monkeypatch.setattr(suporte, "_klines", lambda intervalo, limite=100: serie)
+    monkeypatch.setattr(suporte, "_klines", lambda symbol, intervalo, limite=100: serie)
     return serie
 
 
 @pytest.fixture
 def patch_klines_none(monkeypatch):
     """Mocka _klines simulando falha de rede (retorno None)."""
-    monkeypatch.setattr(suporte, "_klines", lambda intervalo, limite=100: None)
+    monkeypatch.setattr(suporte, "_klines", lambda symbol, intervalo, limite=100: None)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -91,18 +91,18 @@ CHAVES_COMPLETAS = {
 
 
 def test_detectar_suportes_nao_lanca_e_retorna_dict(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert isinstance(r, dict)
 
 
 def test_detectar_suportes_chaves_esperadas(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     # Todas as chaves documentadas/retornadas devem existir no caminho feliz
     assert CHAVES_COMPLETAS.issubset(set(r.keys()))
 
 
 def test_detectar_suportes_tipos_basicos(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert isinstance(r["suportes"], list)
     assert isinstance(r["resistencias"], list)
     assert isinstance(r["zonas_volume"], list)
@@ -114,26 +114,26 @@ def test_detectar_suportes_tipos_basicos(patch_klines):
 
 
 def test_detectar_suportes_preco_e_ultimo_fechamento(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     esperado = round(patch_klines["fechamento"][-1], 2)
     assert r["preco"] == esperado
 
 
 def test_detectar_suportes_lista_ordenada_desc(patch_klines):
     # suportes sao ordenados do mais proximo (maior preco) ao mais distante
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     sup = r["suportes"]
     assert sup == sorted(sup, reverse=True)
 
 
 def test_detectar_suportes_resistencias_ordenada_asc(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     res = r["resistencias"]
     assert res == sorted(res)
 
 
 def test_detectar_suportes_suporte_forte_abaixo_do_preco(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     # suporte_forte, quando identificado, fica abaixo do preco atual
     if r["suporte_forte"] > 0:
         assert r["suporte_forte"] < r["preco"]
@@ -141,7 +141,7 @@ def test_detectar_suportes_suporte_forte_abaixo_do_preco(patch_klines):
 
 def test_detectar_suportes_klines_none_retorna_fallback(patch_klines_none):
     # Sem dados (falha de rede simulada) -> dict de fallback, sem lancar
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert r["suportes"] == []
     assert r["resistencias"] == []
     assert r["suporte_forte"] == 0
@@ -153,12 +153,12 @@ def test_detectar_suportes_usa_intervalo_passado(monkeypatch):
     # Garante que o intervalo e repassado para _klines (hermetico)
     capturado = {}
 
-    def fake_klines(intervalo, limite=100):
+    def fake_klines(symbol, intervalo, limite=100):
         capturado["intervalo"] = intervalo
         return _serie_sintetica(100)
 
     monkeypatch.setattr(suporte, "_klines", fake_klines)
-    suporte.detectar_suportes("15m")
+    suporte.detectar_suportes("BTCUSDT", "15m")
     assert capturado["intervalo"] == "15m"
 
 
@@ -293,7 +293,7 @@ def _serie_flat(n=30, preco=100.0, vol=10.0):
 @pytest.fixture
 def patch_klines_flat(monkeypatch):
     serie = _serie_flat(30)
-    monkeypatch.setattr(suporte, "_klines", lambda intervalo, limite=100: serie)
+    monkeypatch.setattr(suporte, "_klines", lambda symbol, intervalo, limite=100: serie)
     return serie
 
 
@@ -309,7 +309,7 @@ def patch_klines_curta(monkeypatch):
         "volume": [10.0 + i for i in range(n)],
         "abertura": [94.0 + i * 5 for i in range(n)],
     }
-    monkeypatch.setattr(suporte, "_klines", lambda intervalo, limite=100: serie)
+    monkeypatch.setattr(suporte, "_klines", lambda symbol, intervalo, limite=100: serie)
     return serie
 
 
@@ -318,12 +318,12 @@ def patch_klines_curta(monkeypatch):
 
 def test_detectar_suportes_flat_nao_lanca_e_chaves_completas(patch_klines_flat):
     # Regressao critica: serie degenerada nao pode quebrar a pipeline.
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert CHAVES_COMPLETAS.issubset(set(r.keys()))
 
 
 def test_detectar_suportes_flat_sem_suportes_nem_resistencias(patch_klines_flat):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     # Nada esta estritamente abaixo/acima do preco constante -> listas vazias.
     assert r["suportes"] == []
     assert r["resistencias"] == []
@@ -331,7 +331,7 @@ def test_detectar_suportes_flat_sem_suportes_nem_resistencias(patch_klines_flat)
 
 
 def test_detectar_suportes_flat_suporte_forte_zero_e_dist_99(patch_klines_flat):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert r["suporte_forte"] == 0
     assert r["peso_forte"] == 0
     assert r["metodos_forte"] == []
@@ -341,7 +341,7 @@ def test_detectar_suportes_flat_suporte_forte_zero_e_dist_99(patch_klines_flat):
 
 
 def test_detectar_suportes_flat_clusters_vazios(patch_klines_flat):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert r["clusters_sup"] == []
     assert r["clusters_res"] == []
 
@@ -352,19 +352,19 @@ def test_detectar_suportes_flat_clusters_vazios(patch_klines_flat):
 def test_detectar_suportes_curta_nao_lanca(patch_klines_curta):
     # Regressao: bollinger devolve None no final (periodo>len) e ema50 NaN.
     # O codigo usa `bb_lower[-1] if bb_lower[-1] else 0` e nao pode lancar.
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert isinstance(r, dict)
     assert CHAVES_COMPLETAS.issubset(set(r.keys()))
 
 
 def test_detectar_suportes_curta_bb_inferior_zero(patch_klines_curta):
     # len(serie)=15 < periodo(20) -> bb_lower[-1] is None -> bb_sup vira 0.
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert r["bb_inferior"] == 0
 
 
 def test_detectar_suportes_curta_preco_ultimo_fechamento(patch_klines_curta):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert r["preco"] == round(patch_klines_curta["fechamento"][-1], 2)
 
 
@@ -372,46 +372,46 @@ def test_detectar_suportes_curta_preco_ultimo_fechamento(patch_klines_curta):
 
 
 def test_detectar_suportes_distancia_coerente_com_suporte_forte(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     if r["suporte_forte"] > 0:
         esperado = round((r["preco"] - r["suporte_forte"]) / r["preco"] * 100, 2)
         assert r["distancia_%"] == esperado
 
 
 def test_detectar_suportes_clusters_limitados_a_cinco(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert len(r["clusters_sup"]) <= 5
     assert len(r["clusters_res"]) <= 5
 
 
 def test_detectar_suportes_clusters_ordenados_por_peso_desc(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     pesos = [cl["peso_total"] for cl in r["clusters_sup"]]
     assert pesos == sorted(pesos, reverse=True)
 
 
 def test_detectar_suportes_peso_forte_e_maior_cluster(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     if r["clusters_sup"]:
         # suporte_forte vem do cluster de maior peso (primeiro apos ordenacao).
         assert r["peso_forte"] == max(cl["peso_total"] for cl in r["clusters_sup"])
 
 
 def test_detectar_suportes_zonas_volume_estrutura(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     for z in r["zonas_volume"]:
         assert set(z.keys()) == {"preco", "volume", "tipo"}
         assert z["tipo"] in ("suporte", "resistencia")
 
 
 def test_detectar_suportes_zonas_volume_ordenadas_por_volume_desc(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     vols = [z["volume"] for z in r["zonas_volume"]]
     assert vols == sorted(vols, reverse=True)
 
 
 def test_detectar_suportes_na_zona_consistente_com_tolerancia(patch_klines):
-    r = suporte.detectar_suportes("1h")
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     if r["suporte_forte"] > 0:
         esperado = r["distancia_%"] <= suporte.TOLERANCIA_PCT * 100
         assert bool(r["na_zona"]) == bool(esperado)
@@ -420,19 +420,24 @@ def test_detectar_suportes_na_zona_consistente_com_tolerancia(patch_klines):
 def test_detectar_suportes_default_intervalo_1h(monkeypatch):
     capturado = {}
 
-    def fake(intervalo, limite=100):
+    def fake(symbol, intervalo, limite=100):
+        capturado["symbol"] = symbol
         capturado["intervalo"] = intervalo
         return _serie_sintetica(100)
 
     monkeypatch.setattr(suporte, "_klines", fake)
-    suporte.detectar_suportes()  # sem argumento -> default "1h"
+    # E-7: `symbol` e obrigatorio e vem PRIMEIRO; `intervalo` mantem o default.
+    # Antes era `detectar_suportes()` sem argumento nenhum, e o par vinha de uma
+    # constante de modulo — este teste podia passar com o par errado.
+    suporte.detectar_suportes("SOLUSDT")
+    assert capturado["symbol"] == "SOLUSDT"
     assert capturado["intervalo"] == "1h"
 
 
 def test_detectar_suportes_klines_dict_vazio_e_fallback(monkeypatch):
     # `_klines` devolvendo {} (falsy) tambem cai no fallback (not d).
-    monkeypatch.setattr(suporte, "_klines", lambda i, limite=100: {})
-    r = suporte.detectar_suportes("1h")
+    monkeypatch.setattr(suporte, "_klines", lambda s, i, limite=100: {})
+    r = suporte.detectar_suportes("BTCUSDT", "1h")
     assert r["suportes"] == []
     assert r["na_zona"] is False
 

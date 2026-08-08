@@ -41,7 +41,8 @@ def _model_path(symbol="BTCUSDT"):
 
 
 MODEL_PATH = _model_path()  # retrocompat
-SYMBOL = "BTCUSDT"
+# E-7: SYMBOL de modulo removido — prever() e treinar() recebem symbol; ficava
+# aqui sem nenhum leitor desde que _model_path(symbol) passou a existir.
 
 
 # ── Extração de features ──────────────────────────────────────
@@ -278,7 +279,15 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
 
 
 def prever(symbol="BTCUSDT"):
-    """Retorna probabilidade de alta nas próximas 8 velas."""
+    """Retorna probabilidade de alta nas próximas 8 velas, PARA O SYMBOL DADO.
+
+    Esta funcao sempre aceitou `symbol` e sempre o usou de fato (caminho do
+    artefato + klines do par). O defeito de E-7 nao estava aqui: era
+    `ensemble.prever()` que nao tinha symbol para passar, entao ETHUSDT e
+    SOLUSDT recebiam a previsao do modelo de BTCUSDT apesar de ja existirem
+    data/modelo_xgb_ethusdt.pkl e _solusdt.pkl treinados.
+    """
+    symbol = (symbol or "BTCUSDT").upper()
     path = _model_path(symbol)
     if not os.path.exists(path):
         # Fallback para modelo antigo (retrocompat)
@@ -292,6 +301,31 @@ def prever(symbol="BTCUSDT"):
 
     with open(path, "rb") as f:
         artefato = pickle.load(f)
+
+    # E-7: conferir a PROCEDENCIA do artefato. O treino ja gravava 'symbol'
+    # dentro do pickle e ninguem conferia — um arquivo renomeado, copiado entre
+    # maquinas ou restaurado de um backup errado produziria previsao do ativo
+    # errado com aparencia perfeitamente normal no log.
+    #
+    # Artefato SEM a chave 'symbol' (treinado antes de ela existir) nao e
+    # recusado: nesse caso a evidencia de procedencia e o proprio caminho, que ja
+    # e derivado do par (_model_path). O unico caso sem par no nome e o
+    # retrocompat data/modelo_xgb.pkl, aceito so para BTCUSDT — que e o que ele
+    # de fato e. O que se recusa e a DIVERGENCIA declarada: o artefato diz um par
+    # e pediram outro.
+    treinado_em = artefato.get("symbol")
+    if treinado_em is not None and str(treinado_em).upper() != symbol:
+        return (
+            None,
+            f"Artefato {path} foi treinado em {str(treinado_em).upper()}, nao em {symbol} — "
+            f"recusando para nao prever o ativo errado.",
+        )
+    if treinado_em is None and path == "data/modelo_xgb.pkl" and symbol != "BTCUSDT":
+        return (
+            None,
+            f"Artefato legado data/modelo_xgb.pkl e de BTCUSDT; recusando para {symbol}.",
+        )
+
     modelo = artefato["modelo"]
     intervalo = artefato.get("intervalo", "1h")
 

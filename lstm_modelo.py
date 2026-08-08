@@ -220,6 +220,11 @@ def treinar(intervalo="1h", max_iter=200):
                 "cv_auc_std": cv_std,
                 "seq_len": SEQ_LEN,
                 "n_features": N_FEATURES,
+                # E-7: gravar a procedencia. Sem isto, prever() nao tem como
+                # saber em que par o modelo foi treinado e precisa presumir
+                # BTCUSDT — presuncao que fica errada no dia em que alguem
+                # treinar o MLP em outro par.
+                "symbol": SYMBOL,
             },
             f,
         )
@@ -228,13 +233,39 @@ def treinar(intervalo="1h", max_iter=200):
     return modelo
 
 
-def prever():
-    """Retorna probabilidade de alta usando modelo sequencial."""
+def prever(symbol=SYMBOL):
+    """Retorna probabilidade de alta usando o modelo sequencial (MLP).
+
+    E-7: `symbol` deixou de ser implicito. Ao contrario do XGBoost, que tem um
+    artefato por par (data/modelo_xgb_{par}.pkl, cada um com 'symbol' gravado
+    dentro), o MLP e UM UNICO modelo global treinado com dados de BTCUSDT.
+
+    A escolha aqui e RECUSAR o par para o qual nao existe modelo, em vez de
+    alimentar o modelo de BTC com features de ETH. As features sao indicadores
+    tecnicos, entao o codigo "funcionaria" e devolveria um numero plausivel — e
+    e justamente isso que o torna perigoso: seria uma transferencia de dominio
+    nunca validada, com 45% do peso do ensemble, indistinguivel de uma previsao
+    legitima no log. Recusando, o ensemble cai no ramo "Apenas XGBoost" que ja
+    existe e ja e testado, e o par passa a ser decidido por um modelo que de
+    fato foi treinado nele.
+    """
     if not os.path.exists(MODEL_PATH):
         return None, "Modelo sequencial nao treinado. Rode: python lstm_modelo.py --treinar"
 
     with open(MODEL_PATH, "rb") as f:
         artefato = pickle.load(f)
+
+    # Artefatos treinados antes de E-7 nao gravavam 'symbol'; eles sao, de fato,
+    # BTCUSDT (o treino usava a constante de modulo).
+    symbol = (symbol or SYMBOL).upper()
+    treinado_em = str(artefato.get("symbol", SYMBOL)).upper()
+    if treinado_em != symbol:
+        return (
+            None,
+            f"MLP treinado em {treinado_em}, nao em {symbol} — "
+            f"nao existe modelo sequencial para este par (o MLP e global). "
+            f"Rode: python lstm_modelo.py --treinar para {symbol} ou opere so com XGBoost.",
+        )
 
     modelo = artefato["modelo"]
     scaler = artefato["scaler"]
@@ -244,7 +275,7 @@ def prever():
 
     r = requests.get(
         f"{BASE_URL}/api/v3/klines",
-        params={"symbol": SYMBOL, "interval": intervalo, "limit": 100},
+        params={"symbol": symbol, "interval": intervalo, "limit": 100},
         timeout=8,
     )
     rows = r.json()

@@ -406,7 +406,18 @@ def test_model_path_simbolo_ja_minusculo():
 
 def test_model_path_constante_modulo_consistente():
     assert ml_filtro.MODEL_PATH == ml_filtro._model_path("BTCUSDT")
-    assert ml_filtro.SYMBOL == "BTCUSDT"
+
+
+def test_nao_ha_symbol_de_modulo(): 
+    """E-7: `ml_filtro.SYMBOL` foi REMOVIDO.
+
+    O assert anterior era `ml_filtro.SYMBOL == "BTCUSDT"`, pinando uma constante
+    que nao tinha um unico leitor no arquivo — prever() e treinar() sempre
+    receberam `symbol` e sempre o usaram. Uma constante de par a nivel de modulo
+    e o formato exato do defeito que E-7 eliminou de regime.py, suporte.py e
+    lstm_modelo.py; deixa-la aqui e um convite a que alguem volte a usa-la.
+    """
+    assert not hasattr(ml_filtro, "SYMBOL")
 
 
 # ===========================================================================

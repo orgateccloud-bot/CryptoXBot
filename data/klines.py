@@ -40,6 +40,42 @@ _cache: dict[tuple[str, str, int], dict] = (
 )  # (symbol, intervalo, limit) -> {"dados", "timestamp"}
 _lock = threading.Lock()
 
+# E-7: intervalos aceitos pela API de klines da Binance. Fechado de proposito —
+# ver _validar() abaixo.
+INTERVALOS_VALIDOS = frozenset(
+    {
+        "1s", "1m", "3m", "5m", "15m", "30m",
+        "1h", "2h", "4h", "6h", "8h", "12h",
+        "1d", "3d", "1w", "1M",
+    }
+)
+
+
+def _validar(symbol: str, intervalo: str) -> None:
+    """Recusa symbol/intervalo malformados com ValueError, em vez de deixar a
+    API devolver erro e o chamador receber None (E-7).
+
+    Por que isto e uma guarda de dinheiro e nao higiene: `suporte.py` e
+    `regime.py` tinham SYMBOL='BTCUSDT' de modulo e assinaturas
+    `detectar_suportes(intervalo="1h")` / `detectar()`. Ao tornar `symbol` o
+    primeiro parametro, toda chamada posicional antiga -- `detectar_suportes("1h")`
+    -- passaria "1h" COMO SYMBOL. Sem esta validacao o resultado seria
+    obter_klines("1h", "1h") -> HTTP 400 -> None -> o dict-vazio de fallback,
+    e o par continuaria operando com suporte_forte=0: exatamente o modo de falha
+    silenciosa que E-7 existe para eliminar, so trocado de ativo-errado por
+    dado-ausente. Falhar alto aqui torna a migracao incompleta impossivel de
+    passar desapercebida.
+    """
+    if not isinstance(symbol, str) or not symbol.isalnum() or not 6 <= len(symbol) <= 20:
+        raise ValueError(
+            f"symbol invalido: {symbol!r}. Esperado par da Binance como 'BTCUSDT'. "
+            f"Se voce passou um intervalo aqui, a assinatura e obter_klines(symbol, intervalo)."
+        )
+    if intervalo not in INTERVALOS_VALIDOS:
+        raise ValueError(
+            f"intervalo invalido: {intervalo!r}. Validos: {sorted(INTERVALOS_VALIDOS)}"
+        )
+
 
 def _fetch_rest(symbol: str, intervalo: str, limit: int) -> dict | None:
     try:
@@ -75,7 +111,12 @@ def obter_klines(
 
     Falha de rede: mantém o dado antigo em cache (mesmo expirado) se
     existir, em vez de descartar por causa de uma falha transitória.
-    Sem cache anterior e fetch falhou -> None."""
+    Sem cache anterior e fetch falhou -> None.
+
+    Levanta ValueError para symbol/intervalo malformados (E-7): erro de
+    PROGRAMACAO nao pode se disfarcar de falha de rede, senao a diferenca entre
+    "a Binance esta fora" e "estou lendo o ativo errado" desaparece do log."""
+    _validar(symbol, intervalo)
     key = (symbol.upper(), intervalo, limit)
     with _lock:
         entry = _cache.get(key)

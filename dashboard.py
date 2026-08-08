@@ -308,7 +308,16 @@ def atualizar_par(symbol):
             score_anterior = estados[symbol]["score"]
             regime_anterior = estados[symbol]["regime"]
 
-        # Estratégia + Score
+        # Estratégia + Score — SOMENTE LEITURA (E-7)
+        #
+        # `analisar()` gravava uma linha em `sinais` a cada chamada, e este loop
+        # do dashboard a chamava a cada 30s POR PAR, apenas para exibir. Ou seja:
+        # a camada de apresentacao escrevia na mesma tabela que relatorio_gate.py
+        # le para julgar se existe edge, e o fazia ~2.880 vezes por dia por par,
+        # em concorrencia com o worker. Desde E-7 a escrita e explicita
+        # (otimizada.registrar_sinal) e so o worker chama — `analisar()` e puro,
+        # entao esta chamada aqui virou inofensiva por construcao, nao por
+        # convencao.
         sinal_res = {}
         try:
             from estrategias.otimizada import analisar

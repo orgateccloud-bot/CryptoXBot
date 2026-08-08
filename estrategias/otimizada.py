@@ -109,13 +109,19 @@ def analisar(
     funding = 0.0
 
     # ── Regime de Mercado ─────────────────────────────────────
-    regime_info = reg.detectar()
+    # E-7: regime DO PAR. Antes reg.detectar() lia sempre BTCUSDT, e este valor
+    # entra em dois lugares que somam boa parte da decisao: o filtro "regime"
+    # abaixo e o componente de 18% do score unificado.
+    regime_info = reg.detectar(symbol)
     fear_info = fg.obter()
 
     # ── Ensemble ML (XGBoost + LSTM) ──────────────────────────
     if ensemble_result is None:
         try:
-            ensemble_result = ens.prever()
+            # E-7: ensemble DO PAR. Ha modelo XGBoost treinado para cada um dos
+            # tres pares (data/modelo_xgb_{par}.pkl) — o que faltava era alguem
+            # passar o symbol para que fosse carregado.
+            ensemble_result = ens.prever(symbol, regime_info["regime_final"])
         except Exception:
             ensemble_result = {"prob_ensemble": 0.5, "pode_operar": True, "confianca": "NENHUM"}
 
@@ -190,7 +196,12 @@ def analisar(
         sinal = "VENDA"
 
     # ── Suportes e Resistencias ─────────────────────────────────
-    suporte_info = sup.detectar_suportes("1h")
+    # E-7: suportes DO PAR. Esta linha era `sup.detectar_suportes("1h")`, sem
+    # symbol, e o nivel devolvido (do BITCOIN) sobrescrevia o stop logo abaixo.
+    # Era a causa direta do bloco de producao com entrada ~$1.858 e stop
+    # $63.521,65: para ETH, qualquer suporte de BTC e "acima do preco", entao a
+    # comparacao `stop_suporte > stop` era sempre verdadeira.
+    suporte_info = sup.detectar_suportes(symbol, "1h")
 
     stop = (
         round(preco * (1 - STOP_PCT), 2)
@@ -204,10 +215,18 @@ def analisar(
     )
 
     # Stop abaixo do suporte forte (mais inteligente que % fixo)
+    #
+    # E-7: o override so pode APERTAR o stop, nunca move-lo para cima do preco.
+    # Corrigir o symbol (acima) reduz o absurdo mas nao o elimina: `suporte_forte`
+    # sai de um cluster que inclui EMA20, EMA50 e VWAP, e qualquer um dos tres
+    # pode estar ACIMA do preco atual (tipico em queda). Nesse caso a condicao
+    # `stop_suporte > stop` continua verdadeira e o stop passaria a entrada — com
+    # o par certo, so por uma margem menor. A guarda e sobre a GRANDEZA, nao
+    # sobre a procedencia do dado.
     if sinal == "COMPRA" and suporte_info["suporte_forte"] > 0:
         stop_suporte = round(suporte_info["suporte_forte"] * 0.995, 2)  # 0.5% abaixo do suporte
-        if stop_suporte > stop:
-            stop = stop_suporte  # stop mais apertado no suporte
+        if stop < stop_suporte < preco:
+            stop = stop_suporte  # stop mais apertado, e ainda abaixo da entrada
 
     # Ajustar target se Fear & Greed pede reducao
     if target and fear_info.get("reducao_alvo"):
@@ -261,7 +280,20 @@ def analisar(
     }
 
     resultado["symbol"] = symbol
-    resultado["sinal_id"] = None  # P1-3: id da linha em `sinais`, se de fato salva abaixo
+    resultado["sinal_id"] = None  # P1-3: id da linha em `sinais`, se de fato salva
+
+    # ── E-7: invariante de coerencia, na origem do sinal ──────────
+    # Um sinal com stop >= preco nao e um sinal ruim, e um sinal INVALIDO: se
+    # chegar ao executor, ou a Binance rejeita o STOP_LOSS_LIMIT (posicao real
+    # DESPROTEGIDA) ou o monitor local o liquida no primeiro tick, pagando
+    # spread + duas taxas. Rebaixar para AGUARDAR aqui e mais seguro que
+    # confiar em quem consome o dict, e o motivo fica no proprio resultado.
+    incoerencia = _incoerencia_de_precos(sinal, preco, stop, target)
+    if incoerencia:
+        resultado["sinal"] = "AGUARDAR"
+        resultado["sinal_original"] = sinal
+        resultado["incoerencia"] = incoerencia
+        sinal = "AGUARDAR"
 
     if sinal != "AGUARDAR":
         motivo = (
@@ -269,20 +301,68 @@ def analisar(
             f"RSI:{rsi14:.1f} | ATR:{atr_atual:.0f} | "
             f"VolRel:{vol_rel:.2f}x | FG:{fear_info['valor']}"
         )
-        # P1-3: guarda o id retornado -- se este sinal virar uma entrada real
-        # (main.py chama exec_par.abrir_long), o id e repassado ate
-        # executor.py para ligar entrada e resultado do mesmo trade
-        # (marcar_sinal_executado / atualizar_sinal_fechamento).
-        resultado["sinal_id"] = database.salvar_sinal(
-            sinal,
-            preco,
-            motivo,
-            symbol=symbol,
-            score=score_result["score_total"],
-            source="estrategia_otimizada",
-        )
+        resultado["motivo_sinal"] = motivo
 
     return resultado
+
+
+def _incoerencia_de_precos(sinal, preco, stop, target):
+    """Devolve str descrevendo a incoerencia, ou None se os precos sao validos.
+
+    Invariante (E-7):
+        COMPRA -> 0 < stop < preco < target
+        VENDA  -> 0 < target < preco < stop
+
+    Funcao pura e separada de proposito: e reusada por main.py e por
+    executor.abrir_long, para que a checagem seja a MESMA nos tres pontos em vez
+    de tres reimplementacoes que podem divergir.
+    """
+    if sinal not in ("COMPRA", "VENDA"):
+        return None
+    if not preco or preco <= 0:
+        return f"preco invalido: {preco}"
+    if stop is None or target is None:
+        return f"stop/target ausentes (stop={stop}, target={target})"
+    if stop <= 0 or target <= 0:
+        return f"stop/target nao positivos (stop={stop}, target={target})"
+    if sinal == "COMPRA":
+        if not stop < preco:
+            return f"COMPRA com stop {stop} >= entrada {preco}"
+        if not preco < target:
+            return f"COMPRA com target {target} <= entrada {preco}"
+    else:
+        if not stop > preco:
+            return f"VENDA com stop {stop} <= entrada {preco}"
+        if not target < preco:
+            return f"VENDA com target {target} >= entrada {preco}"
+    return None
+
+
+def registrar_sinal(resultado):
+    """Persiste o sinal em `sinais` e devolve o id (ou None).
+
+    E-7: a ESCRITA saiu de `analisar()`, que agora e puro (le mercado, decide,
+    devolve dict). Motivo medido: dashboard.py chamava `analisar()` a cada 30s
+    por par so para exibir, e cada chamada gravava uma linha em `sinais` — a
+    MESMA tabela que a Etapa 2 do gate le para julgar se ha edge. O banco de
+    decisao estava sendo escrito pela camada de apresentacao.
+
+    Idempotencia nao e garantida aqui: chamar duas vezes grava duas linhas. O
+    contrato e que so o worker chame, uma vez por avaliacao.
+    """
+    if resultado.get("sinal") in (None, "AGUARDAR"):
+        return None
+    # P1-3: o id liga entrada e resultado do mesmo trade
+    # (marcar_sinal_executado / atualizar_sinal_fechamento).
+    resultado["sinal_id"] = database.salvar_sinal(
+        resultado["sinal"],
+        resultado["preco"],
+        resultado.get("motivo_sinal", ""),
+        symbol=resultado.get("symbol", "BTCUSDT"),
+        score=resultado.get("score"),
+        source="estrategia_otimizada",
+    )
+    return resultado["sinal_id"]
 
 
 def imprimir(
@@ -292,8 +372,22 @@ def imprimir(
     ensemble_result=None,
     historico_ticks=None,
     obi=None,
+    resultado=None,
 ):
-    r = analisar(symbol, cvd_atual, ml_prob, ensemble_result, historico_ticks, obi)
+    """Imprime o bloco de analise.
+
+    E-7: aceita `resultado` ja calculado. Antes esta funcao SEMPRE chamava
+    analisar() de novo — main.py fazia analisar_otimizada(...) e em seguida
+    imprimir_otimizada(...), entao cada avaliacao rodava a estrategia DUAS vezes,
+    gravava DUAS linhas em `sinais` e podia imprimir numeros de um calculo
+    diferente do que foi enviado ao executor (klines fora do TTL de 30s,
+    fear&greed, ensemble). Passar o dict elimina os tres problemas de uma vez.
+    """
+    r = (
+        resultado
+        if resultado is not None
+        else analisar(symbol, cvd_atual, ml_prob, ensemble_result, historico_ticks, obi)
+    )
     verde = "\033[92m"
     vermelho = "\033[91m"
     amarelo = "\033[93m"

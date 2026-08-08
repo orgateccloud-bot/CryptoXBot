@@ -34,7 +34,7 @@ scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 + purga
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (1220 passed, 8 skipped) — isolado de producao via conftest.py da raiz
+tests/             # pytest (1274 passed, 8 skipped) — isolado de producao via conftest.py da raiz
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -121,7 +121,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1220 passed, 8 skipped em ~2min40s
+pytest tests/ -q                    # 1274 passed, 8 skipped em ~2min40s
 # A suite e ISOLADA do estado de producao pelo conftest.py da RAIZ: banco em
 # tmp + guard que FALHA o teste se alguem abrir data/btc_data.db. Leia o
 # cabecalho de conftest.py antes de mexer nele — ate 2026-07-31 `pytest tests/`
@@ -282,9 +282,18 @@ não é comparável com a nova.
 ## Modelos ML
 
 - `ml_filtro.py` — **XGBoost** (modelo principal). Pickle salvo atomicamente
-  (`tmp` + `os.replace` — crash no retreino não corrompe o modelo).
-- `lstm_modelo.py` — **MLP do sklearn** (nome "LSTM" é histórico; não é LSTM real)
+  (`tmp` + `os.replace` — crash no retreino não corrompe o modelo). **Um modelo
+  POR PAR** (`data/modelo_xgb_{par}.pkl`), com o par gravado dentro do artefato e
+  conferido no `prever()` (E-7).
+- `lstm_modelo.py` — **MLP do sklearn** (nome "LSTM" é histórico; não é LSTM real).
+  **Modelo único, treinado em BTCUSDT.** Desde E-7, `prever(symbol)` RECUSA pares
+  sem modelo próprio em vez de alimentar o modelo de BTC com features de ETH/SOL —
+  seria transferência de domínio nunca validada com 45% do peso do ensemble. Na
+  prática ETH e SOL operam no ramo "Apenas XGBoost".
 - `ensemble.py` — Ensemble ponderado XGBoost 55% + MLP 45%, ajuste por regime.
+  `prever(symbol, regime_atual)` — `symbol` é **obrigatório** (E-7): até 2026-08-08
+  o ensemble não recebia par e ETH/SOL usavam a previsão do modelo de BTC, apesar
+  dos modelos por par já existirem.
   FSRS aposentado em 2026-07-21 (nunca ativava no caminho ao vivo — branch morto).
 - `score.py` — Score unificado 0-100 (11 componentes; ≥60 opera reduzido, ≥70 cheio).
   CVD (7%) e OBI (8%) — ver seção CVD/OBI/WebSocket abaixo — só têm dado real

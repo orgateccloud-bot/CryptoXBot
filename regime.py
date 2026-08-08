@@ -20,7 +20,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import indicadores as ind
 from data.klines import obter_klines
 
-SYMBOL = "BTCUSDT"
+# E-7 (2026-08-08): SYMBOL = "BTCUSDT" de modulo foi REMOVIDO.
+#
+# `detectar()` nao pedia symbol e lia sempre o Bitcoin em 1h/4h/1d. O regime
+# resultante pesa 18% do score unificado e ainda modula os pesos do ensemble —
+# ou seja, quase um quinto da decisao de ETHUSDT e de SOLUSDT era uma leitura
+# tecnica do BTC. Nao havia como notar isso pelo log: o regime era plausivel,
+# so nao era do ativo.
 
 # Limiares
 ADX_TENDENCIA = 25  # ADX > 25 = tendencia presente
@@ -29,10 +35,13 @@ ATR_EXTREMO = 2.5  # ATR > 2.5x media = volatilidade extrema
 ATR_LATERAL = 0.5  # ATR < 0.5x media = mercado parado demais
 
 
-def _klines(intervalo, limite=60):
+def _klines(symbol, intervalo, limite=60):
     """P1-5: delega para data.klines (cache TTL + REST_BASE_URL), mesmo
-    contrato de antes (None em falha, sem propagar exceção)."""
-    return obter_klines(SYMBOL, intervalo, limite)
+    contrato de antes (None em falha, sem propagar exceção).
+
+    E-7: `symbol` deixou de ser implicito.
+    """
+    return obter_klines(symbol, intervalo, limite)
 
 
 def _adx(maximas, minimas, fechamentos, periodo=14):
@@ -148,20 +157,24 @@ def _classificar_tf(dados, label=""):
     }
 
 
-def detectar():
+def detectar(symbol):
     """
-    Detecta o regime atual em 3 timeframes e retorna veredicto consolidado.
+    Detecta o regime do SYMBOL DADO em 3 timeframes e consolida o veredicto.
+
+    `symbol` e obrigatorio (E-7): antes esta funcao lia sempre BTCUSDT, e o
+    regime que ela devolvia pesava 18% do score de todos os pares.
 
     Retorna dict com:
+      symbol:       o par efetivamente lido
       regime_final: TENDENCIA_ALTA | TENDENCIA_BAIXA | LATERAL | VOLATILIDADE
       pode_operar:  bool
       motivo:       str
       score:        0-100
       detalhes_tf:  dict com analise por timeframe
     """
-    d1h = _klines("1h", 60)
-    d4h = _klines("4h", 60)
-    d1d = _klines("1d", 60)
+    d1h = _klines(symbol, "1h", 60)
+    d4h = _klines(symbol, "4h", 60)
+    d1d = _klines(symbol, "1d", 60)
 
     tf1h = _classificar_tf(d1h, "1H")
     tf4h = _classificar_tf(d4h, "4H")
@@ -214,6 +227,9 @@ def detectar():
     score = round(score_adx + score_tf)
 
     return {
+        # E-7: par lido no resultado, para que o consumidor possa provar
+        # procedencia em vez de assumir.
+        "symbol": symbol,
         "regime_final": regime_final,
         "pode_operar": pode_operar,
         "motivo": motivo,
@@ -227,8 +243,8 @@ def detectar():
     }
 
 
-def imprimir():
-    r = detectar()
+def imprimir(symbol="BTCUSDT"):
+    r = detectar(symbol)
 
     cores = {
         "TENDENCIA_ALTA": "\033[92m",
@@ -243,7 +259,7 @@ def imprimir():
     vermelho = "\033[91m"
 
     print("\n" + "=" * 58)
-    print("  DETECCAO DE REGIME DE MERCADO")
+    print(f"  DETECCAO DE REGIME DE MERCADO — {symbol}")
     print("=" * 58)
 
     for tf, d in r["detalhes_tf"].items():

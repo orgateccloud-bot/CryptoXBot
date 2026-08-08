@@ -80,7 +80,7 @@ def _serie_volatilidade(n=N):
 def _mock_klines(mapa):
     """Fábrica de substituto para regime._klines a partir de um dict por timeframe."""
 
-    def fake(intervalo, limite=60):
+    def fake(symbol, intervalo, limite=60):
         return mapa[intervalo]
 
     return fake
@@ -200,14 +200,14 @@ class TestDetectar:
     def test_estrutura_de_retorno(self, monkeypatch):
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         for chave in ("regime_final", "pode_operar", "motivo", "score", "votos", "detalhes_tf"):
             assert chave in r
 
     def test_detalhes_tf_tem_os_tres_timeframes(self, monkeypatch):
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert set(r["detalhes_tf"].keys()) == {"1h", "4h", "1d"}
 
     def test_score_e_numerico_nao_negativo(self, monkeypatch):
@@ -218,7 +218,7 @@ class TestDetectar:
         # garantimos apenas que é um inteiro não-negativo.
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert isinstance(r["score"], int)
         assert r["score"] >= 0
 
@@ -227,41 +227,41 @@ class TestDetectar:
         # faixa nominal 0-100 esperada.
         mapa = {"1h": _serie_lateral(), "4h": _serie_lateral(), "1d": _serie_lateral()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert 0 <= r["score"] <= 100
 
     def test_votos_somam_quatro(self, monkeypatch):
         # O voto é [1h, 4h, 4h, 1d] -> 4 votos no total (4H tem peso duplo).
         mapa = {"1h": _serie_alta(), "4h": _serie_lateral(), "1d": _serie_baixa()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert sum(r["votos"].values()) == 4
 
     def test_consenso_alta(self, monkeypatch):
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "TENDENCIA_ALTA"
         assert r["pode_operar"] is True
 
     def test_consenso_baixa_pode_operar(self, monkeypatch):
         mapa = {"1h": _serie_baixa(), "4h": _serie_baixa(), "1d": _serie_baixa()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "TENDENCIA_BAIXA"
         assert r["pode_operar"] is True
 
     def test_lateral_nao_pode_operar(self, monkeypatch):
         mapa = {"1h": _serie_lateral(), "4h": _serie_lateral(), "1d": _serie_lateral()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "LATERAL"
         assert r["pode_operar"] is False
 
     def test_dados_none_resulta_indefinido(self, monkeypatch):
         # _klines devolve None para todos os TFs -> classificação INDEFINIDO.
-        monkeypatch.setattr(regime, "_klines", lambda i, l=60: None)
-        r = regime.detectar()
+        monkeypatch.setattr(regime, "_klines", lambda s, i, l=60: None)
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "INDEFINIDO"
         assert r["pode_operar"] is False
         assert r["detalhes_tf"]["1h"]["regime"] == "INDEFINIDO"
@@ -272,7 +272,7 @@ class TestDetectar:
         # Basta UM timeframe em VOLATILIDADE para travar tudo (prioridade absoluta).
         mapa = {"1h": _serie_volatilidade(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "VOLATILIDADE"
         assert r["pode_operar"] is False
 
@@ -281,7 +281,7 @@ class TestDetectar:
     def test_regressao_1d_presente_nos_detalhes(self, monkeypatch):
         mapa = {"1h": _serie_alta(), "4h": _serie_lateral(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert "1d" in r["detalhes_tf"]
         assert r["detalhes_tf"]["1d"]["regime"] == "TENDENCIA_ALTA"
 
@@ -301,7 +301,7 @@ class TestDetectar:
         """
         mapa = {"1h": _serie_alta(), "4h": _serie_lateral(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["votos"]["TENDENCIA_ALTA"] == 2
         assert r["regime_final"] == "TENDENCIA_ALTA"
         assert r["pode_operar"] is True
@@ -314,7 +314,7 @@ class TestDetectar:
         """
         mapa = {"1h": _serie_alta(), "4h": _serie_lateral(), "1d": _serie_lateral()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["votos"]["LATERAL"] == 3
         assert r["regime_final"] == "LATERAL"
         assert r["pode_operar"] is False
@@ -323,14 +323,16 @@ class TestDetectar:
         # Garante que detectar() usa o substituto (hermético) e não a Binance.
         chamadas = []
 
-        def fake(intervalo, limite=60):
-            chamadas.append(intervalo)
+        def fake(symbol, intervalo, limite=60):
+            chamadas.append((symbol, intervalo))
             return _serie_alta()
 
         monkeypatch.setattr(regime, "_klines", fake)
-        regime.detectar()
+        regime.detectar("BTCUSDT")
         # detectar() consulta exatamente os 3 timeframes.
-        assert chamadas == ["1h", "4h", "1d"]
+        # E-7: o par tambem e travado — antes `detectar()` lia sempre BTCUSDT
+        # de uma constante de modulo e nenhum teste podia notar a troca.
+        assert chamadas == [("BTCUSDT", "1h"), ("BTCUSDT", "4h"), ("BTCUSDT", "1d")]
 
 
 # ===========================================================================
@@ -483,7 +485,7 @@ class TestDetectarRamos:
         # score_tf = votos(4)/3*50 = 66.7 -> score total 117 (sem clamp).
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["score"] == 117
         # Confirma matematicamente o teto do componente ADX.
         adx_medio = (r["detalhes_tf"]["1h"]["adx"] + r["detalhes_tf"]["4h"]["adx"]) / 2
@@ -494,7 +496,7 @@ class TestDetectarRamos:
         # VOLATILIDADE em QUALQUER timeframe (aqui o 1D) bloqueia tudo.
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_volatilidade()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "VOLATILIDADE"
         assert r["pode_operar"] is False
         assert "ATR" in r["motivo"]
@@ -502,7 +504,7 @@ class TestDetectarRamos:
     def test_volatilidade_no_4h_tem_prioridade(self, monkeypatch):
         mapa = {"1h": _serie_alta(), "4h": _serie_volatilidade(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "VOLATILIDADE"
         assert r["pode_operar"] is False
 
@@ -511,14 +513,14 @@ class TestDetectarRamos:
         # Demonstra que o 4H sozinho carrega o veredicto via peso duplo.
         mapa = {"1h": _serie_alta(), "4h": _serie_baixa(), "1d": _serie_lateral()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["votos"]["TENDENCIA_BAIXA"] == 2
         assert r["regime_final"] == "TENDENCIA_BAIXA"
 
     def test_indefinido_so_quando_todos_klines_none(self, monkeypatch):
         # INDEFINIDO real: nenhum TF vota (todos viram INDEFINIDO, não contados).
-        monkeypatch.setattr(regime, "_klines", lambda i, l=60: None)
-        r = regime.detectar()
+        monkeypatch.setattr(regime, "_klines", lambda s, i, l=60: None)
+        r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "INDEFINIDO"
         assert sum(r["votos"].values()) == 0
         assert r["score"] == 0
@@ -526,13 +528,13 @@ class TestDetectarRamos:
 
     def test_um_klines_none_nao_quebra_detectar(self, monkeypatch):
         # Apenas o 1H falha (None); 4H e 1D mantêm consenso de alta.
-        def fake(intervalo, limite=60):
+        def fake(symbol, intervalo, limite=60):
             if intervalo == "1h":
                 return None
             return _serie_alta()
 
         monkeypatch.setattr(regime, "_klines", fake)
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert r["detalhes_tf"]["1h"]["regime"] == "INDEFINIDO"
         # 4H (peso 2) + 1D -> ALTA com quórum.
         assert r["regime_final"] == "TENDENCIA_ALTA"
@@ -541,7 +543,7 @@ class TestDetectarRamos:
         # As quatro chaves de voto existem sempre, mesmo zeradas.
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.detectar()
+        r = regime.detectar("BTCUSDT")
         assert set(r["votos"].keys()) == {
             "TENDENCIA_ALTA",
             "TENDENCIA_BAIXA",
@@ -569,13 +571,16 @@ class TestKlines:
             return {"fechamento": [1.0, 2.0]}
 
         monkeypatch.setattr(regime, "obter_klines", _fake_obter_klines)
-        d = regime._klines("1d", 4)
-        assert capturado["args"] == (regime.SYMBOL, "1d", 4)
+        d = regime._klines("ETHUSDT", "1d", 4)
+        # E-7: o symbol vem do ARGUMENTO. Este assert era
+        # `== (regime.SYMBOL, ...)`, com regime.SYMBOL = "BTCUSDT" fixo:
+        # pinava justamente o defeito de a funcao ignorar o par pedido.
+        assert capturado["args"] == ("ETHUSDT", "1d", 4)
         assert d == {"fechamento": [1.0, 2.0]}
 
     def test_repassa_none_sem_alterar(self, monkeypatch):
         monkeypatch.setattr(regime, "obter_klines", lambda *a, **k: None)
-        assert regime._klines("1h", 60) is None
+        assert regime._klines("BTCUSDT", "1h", 60) is None
 
 
 # ===========================================================================
@@ -588,7 +593,7 @@ class TestImprimir:
     def test_imprimir_retorna_dict_de_detectar(self, monkeypatch, capsys):
         mapa = {"1h": _serie_alta(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.imprimir()
+        r = regime.imprimir("BTCUSDT")
         out = capsys.readouterr().out
         assert r["regime_final"] == "TENDENCIA_ALTA"
         assert "DETECCAO DE REGIME DE MERCADO" in out
@@ -597,8 +602,8 @@ class TestImprimir:
 
     def test_imprimir_cobre_cor_indefinido(self, monkeypatch, capsys):
         # Caminho INDEFINIDO usa a cor cinza (\033[90m) — exercita o ramo.
-        monkeypatch.setattr(regime, "_klines", lambda i, l=60: None)
-        r = regime.imprimir()
+        monkeypatch.setattr(regime, "_klines", lambda s, i, l=60: None)
+        r = regime.imprimir("BTCUSDT")
         out = capsys.readouterr().out
         assert r["regime_final"] == "INDEFINIDO"
         assert "INDEFINIDO" in out
@@ -606,7 +611,7 @@ class TestImprimir:
     def test_imprimir_cobre_cor_volatilidade(self, monkeypatch, capsys):
         mapa = {"1h": _serie_volatilidade(), "4h": _serie_alta(), "1d": _serie_alta()}
         monkeypatch.setattr(regime, "_klines", _mock_klines(mapa))
-        r = regime.imprimir()
+        r = regime.imprimir("BTCUSDT")
         out = capsys.readouterr().out
         assert r["regime_final"] == "VOLATILIDADE"
         assert "VOLATILIDADE" in out

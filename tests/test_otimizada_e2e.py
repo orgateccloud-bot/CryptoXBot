@@ -303,11 +303,25 @@ def test_cenario_bullish_gera_compra(patch_otimizada):
     assert r["score_decisao"] in ("OPERAR_CHEIO", "OPERAR_REDUZIDO")
     # COMPRA define stop abaixo e target acima do preço
     assert r["stop_loss"] < r["preco"] < r["take_profit"]
-    # sinal != AGUARDAR persiste no DB (mock)
+
+    # E-7: ASSERT INVERTIDO. `analisar()` agora e PURO — nao grava nada.
+    #
+    # Antes, um sinal != AGUARDAR persistia em `sinais` de dentro de analisar(),
+    # e este teste travava esse acoplamento. O efeito medido em producao: o loop
+    # do dashboard chamava analisar() a cada 30s por par apenas para EXIBIR, e
+    # cada chamada gravava na mesma tabela que relatorio_gate.py le para julgar
+    # se ha edge (~2.880 escritas/dia/par pela camada de apresentacao), alem da
+    # dupla execucao de main.py (analisar + imprimir) gerando duas linhas para o
+    # mesmo instante.
+    assert chamadas == [], "analisar() voltou a escrever no banco"
+
+    # A escrita agora e explicita, do worker, e devolve o id.
+    id_gravado = otimizada.registrar_sinal(r)
     assert len(chamadas) == 1
     args, kwargs = chamadas[0]
     assert args[0] == "COMPRA"
     assert kwargs.get("symbol") == "BTCUSDT"
+    assert r["sinal_id"] == id_gravado
 
 
 def test_compra_usa_suporte_forte_quando_acima_do_stop_pct(patch_otimizada):
@@ -366,6 +380,9 @@ def test_cenario_bearish_gera_venda(patch_otimizada):
     assert isinstance(r["score"], (int, float))
     # VENDA: stop acima e target abaixo do preço
     assert r["take_profit"] < r["preco"] < r["stop_loss"]
+    # E-7: analisar() e puro; a escrita e de quem decide gravar.
+    assert chamadas == []
+    otimizada.registrar_sinal(r)
     assert len(chamadas) == 1
     assert chamadas[0][0][0] == "VENDA"
 

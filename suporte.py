@@ -26,7 +26,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import indicadores as ind
 from data.klines import obter_klines
 
-SYMBOL = "BTCUSDT"
+# E-7 (2026-08-08): SYMBOL = "BTCUSDT" de modulo foi REMOVIDO.
+#
+# Era o unico simbolo que este arquivo conhecia, e `detectar_suportes` nao pedia
+# symbol nenhum. Consequencia medida em producao: ETHUSDT e SOLUSDT recebiam
+# suportes do BITCOIN, e o override de stop em estrategias/otimizada.py usava
+# esse nivel — e assim nasceu o bloco real com entrada ~$1.858 e stop
+# $63.521,65. Nao era um caso de borda: era reprodutivel por construcao, em toda
+# entrada de ETH/SOL.
+#
+# Agora `symbol` e o primeiro parametro, obrigatorio. data/klines.py valida o
+# formato, de modo que uma chamada posicional antiga (`detectar_suportes("1h")`)
+# levanta ValueError em vez de virar leitura vazia silenciosa.
 
 # Tolerancia para considerar "proximo" ao suporte (% do preco)
 TOLERANCIA_PCT = 0.005  # 0.5%
@@ -37,11 +48,14 @@ PARCELA_2 = 0.40  # 40% no pullback
 PARCELA_3 = 0.20  # 20% na confirmacao
 
 
-def _klines(intervalo, limite=100):
+def _klines(symbol, intervalo, limite=100):
     """P1-5: delega para data.klines (cache TTL + REST_BASE_URL do config --
     antes hardcoded para https://api.binance.com, bug real corrigido de
-    brinde). Mesmo contrato de antes (None em falha)."""
-    return obter_klines(SYMBOL, intervalo, limite)
+    brinde). Mesmo contrato de antes (None em falha).
+
+    E-7: `symbol` deixou de ser implicito.
+    """
+    return obter_klines(symbol, intervalo, limite)
 
 
 def _pivot_points(maximas, minimas, fechamentos, periodo=5):
@@ -101,11 +115,16 @@ def _volume_profile(fechamentos, volumes, num_bins=20):
     return sorted(zonas, key=lambda x: x["volume"], reverse=True)[:5]
 
 
-def detectar_suportes(intervalo="1h"):
+def detectar_suportes(symbol, intervalo="1h"):
     """
-    Detecta suportes e resistencias em multiplos metodos.
+    Detecta suportes e resistencias em multiplos metodos, PARA O SYMBOL DADO.
+
+    `symbol` e obrigatorio e vem primeiro (E-7): antes esta funcao lia sempre
+    BTCUSDT, e o nivel que ela devolvia sobrescrevia o stop de ETH e SOL em
+    estrategias/otimizada.py.
 
     Retorna dict com:
+      symbol:        o par efetivamente lido (para que o chamador possa provar)
       suportes:      lista de precos de suporte (ordenados, mais proximo primeiro)
       resistencias:  lista de precos de resistencia
       suporte_forte: melhor suporte (confluencia de metodos)
@@ -113,9 +132,10 @@ def detectar_suportes(intervalo="1h"):
       na_zona:       bool — preco esta proximo ao suporte
       zonas_volume:  Volume Profile zones
     """
-    d = _klines(intervalo, 100)
+    d = _klines(symbol, intervalo, 100)
     if not d:
         return {
+            "symbol": symbol,
             "suportes": [],
             "resistencias": [],
             "suporte_forte": 0,
@@ -201,6 +221,9 @@ def detectar_suportes(intervalo="1h"):
     na_zona = dist_pct <= TOLERANCIA_PCT * 100
 
     return {
+        # E-7: o par lido vai no resultado para que o chamador possa PROVAR que
+        # o nivel pertence ao ativo certo, em vez de confiar por construcao.
+        "symbol": symbol,
         "preco": round(preco, 2),
         "suportes": [
             round(s["preco"], 2) for s in sorted(todos_suportes, key=lambda x: -x["preco"])
@@ -335,8 +358,8 @@ class ScaleIn:
         }
 
 
-def imprimir():
-    r = detectar_suportes("1h")
+def imprimir(symbol="BTCUSDT"):
+    r = detectar_suportes(symbol, "1h")
 
     verde = "\033[92m"
     vermelho = "\033[91m"
@@ -345,7 +368,7 @@ def imprimir():
     reset = "\033[0m"
 
     print("\n" + "=" * 58)
-    print("  SUPORTES E RESISTENCIAS")
+    print(f"  SUPORTES E RESISTENCIAS — {symbol}")
     print("=" * 58)
     print(f"  Preco Atual: ${r['preco']:,.2f}")
     print()

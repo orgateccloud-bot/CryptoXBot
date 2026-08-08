@@ -41,14 +41,25 @@ AJUSTES_REGIME = {
 }
 
 
-def prever(regime_atual="INDEFINIDO"):
+def prever(symbol, regime_atual="INDEFINIDO"):
     """
-    Retorna previsao combinada XGBoost + LSTM com ajuste por regime.
+    Retorna previsao combinada XGBoost + LSTM para o SYMBOL DADO, com ajuste
+    por regime.
 
     Args:
+        symbol:         str — par a prever. OBRIGATORIO (E-7). Antes a
+                        assinatura era `prever(regime_atual=...)` e os tres
+                        consumidores internos liam BTCUSDT: o fallback de
+                        regime, o XGBoost e o MLP. main.py tentava passar o par
+                        atras de `hasattr(ens_mod, "symbol")` — que e
+                        permanentemente False, porque `ensemble` e um MODULO e
+                        nunca teve atributo `symbol`. O efeito pratico era que o
+                        codigo parecia resolver o problema em code review e
+                        sempre caia no ramo sem symbol.
         regime_atual:   str — regime detectado (TENDENCIA_ALTA, LATERAL, etc.)
 
     Retorna dict com:
+      symbol:         o par previsto
       prob_ensemble:  probabilidade combinada (0-1)
       prob_xgb:       probabilidade do XGBoost
       prob_lstm:      probabilidade do LSTM
@@ -69,7 +80,7 @@ def prever(regime_atual="INDEFINIDO"):
         try:
             import regime as reg
 
-            regime_info = reg.detectar()
+            regime_info = reg.detectar(symbol)
             regime_atual = regime_info.get("regime_final", "INDEFINIDO")
         except Exception:
             regime_atual = "INDEFINIDO"
@@ -84,15 +95,15 @@ def prever(regime_atual="INDEFINIDO"):
     try:
         from ml_filtro import prever as xgb_prever
 
-        prob_xgb, msg_xgb = xgb_prever()
+        prob_xgb, msg_xgb = xgb_prever(symbol)
     except Exception as e:
         msg_xgb = str(e)
 
-    # LSTM
+    # LSTM (MLP do sklearn; o nome e historico)
     try:
         from lstm_modelo import prever as lstm_prever
 
-        prob_lstm, msg_lstm = lstm_prever()
+        prob_lstm, msg_lstm = lstm_prever(symbol)
     except Exception as e:
         msg_lstm = str(e)
 
@@ -139,6 +150,9 @@ def prever(regime_atual="INDEFINIDO"):
         motivo = f"Nenhum modelo disponivel — XGB: {msg_xgb} | LSTM: {msg_lstm}"
 
     return {
+        # E-7: par no resultado — permite ao teste de propriedade provar que
+        # ETHUSDT nao esta recebendo a previsao do BTC.
+        "symbol": symbol,
         "prob_ensemble": round(prob_ensemble, 4),
         "prob_xgb": prob_xgb,
         "prob_lstm": prob_lstm,
@@ -151,8 +165,8 @@ def prever(regime_atual="INDEFINIDO"):
     }
 
 
-def imprimir(regime_atual="INDEFINIDO"):
-    r = prever(regime_atual)
+def imprimir(symbol="BTCUSDT", regime_atual="INDEFINIDO"):
+    r = prever(symbol, regime_atual)
 
     verde = "\033[92m"
     vermelho = "\033[91m"

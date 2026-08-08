@@ -40,7 +40,7 @@ def _prever_com_mocks(xgb_prob, lstm_prob, regime="INDEFINIDO"):
                 "lstm_modelo": MagicMock(prever=lambda *a, **kw: (lstm_prob, "OK")),
             },
         ):
-            return ensemble.prever(regime_atual=regime)
+            return ensemble.prever("BTCUSDT", regime_atual=regime)
 
 
 # ── Testes: pesos por regime ──────────────────────────────────────────────────
@@ -142,7 +142,7 @@ class TestFallback:
                 "lstm_modelo": MagicMock(prever=MagicMock(side_effect=Exception("sem modelo"))),
             },
         ):
-            r = ensemble.prever(regime_atual="INDEFINIDO")
+            r = ensemble.prever("BTCUSDT", regime_atual="INDEFINIDO")
         assert r["prob_lstm"] is None
         assert r["prob_xgb"] == pytest.approx(0.70)
         assert r["concordancia"] is False
@@ -155,7 +155,7 @@ class TestFallback:
                 "lstm_modelo": MagicMock(prever=MagicMock(side_effect=Exception("no lstm"))),
             },
         ):
-            r = ensemble.prever(regime_atual="INDEFINIDO")
+            r = ensemble.prever("BTCUSDT", regime_atual="INDEFINIDO")
         assert r["prob_ensemble"] == pytest.approx(0.5)
         assert r["pode_operar"] is False
         assert r["confianca"] == "NENHUM"

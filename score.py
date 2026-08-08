@@ -481,7 +481,7 @@ if __name__ == "__main__":
     import regime as reg
 
     print("Calculando Score Unificado...")
-    regime_info = reg.detectar()
+    regime_info = reg.detectar("BTCUSDT")
     fear_info = fg.obter()
 
     # Valores simulados para demo

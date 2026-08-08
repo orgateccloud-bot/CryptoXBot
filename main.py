@@ -53,8 +53,10 @@ from config.runtime_settings import (
     WHALE_BTC_VOLUME,
     WS_BASE_URL,
 )
+from estrategias.otimizada import _incoerencia_de_precos as incoerencia_de_precos
 from estrategias.otimizada import analisar as analisar_otimizada
 from estrategias.otimizada import imprimir as imprimir_otimizada
+from estrategias.otimizada import registrar_sinal as registrar_sinal_otimizada
 from executor import Executor
 from health import start_health_server
 from logger import logger
@@ -825,6 +827,36 @@ def iniciar_relatorio_diario(symbol: str):
 # ── Loop de Estratégia por Par ────────────────────────────────
 
 
+def _escalar_incoerencia(par, resultado):
+    """Sinal invalido nao pode passar em silencio (E-7).
+
+    `analisar()` ja rebaixou o sinal para AGUARDAR — mas rebaixar sem denunciar
+    apenas troca uma ordem absurda por um nao-evento. Um sinal COMPRA com stop
+    acima da entrada significa que algum insumo esta errado (par trocado, nivel
+    de suporte de outro ativo, parametro corrompido), e isso e um defeito, nao
+    uma condicao de mercado. Vai para bot_events CRITICAL, que desde I-9 tem
+    leitor e escalonamento por Telegram em <= 30s.
+    """
+    detalhe = resultado.get("incoerencia", "?")
+    original = resultado.get("sinal_original", "?")
+    print(
+        f"\033[91m[{par}][INCOERENCIA] Sinal {original} rebaixado para AGUARDAR: "
+        f"{detalhe}\033[0m"
+    )
+    try:
+        database.salvar_bot_event(
+            "sinal_incoerente",
+            f"{par}: sinal {original} descartado por incoerencia de precos — {detalhe}. "
+            f"Entrada={resultado.get('preco')} stop={resultado.get('stop_loss')} "
+            f"target={resultado.get('take_profit')} suporte_forte={resultado.get('suporte_forte')}.",
+            service="worker",
+            symbol=par,
+            severity="CRITICAL",
+        )
+    except Exception:
+        pass
+
+
 def _registrar_execucao(par, estrategia, preco_ref, preco_mercado, exec_par, t0, qty):
     """Telemetria de EXECUCAO de uma entrada — compartilhada pelas duas
     estrategias, para que os numeros sejam comparaveis entre elas.
@@ -1049,19 +1081,31 @@ def loop_par(par, intervalo_min, simulacao):
                 obi_snap = obter_obi_suavizado()
 
             # Ensemble ML
+            #
+            # E-7: `ens_mod.prever(symbol=par)`, direto. O codigo anterior era
+            #
+            #     ens_mod.prever(symbol=par) if hasattr(ens_mod, "symbol")
+            #     else ens_mod.prever()
+            #
+            # e `ens_mod` e o MODULO ensemble, que nunca teve atributo `symbol`:
+            # a condicao era permanentemente False, o ramo com symbol NUNCA
+            # executava, e ETH/SOL recebiam a previsao do modelo de BTC. O
+            # padrao e pior que a ausencia do symbol, porque em code review o
+            # bug parece resolvido.
             ensemble_result = None
             ml_prob = None
             if ensemble_disponivel:
                 try:
-                    ensemble_result = (
-                        ens_mod.prever(symbol=par)
-                        if hasattr(ens_mod, "symbol")
-                        else ens_mod.prever()
-                    )
+                    ensemble_result = ens_mod.prever(par)
                     ml_prob = ensemble_result.get("prob_ensemble")
-                except Exception:
-                    pass
+                except Exception as exc_ens:
+                    print(f"\033[93m[{par}] Ensemble indisponivel: {exc_ens}\033[0m")
 
+            # E-7: UMA avaliacao por ciclo. Antes vinham analisar_otimizada(...)
+            # e imprimir_otimizada(...), e a segunda re-executava a estrategia
+            # inteira: dois calculos, duas linhas em `sinais` para o mesmo
+            # instante, e um bloco impresso que podia divergir da ordem enviada
+            # (klines fora do TTL de 30s, fear&greed e ensemble recalculados).
             resultado = analisar_otimizada(
                 symbol=par,
                 cvd_atual=cvd_snap,
@@ -1070,14 +1114,19 @@ def loop_par(par, intervalo_min, simulacao):
                 historico_ticks=historico_ticks_snap,
                 obi=obi_snap,
             )
-            imprimir_otimizada(
-                symbol=par,
-                cvd_atual=cvd_snap,
-                ml_prob=ml_prob,
-                ensemble_result=ensemble_result,
-                historico_ticks=historico_ticks_snap,
-                obi=obi_snap,
-            )
+            imprimir_otimizada(resultado=resultado)
+
+            # E-7: a ESCRITA em `sinais` e do worker, nao da estrategia. Fica
+            # aqui, depois da invariante de coerencia ter podido rebaixar o
+            # sinal para AGUARDAR — sinal invalido nao vira linha no banco que
+            # a Etapa 2 do gate le.
+            if resultado.get("incoerencia"):
+                _escalar_incoerencia(par, resultado)
+            else:
+                try:
+                    registrar_sinal_otimizada(resultado)
+                except Exception as exc_reg:
+                    print(f"\033[93m[{par}] Falha ao registrar sinal: {exc_reg}\033[0m")
 
             try:
                 logger.registrar_avaliacao(resultado, symbol=par)
@@ -1527,7 +1576,7 @@ def main():
 
     # Regime e Fear & Greed na inicializacao
     try:
-        reg.imprimir()
+        reg.imprimir(pares[0] if pares else "BTCUSDT")
         fg.imprimir()
     except Exception as e:
         print(f"[AVISO] Regime/FearGreed: {e}")
