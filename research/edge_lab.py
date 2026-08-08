@@ -23,6 +23,7 @@ runner no fim.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sqlite3
 import sys
@@ -44,10 +45,36 @@ FEATURE_NAMES = [
     "boll_rel", "dist_vwap", "var_1", "var_4", "var_24", "bb_pos",
 ]
 HORIZONTES = (8, 24)
-HOLDOUT_FRAC = 0.35
 N_PERM = 1000
 IC_PISO_ECONOMICO = 0.03  # regra de decisão (METODOLOGIA.md)
 METODOLOGIA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "METODOLOGIA.md")
+
+# ── I-11: fronteira do hold-out por DATA, não por fração ──────────────────
+#
+# `int(N * (1 - HOLDOUT_FRAC))` amarrava a fronteira ao TAMANHO da série. Toda
+# coleta nova movia a divisa entre pesquisa e hold-out — sem ninguém decidir
+# nada, sem registro, sem aviso.
+#
+# Medido no snapshot de 2026-08-08, com a fórmula antiga:
+#
+#     BTCUSDT: N=17.563  ini=11.415  ->  2025-07-21 09:00Z
+#     ETHUSDT: N=17.520  ini=11.388  ->  2025-07-22 01:00Z
+#     SOLUSDT: N=17.520  ini=11.388  ->  2025-07-22 01:00Z
+#
+# Dezesseis horas de diferença entre ativos, por nenhuma razão metodológica: só
+# porque a tabela do BTC tinha 43 velas a mais — e no INÍCIO da série, ou seja
+# crescimento não-append. Pior, o registro de 2026-07-24 mostra que 43,7% do
+# hold-out de hoje já foi porção de PESQUISA numa rodada anterior: dado já visto
+# voltando a servir de teste cego.
+#
+# A data abaixo está CONGELADA no código e registrada em METODOLOGIA.md. Mudá-la
+# invalida todos os vereditos anteriores e exige novo pré-registro por escrito.
+HOLDOUT_INICIO_MS = 1753142400000  # 2025-07-22 00:00:00 UTC
+
+# Mantida só para documentar a origem da data acima (~35% final da série em
+# 2026-08-08) e para os testes que citam a fração histórica. NÃO decide mais
+# fronteira nenhuma — quem decide é HOLDOUT_INICIO_MS.
+HOLDOUT_FRAC = 0.35
 
 
 # ══════════════════════════════════════════════════════════════
@@ -176,6 +203,29 @@ def teste_permutacao_max(
 
 
 def carregar_klines(symbol: str, intervalo: str = "1h"):
+    """Série da pesquisa. Lê o SNAPSHOT imutável quando existe (I-11).
+
+    A tabela `klines` viva muda: entre a medição oficial e 2026-08-08 ela passou
+    de 17.520 para 17.563 velas em BTCUSDT/1h, e as 43 novas entraram no INÍCIO
+    da série. Um veredito derivado de dado móvel não é re-derivável, e um FAIL
+    que ninguém consegue reproduzir cede na primeira dúvida.
+
+    Fallback para o banco só quando não há snapshot — com aviso, porque nesse
+    modo o resultado não é reprodutível e quem lê o número precisa saber disso.
+    """
+    try:
+        from research.snapshot import carregar_serie
+
+        return carregar_serie(symbol, intervalo)
+    except FileNotFoundError:
+        print(
+            f"[edge_lab] AVISO: sem snapshot — lendo a tabela VIVA para "
+            f"{symbol}/{intervalo}. O resultado NÃO será re-derivável. "
+            f"Rode: python -m research.snapshot --criar"
+        )
+    except KeyError as exc:
+        print(f"[edge_lab] AVISO: {exc} — caindo para a tabela viva.")
+
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
         "SELECT timestamp, maxima, minima, fechamento, volume FROM klines "
@@ -191,12 +241,30 @@ def carregar_klines(symbol: str, intervalo: str = "1h"):
     return ts, m, n, f, v
 
 
+def _chave_cache(f, m, n, v, symbol: str) -> str:
+    """Chave do cache de features, derivada do CONTEÚDO da série (I-11).
+
+    Era `feat_{symbol}_{len(f)}.npy` — chaveada pelo TAMANHO. Duas séries
+    diferentes com a mesma contagem (uma vela corrigida, um período trocado,
+    uma coleta com a vela em formação congelada) recebiam as features UMA DA
+    OUTRA, em silêncio, e o IC saía de dados que não eram os carregados.
+
+    Num módulo cujo propósito é reprodutibilidade, isso é o defeito mais grave
+    possível: o resultado depende de um arquivo em disco que o código acha que
+    corresponde à série, sem nunca verificar.
+    """
+    h = hashlib.sha256()
+    for arr in (f, m, n, v):
+        h.update(np.asarray(arr, dtype=float).tobytes())
+    return f"feat_{symbol}_{len(f)}_{h.hexdigest()[:16]}.npy"
+
+
 def construir_matriz_features(f, m, n, v, symbol: str, usar_cache=True) -> np.ndarray:
     """Matriz (N, 11) chamando ml_filtro.extrair_features EXATAMENTE (mesmo
     sinal que o projeto usa). Linhas < WARMUP viram NaN. Caro (O(n^2)) — cacheado
-    em disco por symbol+hash de tamanho."""
+    em disco por symbol + hash do CONTEÚDO da série (ver _chave_cache)."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    cache = os.path.join(CACHE_DIR, f"feat_{symbol}_{len(f)}.npy")
+    cache = os.path.join(CACHE_DIR, _chave_cache(f, m, n, v, symbol))
     if usar_cache and os.path.exists(cache):
         return np.load(cache)
     N = len(f)
@@ -221,10 +289,34 @@ def _labels_para(f, m, n, H, alvo=0.04, stop=0.02):
 # ══════════════════════════════════════════════════════════════
 
 
-def _porcao_pesquisa(N: int) -> tuple[int, int]:
-    """[warmup, corte) — os primeiros (1-HOLDOUT_FRAC) candles."""
-    corte = int(N * (1 - HOLDOUT_FRAC))
-    return WARMUP, corte
+def indice_do_holdout(ts) -> int:
+    """Primeiro índice em ou após HOLDOUT_INICIO_MS (I-11).
+
+    `ts` é o vetor de timestamps da série. A busca é por DATA, então o índice
+    resultante muda quando a série muda — mas o CONJUNTO de velas de cada lado
+    da fronteira não muda. É essa a propriedade que faz um veredito ser
+    re-derivável: antes, acrescentar 43 velas no início da série movia a divisa e
+    transferia dado de hold-out para pesquisa em silêncio.
+    """
+    import numpy as np
+
+    idx = int(np.searchsorted(np.asarray(ts), HOLDOUT_INICIO_MS, side="left"))
+    if idx <= WARMUP or idx >= len(ts):
+        raise ValueError(
+            f"Fronteira de hold-out ({HOLDOUT_INICIO_MS}) cai fora da série "
+            f"(N={len(ts)}, idx={idx}). A série não cobre o período pré-registrado."
+        )
+    return idx
+
+
+def _porcao_pesquisa(ts) -> tuple[int, int]:
+    """[warmup, corte) — tudo ANTES da data de hold-out.
+
+    Assinatura mudou de `(N: int)` para `(ts)` de propósito: receber só o
+    tamanho tornava impossível calcular a fronteira por data, e era exatamente
+    esse acoplamento ao tamanho que deixava o hold-out à deriva.
+    """
+    return WARMUP, indice_do_holdout(ts)
 
 
 def preparar_para_ic(X, f, m, n, ini, fim):
@@ -245,7 +337,7 @@ def preparar_para_ic(X, f, m, n, ini, fim):
 def rodar_pesquisa(symbol="BTCUSDT", com_xgb=True, seed=42) -> dict:
     ts, m, n, f, v = carregar_klines(symbol)
     X = construir_matriz_features(f, m, n, v, symbol)
-    ini, fim = _porcao_pesquisa(len(f))
+    ini, fim = _porcao_pesquisa(ts)
     Xr, labels, validos = preparar_para_ic(X, f, m, n, ini, fim)
 
     perm = teste_permutacao_max(Xr, labels, validos, n_perm=N_PERM, seed=seed)
@@ -331,7 +423,7 @@ def teste_permutacao_auc_xgb(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02,
     AUC 'boa' é sinal não-linear real ou artefato de labels sobrepostos."""
     ts, m, n, f, v = carregar_klines(symbol)
     X = construir_matriz_features(f, m, n, v, symbol)
-    ini, fim = _porcao_pesquisa(len(f))
+    ini, fim = _porcao_pesquisa(ts)
     y, vy = label_triple_barrier(f[ini:fim], m[ini:fim], n[ini:fim], alvo, stop, H)
     Xr = X[ini:fim]
     ok = vy & ~np.isnan(Xr).any(axis=1)
@@ -365,7 +457,7 @@ def avaliar_economia(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02, custo=0.003) -
     balde é economicamente morto (afogado pelos custos)."""
     ts, m, n, f, v = carregar_klines(symbol)
     X = construir_matriz_features(f, m, n, v, symbol)
-    ini, fim = _porcao_pesquisa(len(f))
+    ini, fim = _porcao_pesquisa(ts)
     fr, mr, nr = f[ini:fim], m[ini:fim], n[ini:fim]
     y, vy = label_triple_barrier(fr, mr, nr, alvo, stop, H)
     Xr = X[ini:fim]
@@ -387,13 +479,20 @@ def avaliar_economia(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02, custo=0.003) -
             "win_base": float(yv.mean()), "baldes": baldes}
 
 
-def ic_por_asset(symbol, fi, H, ini_frac=0.0, fim_frac=1 - HOLDOUT_FRAC) -> float:
-    """IC de uma feature específica em outro ativo, na mesma fração temporal —
-    para a corroboração cross-asset (replicação de sinal)."""
+def ic_por_asset(symbol, fi, H) -> float:
+    """IC de uma feature específica em outro ativo, na MESMA JANELA TEMPORAL —
+    para a corroboração cross-asset (replicação de sinal).
+
+    I-11: os parâmetros `ini_frac`/`fim_frac` foram removidos. Com frações, cada
+    ativo era recortado por uma porcentagem do PRÓPRIO tamanho, então BTC (17.563
+    velas) e ETH (17.520) eram medidos em janelas que começavam e terminavam em
+    datas diferentes — e a corroboração "mesma fração temporal" comparava
+    períodos distintos. Agora os três compartilham a fronteira por data, que é o
+    que "mesma janela" tinha de significar desde o começo.
+    """
     ts, m, n, f, v = carregar_klines(symbol)
     X = construir_matriz_features(f, m, n, v, symbol)
-    N = len(f)
-    ini, fim = max(WARMUP, int(N * ini_frac)), int(N * fim_frac)
+    ini, fim = _porcao_pesquisa(ts)
     Xr, labels, validos = preparar_para_ic(X, f, m, n, ini, fim)
     vmask = validos[H]
     return spearman_ic(Xr[vmask, fi], labels[H][vmask])
@@ -404,35 +503,78 @@ def ic_por_asset(symbol, fi, H, ini_frac=0.0, fim_frac=1 - HOLDOUT_FRAC) -> floa
 # ══════════════════════════════════════════════════════════════
 
 
-def avaliar_holdout(symbol, fi, H, confirmo_uso_unico=False) -> dict:
-    """Avalia a feature vencedora no HOLD-OUT temporal (últimos 35%). Recusa
-    rodar sem confirmo_uso_unico e grava registro permanente em METODOLOGIA.md.
-    Reavaliar depois de ver o resultado = reiniciar a pesquisa com dados novos."""
+_MARCA_HOLDOUT = "HOLD-OUT CONSUMIDO"
+
+
+def holdout_ja_consumido(symbol: str) -> str | None:
+    """Linha do registro anterior, ou None se o hold-out deste symbol é virgem.
+
+    I-11: a trava de uso único era SÓ o kwarg `confirmo_uso_unico`, e o registro
+    em METODOLOGIA.md ficava dentro de um `try/except: pass` que ninguém lia.
+    Ou seja: passar True duas vezes funcionava, e o "registro permanente" não
+    tinha efeito nenhum sobre a segunda chamada.
+
+    Um hold-out que pode ser reavaliado não é hold-out — é mais um conjunto de
+    validação, e o veredito derivado dele não vale o papel em que foi escrito.
+    Agora a trava LÊ o próprio registro que ela escreve.
+    """
+    try:
+        with open(METODOLOGIA, encoding="utf-8") as fp:
+            for linha in fp:
+                if _MARCA_HOLDOUT in linha and f"symbol={symbol}" in linha:
+                    return linha.strip()
+    except FileNotFoundError:
+        return None
+    return None
+
+
+def avaliar_holdout(symbol, fi, H, confirmo_uso_unico=False, permitir_reuso=False) -> dict:
+    """Avalia a feature vencedora no HOLD-OUT temporal (a partir de
+    HOLDOUT_INICIO_MS). Uso ÚNICO, agora imposto por leitura do registro.
+
+    Reavaliar depois de ver o resultado = reiniciar a pesquisa com dados novos.
+    `permitir_reuso` existe só para os testes desta trava; usá-lo em pesquisa
+    real invalida o veredito e o registro dirá isso.
+    """
     if not confirmo_uso_unico:
         raise RuntimeError(
             "Hold-out é de USO ÚNICO. Só rode com confirmo_uso_unico=True e "
             "APENAS se a pesquisa (rodar_pesquisa) encontrou edge sobrevivente. "
             "Ver research/METODOLOGIA.md."
         )
+
+    anterior = holdout_ja_consumido(symbol)
+    if anterior and not permitir_reuso:
+        raise RuntimeError(
+            f"HOLD-OUT DE {symbol} JÁ FOI CONSUMIDO — segunda avaliação recusada.\n"
+            f"  Registro anterior: {anterior}\n"
+            f"  Um hold-out reavaliado deixa de ser cego: o resultado da primeira\n"
+            f"  passada já influenciou quem decidiu rodar a segunda. Para testar de\n"
+            f"  novo é preciso DADO NOVO (período ou universo novo), pré-registrado\n"
+            f"  em research/METODOLOGIA.md antes da medição."
+        )
+
     ts, m, n, f, v = carregar_klines(symbol)
     X = construir_matriz_features(f, m, n, v, symbol)
     N = len(f)
-    ini = int(N * (1 - HOLDOUT_FRAC))
+    ini = indice_do_holdout(ts)
     Xr, labels, validos = preparar_para_ic(X, f, m, n, ini, N)
     vmask = validos[H]
     ic = spearman_ic(Xr[vmask, fi], labels[H][vmask])
     registro = (
-        f"| {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC} | Hold-out avaliado "
-        f"(symbol={symbol}, feature={FEATURE_NAMES[fi]}, H={H}) | "
+        f"| {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC} | {_MARCA_HOLDOUT} "
+        f"(symbol={symbol}, feature={FEATURE_NAMES[fi]}, H={H}, "
+        f"inicio_ms={HOLDOUT_INICIO_MS}, n_velas={N - ini}) | "
         f"IC={ic:+.4f} (n={int(vmask.sum())}) |\n"
     )
-    try:
-        with open(METODOLOGIA, "a", encoding="utf-8") as fp:
-            fp.write(registro)
-    except Exception:
-        pass
+    # Sem try/except mudo: se o registro não puder ser gravado, a trava não
+    # existe para a próxima execução, e é melhor a medição falhar do que produzir
+    # um veredito que se apresenta como uso único sem ser.
+    with open(METODOLOGIA, "a", encoding="utf-8") as fp:
+        fp.write(registro)
     return {"symbol": symbol, "feature": FEATURE_NAMES[fi], "H": H,
-            "ic_holdout": ic, "n": int(vmask.sum())}
+            "ic_holdout": ic, "n": int(vmask.sum()),
+            "holdout_inicio_ms": HOLDOUT_INICIO_MS, "n_velas_holdout": N - ini}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -497,7 +639,30 @@ def main():
     ap.add_argument("--sem-xgb", action="store_true", help="pula a AUC secundária do XGBoost")
     ap.add_argument("--sem-cross", action="store_true", help="pula corroboração ETH/SOL")
     ap.add_argument("--seed", type=int, default=42)
+    # I-11: duas funções que PRODUZIRAM veredito e não tinham nenhum call site —
+    # nem no argparse, nem em teste, nem em outro módulo. O veredito existia em
+    # prosa e o comando que o gerou não existia mais. Sem entrypoint, "re-derive
+    # você mesmo" significava reescrever a chamada de cabeça.
+    ap.add_argument("--perm-auc", action="store_true",
+                    help="teste de permutação da AUC do XGBoost (secundário)")
+    ap.add_argument("--economia", action="store_true",
+                    help="expectância líquida por balde de probabilidade (custos)")
+    ap.add_argument("--custo", type=float, default=0.003,
+                    help="custo round-trip para --economia (default 0.30%%)")
     args = ap.parse_args()
+
+    if args.perm_auc:
+        r = teste_permutacao_auc_xgb(args.symbol, seed=args.seed)
+        print(f"  AUC obs = {r.get('auc_obs'):.4f} | p = {r.get('p'):.4f} "
+              f"(n_perm={r.get('n_perm')})")
+        return
+    if args.economia:
+        r = avaliar_economia(args.symbol, custo=args.custo)
+        print(f"  custo={r['custo']:.4f} n={r['n']} net_base={r['net_base']:+.5f} "
+              f"win_base={r['win_base']:.3f}")
+        for nome, b in r["baldes"].items():
+            print(f"    {nome:<10} n={b['n']:>5} net={b['net']:+.5f} win={b['win']:.3f}")
+        return
 
     r = rodar_pesquisa(args.symbol, com_xgb=not args.sem_xgb, seed=args.seed)
     cross = None

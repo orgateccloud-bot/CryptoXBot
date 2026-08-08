@@ -1,0 +1,41 @@
+{
+  "rotulo": "2026-08-08",
+  "criado_em": "2026-08-08T19:42:49Z",
+  "origem": "data/btc_data.db (tabela klines)",
+  "aviso": "Este snapshot congela o substrato de pesquisa a partir desta data. Ele NAO reconstroi os vereditos anteriores: a serie sobre a qual os FAILs de julho foram medidos nao existe mais (a tabela klines mudou de forma nao-append — BTCUSDT/1h passou de 17.520 para 17.563 velas, as 43 extras no INICIO). Vereditos re-derivados sobre este snapshot sao numeros NOVOS, e permanentes.",
+  "series": [
+    {
+      "symbol": "BTCUSDT",
+      "intervalo": "1h",
+      "arquivo": "BTCUSDT_1h.csv",
+      "n": 17563,
+      "primeiro_ts": 1711994400000,
+      "ultimo_ts": 1775217600000,
+      "primeiro_iso": "2024-04-01 18:00:00Z",
+      "ultimo_iso": "2026-04-03 12:00:00Z",
+      "sha256": "a8167d9e1ae18dcb3a0b39446923fe52854b7f1f10a34922898abfb7fcbda9df"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "intervalo": "1h",
+      "arquivo": "ETHUSDT_1h.csv",
+      "n": 17520,
+      "primeiro_ts": 1712149200000,
+      "ultimo_ts": 1775217600000,
+      "primeiro_iso": "2024-04-03 13:00:00Z",
+      "ultimo_iso": "2026-04-03 12:00:00Z",
+      "sha256": "ad48cfe7a71f9dd074135ea051044ec82c85812ddd0cc98d88d89e44fa76fdb0"
+    },
+    {
+      "symbol": "SOLUSDT",
+      "intervalo": "1h",
+      "arquivo": "SOLUSDT_1h.csv",
+      "n": 17520,
+      "primeiro_ts": 1712149200000,
+      "ultimo_ts": 1775217600000,
+      "primeiro_iso": "2024-04-03 13:00:00Z",
+      "ultimo_iso": "2026-04-03 12:00:00Z",
+      "sha256": "61674a19317b4a5ff68e5187abccad95025adfcab081e107d77cba0b315c8548"
+    }
+  ]
+}

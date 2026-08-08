@@ -15,6 +15,12 @@ data/*.sqlite3
 data/*.csv
 data/*.json
 data/__pycache__/
+
+# I-11: o snapshot de pesquisa e VERSIONADO de proposito. Sem ele no git,
+# nenhum veredito e re-derivavel em outra maquina — que e todo o ponto.
+# ~2,9 MB, imutavel; um snapshot novo vai para outro diretorio.
+!data/snapshots/
+!data/snapshots/**
 *.db
 
 # Logs

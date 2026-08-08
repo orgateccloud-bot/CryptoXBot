@@ -183,3 +183,70 @@ barreira 1:1" se dissolve). Nenhum ajuste da estratégia velha é considerado.
 | Data | Evento | Resultado |
 |---|---|---|
 | 2026-07-24 | Pesquisa concluída — regra de decisão falhou (sem edge economicamente tradeable) | Hold-out temporal **NÃO tocado** (preservado para uma futura hipótese que sobreviva à pesquisa) |
+
+## Substrato versionado e fronteira congelada (I-11 — 2026-08-08)
+
+Até esta data, todo veredito deste documento era **irreprodutível**. Não por
+descuido de redação: por três defeitos no substrato.
+
+**1. A tabela `klines` mudava, e de forma não-append.** Medido em 2026-08-08:
+
+| série | velas | primeira vela |
+|---|---:|---|
+| BTCUSDT/1h | 17.563 | 2024-04-01 18:00Z |
+| ETHUSDT/1h | 17.520 | 2024-04-03 13:00Z |
+| SOLUSDT/1h | 17.520 | 2024-04-03 13:00Z |
+
+As 43 velas extras do BTC estão no **início** da série. A tabela cresceu para
+trás.
+
+**2. A fronteira do hold-out era uma fração do tamanho.** `int(N × 0.65)`
+resolvia para:
+
+| série | índice | data de corte |
+|---|---:|---|
+| BTCUSDT | 11.415 | 2025-07-21 09:00Z |
+| ETHUSDT | 11.388 | 2025-07-22 01:00Z |
+| SOLUSDT | 11.388 | 2025-07-22 01:00Z |
+
+Dezesseis horas de diferença entre ativos, sem nenhuma razão metodológica — e a
+divisa andava sozinha a cada coleta. O registro de 2026-07-24 já mostrava que
+**43,7% do hold-out de então havia sido porção de pesquisa** numa rodada
+anterior.
+
+**3. A trava de uso único não travava.** Era só o kwarg `confirmo_uso_unico`; o
+registro neste arquivo ficava dentro de um `try/except: pass` e **não tinha
+nenhum leitor**. Chamar duas vezes funcionava. `carry_lab` não tinha trava
+alguma — `--holdout` era uma flag booleana.
+
+### O que fica congelado a partir de agora
+
+- **Fronteira do hold-out: `2025-07-22 00:00:00 UTC`** (`HOLDOUT_INICIO_MS =
+  1753142400000` em `research/edge_lab.py`, reusada por `carry_lab.py`). Com a
+  data fixa, os três pares passam a ter a **mesma** divisa e **6.133 velas** de
+  hold-out cada, apesar das contagens totais diferentes. Mudar esta data invalida
+  todos os vereditos anteriores e exige novo pré-registro **antes** da medição.
+- **Substrato: `data/snapshots/2026-08-08/`**, versionado no git, com
+  `manifest.json` contendo contagem, primeira/última vela e **sha256** por série.
+  Os labs leem o snapshot; a tabela viva só é usada como fallback, e com aviso
+  explícito de que o resultado não será re-derivável.
+- **Trava de uso único com leitor**: `avaliar_holdout` recusa a segunda avaliação
+  citando o registro anterior, e a gravação do registro deixou de ser silenciosa.
+
+### Limite honesto desta frente
+
+Isto **não reconstrói** os vereditos anteriores. A série sobre a qual os FAILs
+de julho foram medidos não existe mais em lugar nenhum — não havia snapshot, e a
+tabela já se moveu. Números re-derivados sobre este snapshot são **novos**, e é
+a partir deles que a reprodutibilidade passa a valer.
+
+Apresentá-los como "confirmação dos FAILs anteriores" seria o mesmo conforto
+falso que esta frente existe para eliminar.
+
+### Comando de reprodução
+
+```
+python -m research.snapshot --verificar          # sha256 bate com o manifest?
+python -m research.reproduzir                    # gera a linha de base
+python -m research.reproduzir --comparar         # exige diferença 0.0
+```

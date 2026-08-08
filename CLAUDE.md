@@ -28,6 +28,7 @@ ai/                # Cliente Ollama (análise qualitativa opcional)
 backtesting/       # Backtesting de estratégias
 config/            # runtime_settings (env > local > default) + params por par
 data/              # cvd_calculator + klines (fetch consolidado, cache TTL) — artefatos (*.db/*.pkl) gitignored
+data/snapshots/    # substrato de pesquisa CONGELADO + manifest sha256 — VERSIONADO (I-11)
 deploy/            # systemd units, Caddyfile, setup.sh
 estrategias/       # Estratégias de trading (otimizada)
 scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 +
@@ -35,7 +36,7 @@ scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 +
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (1330 passed, 8 skipped) — isolado de producao via conftest.py da raiz
+tests/             # pytest (1384 passed, 8 skipped) — isolado de producao via conftest.py da raiz
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -122,7 +123,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1330 passed, 8 skipped em ~2min40s
+pytest tests/ -q                    # 1384 passed, 8 skipped em ~2min40s
 # A suite e ISOLADA do estado de producao pelo conftest.py da RAIZ: banco em
 # tmp + guard que FALHA o teste se alguem abrir data/btc_data.db. Leia o
 # cabecalho de conftest.py antes de mexer nele — ate 2026-07-31 `pytest tests/`
@@ -134,6 +135,12 @@ pytest tests/ -q                    # 1330 passed, 8 skipped em ~2min40s
 
 # Migração de dados SQLite -> Supabase (idempotente)
 python scripts/migrate_sqlite_to_supabase.py --dry-run   # depois --confirmar
+
+# Pesquisa reproduzivel (I-11) — o substrato e congelado, nao a tabela viva
+python -m research.snapshot --verificar     # sha256 do snapshot bate com o manifest?
+python -m research.reproduzir --comparar    # re-deriva o veredito, exige diferenca 0.0
+# Coleta para PESQUISA exige janela fixa (--dias e movel e nao e reproduzivel):
+python backtesting/coletar_dados.py --todos --inicio 2024-04-03 --fim 2026-04-03
 
 # Monitoramento
 python dashboard.py

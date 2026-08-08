@@ -33,10 +33,18 @@ import numpy as np
 DB_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "btc_data.db"
 )
+METODOLOGIA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "METODOLOGIA_CARRY.md")
+_MARCA_HOLDOUT = "HOLD-OUT CONSUMIDO"
+
+# I-11: a fronteira do hold-out vem de edge_lab — uma data unica para toda a
+# pesquisa do repositorio. Duas datas seriam duas metodologias.
+from research.edge_lab import HOLDOUT_INICIO_MS  # noqa: E402
 
 PARES = ("BTCUSDT", "ETHUSDT")
 CUSTO_ROUND_TRIP = 0.003   # 0.30% do notional (taker nas 2 pernas, ida e volta)
 CAPITAL_MULT = 1.25        # 1.00 spot + 0.25 margem (short perp 4x)
+# Mantida so como documentacao da origem da data em edge_lab; nao decide mais
+# fronteira nenhuma (I-11).
 HOLDOUT_FRAC = 0.35
 MS_ANO = 365.25 * 86400 * 1000
 
@@ -63,7 +71,16 @@ def carregar_funding(symbol) -> tuple[np.ndarray, np.ndarray]:
 
 
 def porcao(ts, rate, holdout=False):
-    corte = int(len(ts) * (1 - HOLDOUT_FRAC))
+    """Recorta pesquisa/hold-out pela DATA fixa, nao por fracao (I-11).
+
+    Era `int(len(ts) * (1 - HOLDOUT_FRAC))`: a fronteira andava a cada coleta,
+    exatamente como em edge_lab. Aqui o efeito seria ainda mais direto, porque a
+    serie de funding cresce a cada 8 HORAS — a divisa entre pesquisa e teste cego
+    se moveria tres vezes por dia.
+    """
+    if len(ts) == 0:
+        return ts, rate
+    corte = int(np.searchsorted(np.asarray(ts), HOLDOUT_INICIO_MS, side="left"))
     return (ts[corte:], rate[corte:]) if holdout else (ts[:corte], rate[:corte])
 
 
@@ -240,13 +257,68 @@ def imprimir(res, variante="A", holdout=False):
             "pior_ano": pior_ano, "n_meses": n_meses, "aprovado": ok}
 
 
+def holdout_ja_consumido(variante: str) -> str | None:
+    """Registro anterior do hold-out desta variante, ou None se virgem (I-11).
+
+    carry_lab NAO TINHA TRAVA NENHUMA: `--holdout` era so uma flag booleana, sem
+    confirmacao e sem registro. Dava para rodar o teste cego quantas vezes se
+    quisesse, e cada rodada envenenava a seguinte — quem ja viu o resultado nao
+    decide mais as por acaso.
+    """
+    try:
+        with open(METODOLOGIA, encoding="utf-8") as fp:
+            for linha in fp:
+                if _MARCA_HOLDOUT in linha and f"variante={variante}" in linha:
+                    return linha.strip()
+    except FileNotFoundError:
+        return None
+    return None
+
+
+def registrar_consumo_holdout(variante: str, resultado: dict) -> None:
+    """Grava o consumo do hold-out. Sem try/except mudo: se nao gravar, a trava
+    nao existe para a proxima execucao."""
+    linha = (
+        f"| {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC} | {_MARCA_HOLDOUT} "
+        f"(variante={variante}, inicio_ms={HOLDOUT_INICIO_MS}) | "
+        f"anualizado={resultado.get('anualizado', float('nan')):+.4f} "
+        f"meses={resultado.get('n_meses', 0)} "
+        f"aprovado={resultado.get('aprovado')} |\n"
+    )
+    with open(METODOLOGIA, "a", encoding="utf-8") as fp:
+        fp.write(linha)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Carry lab — funding delta-neutro")
     ap.add_argument("--variante", default="A", choices=["A", "B"])
     ap.add_argument("--holdout", action="store_true",
                     help="USO ÚNICO — só após a pesquisa aprovar")
+    ap.add_argument("--confirmo-uso-unico", action="store_true",
+                    help="obrigatório junto de --holdout (I-11)")
+    ap.add_argument("--permitir-reuso", action="store_true",
+                    help="só para testar a própria trava; invalida o veredito")
     args = ap.parse_args()
-    imprimir(avaliar(args.holdout, args.variante), args.variante, args.holdout)
+
+    if args.holdout:
+        if not args.confirmo_uso_unico:
+            raise SystemExit(
+                "--holdout exige --confirmo-uso-unico. O hold-out do carry e de USO\n"
+                "UNICO e ate agora nao tinha trava alguma: era so uma flag. Ver\n"
+                "research/METODOLOGIA_CARRY.md."
+            )
+        anterior = holdout_ja_consumido(args.variante)
+        if anterior and not args.permitir_reuso:
+            raise SystemExit(
+                f"HOLD-OUT DA VARIANTE {args.variante} JA FOI CONSUMIDO.\n"
+                f"  Registro anterior: {anterior}\n"
+                f"  Reavaliar exige DADO NOVO, pre-registrado antes da medicao."
+            )
+
+    resultado = avaliar(args.holdout, args.variante)
+    imprimir(resultado, args.variante, args.holdout)
+    if args.holdout:
+        registrar_consumo_holdout(args.variante, resultado)
 
 
 if __name__ == "__main__":

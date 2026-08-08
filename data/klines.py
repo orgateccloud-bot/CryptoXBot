@@ -18,6 +18,7 @@ Uso:
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 
@@ -27,6 +28,12 @@ from config.runtime_settings import REST_BASE_URL
 
 BASE_URL = REST_BASE_URL
 
+# I-11: o modulo nao importava logging. Toda falha de fetch e todo fallback para
+# cache expirado aconteciam sem rastro nenhum — inclusive os que alimentavam o
+# circuit breaker. Usa o mesmo logger nomeado do resto do projeto, entao herda o
+# handler que preserva `extra=` (logger.py).
+_log = logging.getLogger("botbinance")
+
 # TTL curto (nao os minutos entre ticks de main.py/loop_par) -- so precisa
 # ser maior que a janela em que as 3 threads de par chamam o mesmo
 # symbol/intervalo quase simultaneamente (ex: no boot, ou quando os
@@ -34,6 +41,12 @@ BASE_URL = REST_BASE_URL
 # vela em formacao (o ultimo candle, ainda "vivo") desatualizada por mais
 # tempo que o necessario.
 TTL_PADRAO_SEGUNDOS = 30
+
+# I-11: teto de idade do fallback para cache expirado. Cinco minutos absorve
+# falha transitoria de rede sem alimentar decisao com dado velho — ver o bloco
+# comentado no fim de obter_klines(). `idade_maxima_s=None` desliga o teto para
+# quem quiser explicitamente o comportamento antigo (nenhum chamador quer).
+IDADE_MAXIMA_PADRAO_S = 300
 
 _cache: dict[tuple[str, str, int], dict] = (
     {}
@@ -84,7 +97,17 @@ def _fetch_rest(symbol: str, intervalo: str, limit: int) -> dict | None:
             params={"symbol": symbol, "interval": intervalo, "limit": limit},
             timeout=8,
         )
+        # I-11: raise_for_status. Sem ele, um 429 (rate limit) ou 418 (IP banido)
+        # devolvia um JSON de ERRO — `{"code": -1121, "msg": "..."}` — que caía no
+        # `float(x[1])` e virava TypeError/ValueError engolido pelo `except` de
+        # baixo. O chamador recebia None, indistinguível de "sem rede", e o
+        # diagnóstico do rate limit desaparecia. Rate limit tratado como falha de
+        # rede leva a retry, que agrava o rate limit.
+        r.raise_for_status()
         k = r.json()
+        if not isinstance(k, list):
+            _log.warning("klines: resposta inesperada p/ %s/%s: %.120s", symbol, intervalo, k)
+            return None
         return {
             "abertura": [float(x[1]) for x in k],
             "maxima": [float(x[2]) for x in k],
@@ -92,7 +115,10 @@ def _fetch_rest(symbol: str, intervalo: str, limit: int) -> dict | None:
             "fechamento": [float(x[4]) for x in k],
             "volume": [float(x[5]) for x in k],
         }
-    except Exception:
+    except Exception as exc:
+        # I-11: o módulo não importava logging — toda falha de fetch era muda, e
+        # o fallback para cache expirado (abaixo) acontecia sem nenhum rastro.
+        _log.warning("klines: falha ao buscar %s/%s: %s", symbol, intervalo, exc)
         return None
 
 
@@ -101,6 +127,7 @@ def obter_klines(
     intervalo: str = "1h",
     limit: int = 100,
     ttl_segundos: int = TTL_PADRAO_SEGUNDOS,
+    idade_maxima_s: int | None = IDADE_MAXIMA_PADRAO_S,
 ) -> dict | None:
     """Retorna dict {abertura, maxima, minima, fechamento, volume} (listas
     paralelas, mesma ordem cronológica da API), cacheado por
@@ -129,4 +156,29 @@ def obter_klines(
             _cache[key] = {"dados": dados, "timestamp": agora}
             return dados
 
-        return entry["dados"] if entry is not None else None
+        # ── I-11: o fallback para cache expirado ganhou TETO DE IDADE ────────
+        #
+        # Antes, `return entry["dados"]` devolvia o cache por tempo indefinido:
+        # com a Binance fora por horas, `risco.verificar_volatilidade()` — o
+        # CIRCUIT BREAKER — recebia preços de horas atrás e concluía "mercado
+        # calmo" sobre um mercado que podia estar em queda livre. Um circuit
+        # breaker alimentado por dado velho é pior que nenhum: ele autoriza.
+        #
+        # Manter o cache alguns minutos continua certo (falha transitória não
+        # deve derrubar o bot). Passar do teto, não: aí o correto é devolver None
+        # e deixar cada chamador decidir, com a informação de que não há dado.
+        if entry is None:
+            return None
+        idade = agora - entry["timestamp"]
+        if idade_maxima_s is not None and idade > idade_maxima_s:
+            _log.error(
+                "klines: cache de %s/%s tem %.0fs (teto %ss) — devolvendo None em vez de "
+                "dado velho. Consumidores de decisao (circuit breaker) nao podem receber stale.",
+                symbol, intervalo, idade, idade_maxima_s,
+            )
+            return None
+        _log.warning(
+            "klines: servindo cache STALE de %s/%s (%.0fs) — fetch falhou.",
+            symbol, intervalo, idade,
+        )
+        return entry["dados"]
