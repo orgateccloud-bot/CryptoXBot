@@ -463,7 +463,28 @@ def ws_on_message(ws_app, message):
 
     if quantity >= 0.1:
         try:
-            database.salvar_trade(price, quantity, direcao, WHALE_BTC_VOLUME)
+            # E-8: passa o trade_id do agregado para que esta escrita DEDUPE
+            # contra a do worker, que consome o mesmo stream @aggTrade e ja
+            # passava o id.
+            #
+            # Sem ele, `salvar_trade` insere sem chave de conflito: medido em
+            # 2026-08-08, 2.488.666 linhas com trade_id NULL (esta rota) contra
+            # 386.124 com id (o worker). Ou seja ~87% da tabela `trades` era
+            # duplicata que a dedupe existente nao tinha como pegar — o campo
+            # existia, a clausula ON CONFLICT existia, e este chamador
+            # simplesmente nao preenchia a chave.
+            #
+            # `a` e o id do trade AGREGADO no payload de @aggTrade (nao `t`, que
+            # e o id do trade individual — mesma distincao que causou o bug de
+            # CVD corrigido em P0).
+            database.salvar_trade(
+                price,
+                quantity,
+                direcao,
+                WHALE_BTC_VOLUME,
+                symbol="BTCUSDT",
+                trade_id=data.get("a"),
+            )
         except Exception:
             pass
 

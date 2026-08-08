@@ -560,6 +560,61 @@ def calcular_tamanho(
     return round(tamanho_btc, 6)
 
 
+# ── Stop de sizing e diagnostico do limitante (E-8) ────────────
+
+STOP_PCT_FALLBACK = 0.015  # o 1,5% que era hardcoded em validar_trade
+
+
+def _stop_para_sizing(sinal, preco, stop=None):
+    """(stop_efetivo, veio_do_sinal) para o dimensionamento.
+
+    Devolve TUPLA de proposito. A primeira versao devolvia so o valor e
+    `validar_trade` reportava `stop_veio_do_sinal = stop is not None` — o que
+    responde "foi passado?", nao "foi usado?". Quando esta funcao recusava o
+    stop e caia no fallback, a flag dizia True: exatamente o tipo de campo que
+    tranquiliza errado, e o defeito que E-8 existe para eliminar. Pego pelos
+    proprios testes desta frente.
+
+    Recusa um stop do lado errado (COMPRA com stop acima da entrada, VENDA com
+    stop abaixo) em vez de produzir `distancia_stop` com o sinal invertido: a
+    invariante de E-7 ja barra esse sinal antes de chegar aqui, mas sizing e o
+    lugar onde um numero absurdo se transforma em TAMANHO absurdo, entao a guarda
+    e local e nao delegada.
+    """
+    if stop is not None and stop > 0:
+        if sinal == "COMPRA" and stop < preco:
+            return float(stop), True
+        if sinal == "VENDA" and stop > preco:
+            return float(stop), True
+    fallback = (
+        preco * (1 - STOP_PCT_FALLBACK)
+        if sinal == "COMPRA"
+        else preco * (1 + STOP_PCT_FALLBACK)
+    )
+    return fallback, False
+
+
+def _limitante_do_sizing(capital_usdt, preco_entrada, stop_loss, *, atr_relativo=None):
+    """Qual das duas restricoes definiu o tamanho: 'risco_por_trade' ou
+    'teto_exposicao'.
+
+    Reproduz a aritmetica de calcular_tamanho sem duplicar a decisao — compara
+    os dois candidatos e diz qual foi o menor. Medido em 2026-08-08: e
+    'teto_exposicao' em todos os cenarios reais, o que significa que Kelly nao
+    participa do tamanho. Expor isso e o que permite ao track record de paper
+    responder "o sizing veio de onde?" sem reengenharia depois.
+    """
+    distancia = abs(preco_entrada - stop_loss)
+    if distancia <= 0 or preco_entrada <= 0:
+        return "indefinido"
+    fator = min(kelly_do_banco(), MAX_RISCO_POR_TRADE)
+    mult_vol = fator_volatilidade(atr_relativo)
+    fator = min(fator * mult_vol, MAX_RISCO_POR_TRADE)
+    por_risco_usdt = (capital_usdt * fator / distancia) * preco_entrada
+    teto_usdt = capital_usdt * 0.20 * mult_vol
+    return "teto_exposicao" if teto_usdt <= por_risco_usdt else "risco_por_trade"
+
+
 # ── Circuit Breaker ────────────────────────────────────────────
 
 
@@ -658,10 +713,38 @@ def validar_trade(
     posicoes_abertas_detalhe: list[dict] | None = None,
     symbol: str | None = None,
     regime: str | None = None,
+    stop: float | None = None,
 ):
     """
     Valida todas as condições de risco antes de executar um trade.
     Retorna: {"pode": bool, "motivo": str, "tamanho_btc": float}
+
+    stop: preco de stop REAL do sinal (E-8). None (default) mantem o
+    comportamento antigo — 1,5% fixo — para nao quebrar chamadores que ainda
+    nao o passam.
+
+    Por que isto importa, com numeros medidos em 2026-08-08 (capital 1.000):
+
+        par        risco_usdt reportado    risco real    subestimado
+        BTCUSDT               $3,00          $3,00           1,00x
+        ETHUSDT               $3,00          $4,00           1,33x
+        SOLUSDT               $3,00          $6,00           2,00x
+
+    Cada par tem stop_pct proprio (config/params_pares.py: 1,5% / 2,0% / 3,0%),
+    e usar 1,5% para todos fazia `risco_usdt` (:825) reportar o risco de BTC
+    para ETH e SOL. Esse campo e o numero que um humano le para julgar
+    exposicao — errado por 2x, ele tranquiliza no lugar de informar.
+
+    O que NAO muda: o TAMANHO. Medido, os tres pares dao razao 1,00x entre o
+    stop fixo e o real, porque o teto de exposicao de 20% do capital em
+    calcular_tamanho() domina e o tamanho vira capital*0,20/preco,
+    independente do stop. Vale registrar a consequencia maior disso: para
+    qualquer fator_risco >= 0,3% o teto tambem domina, entao `kelly_do_banco()`
+    (hoje 0,02, no proprio teto) nao tem NENHUM efeito no tamanho — so o vol
+    targeting tem, porque `mult_vol` escala o teto. Mudar essa hierarquia e
+    mudar sizing, ou seja decisao de trading, e nao entra num commit de
+    contabilidade: fica registrado em `limitado_por` no retorno para que o
+    track record de paper mostre qual restricao mandou em cada trade.
 
     regime: regime de mercado atual (TENDENCIA_ALTA/BAIXA, LATERAL,
     VOLATILIDADE, INDEFINIDO — ver regime.py). None (default, inerte) pula o
@@ -765,8 +848,12 @@ def validar_trade(
         }
 
     # 6. Calcular tamanho
-    stop = preco * (1 - 0.015) if sinal == "COMPRA" else preco * (1 + 0.015)
-    tamanho = calcular_tamanho(capital_usdt, preco, stop, atr_relativo=atr_relativo)
+    #
+    # E-8: usa o stop REAL do sinal quando o chamador o fornece. O fallback de
+    # 1,5% fica para quem ainda nao passa (e nao para "compatibilidade estetica":
+    # executor.abrir_long revalida sem stop no caminho real, ver executor.py).
+    stop_efetivo, stop_do_sinal = _stop_para_sizing(sinal, preco, stop)
+    tamanho = calcular_tamanho(capital_usdt, preco, stop_efetivo, atr_relativo=atr_relativo)
 
     if tamanho <= 0:
         return {"pode": False, "motivo": "Tamanho calculado zerado", "tamanho_btc": 0}
@@ -822,7 +909,19 @@ def validar_trade(
         "pode": True,
         "motivo": "Todos os criterios de risco aprovados",
         "tamanho_btc": tamanho,
-        "risco_usdt": round(tamanho * abs(preco - stop), 2),
+        # E-8: risco calculado sobre o stop EFETIVO usado no sizing. Antes usava
+        # o 1,5% fixo e reportava o risco do BTC para ETH e SOL.
+        "risco_usdt": round(tamanho * abs(preco - stop_efetivo), 2),
+        "stop_usado": round(stop_efetivo, 8),
+        # E-8: reflete se o stop foi USADO, nao se foi passado — um stop do
+        # lado errado e recusado e cai no fallback, e o campo tem de dizer isso.
+        "stop_veio_do_sinal": stop_do_sinal,
+        # E-8: qual restricao mandou no tamanho. Sem isto, o track record de
+        # paper nao distingue "Kelly decidiu" de "o teto de 20% decidiu" — e
+        # medido, e quase sempre o teto (Kelly e inerte acima de 0,3%).
+        "limitado_por": _limitante_do_sizing(
+            capital_usdt, preco, stop_efetivo, atr_relativo=atr_relativo
+        ),
         "fator_kelly": kelly_do_banco(),
         "fator_volatilidade": fator_volatilidade(atr_relativo),
         "exposicao_agregada_efetiva": round(exposicao_efetiva, 2),

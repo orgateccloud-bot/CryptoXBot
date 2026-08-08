@@ -26,6 +26,22 @@ MIN_DIAS = 90
 MIN_PROFIT_FACTOR = 1.3
 MAX_DRAWDOWN_PCT = 15.0
 
+# E-8: a Etapa 2 mede a estrategia PRIMARIA, e so ela.
+#
+# Ate 2026-08-08 esta consulta era `WHERE tipo='COMPRA' AND executado=1 AND
+# pnl_usdt IS NOT NULL`, sem filtro de `source` — todas as linhas de `sinais`
+# entravam. Isso era inofensivo enquanto so `estrategia_otimizada` escrevia ali.
+# Deixou de ser no momento em que o caminho trend passou a registrar sinais (e
+# ele PRECISA registrar: e o dry run de validacao de EXECUCAO que esta rodando
+# no worker agora).
+#
+# O trend esta REPROVADO no hold-out, por escrito, e a proibicao pre-registrada
+# e explicita: nao promover variante secundaria a primaria. Sem este filtro, o
+# PnL de uma estrategia reprovada entraria na conta que decide se o capital real
+# pode ser ligado — e poderia APROVAR por acidente. Filtrar aqui e mais seguro
+# que confiar em quem escreve na tabela.
+SOURCE_PRIMARIA = "estrategia_otimizada"
+
 
 # ── Acesso a dados ────────────────────────────────────────────
 
@@ -45,20 +61,47 @@ def _conectar(args):
     return sqlite3.connect(args.db), "?"
 
 
-def carregar_trades_fechados(conn, ph):
-    """Trades fechados: entrada COMPRA executada com PnL preenchido."""
+def carregar_trades_fechados(conn, ph, source=SOURCE_PRIMARIA):
+    """Trades fechados da estrategia PRIMARIA: COMPRA executada com PnL.
+
+    `source=None` desativa o filtro (util para inspecao manual), mas o default e
+    e deve continuar sendo a primaria — ver SOURCE_PRIMARIA acima.
+
+    Linhas com `source` NULO contam como primarias: sao as ~5.255 gravadas antes
+    de o campo passar a ser preenchido de forma disciplinada, e todas vieram de
+    estrategia_otimizada. Excluir seria descartar historico legitimo.
+    """
     # A unica interpolacao e o literal interno "true"/"1" (dialeto do
     # backend); nenhum input externo entra na string.
     executado_literal = "true" if ph == "%s" else "1"
+    filtro_source = f" AND (source IS NULL OR source = {ph})" if source else ""
     sql = (  # nosec B608
         "SELECT timestamp, symbol, preco, preco_saida, pnl_usdt, pnl_pct, "  # nosec B608
         "barreira_tocada FROM sinais "
         f"WHERE tipo = 'COMPRA' AND executado = {executado_literal}"
-        " AND pnl_usdt IS NOT NULL ORDER BY timestamp ASC"
+        f" AND pnl_usdt IS NOT NULL{filtro_source} ORDER BY timestamp ASC"
     )
     cur = conn.cursor()
-    cur.execute(sql)
+    cur.execute(sql, (source,) if source else ())
     linhas = cur.fetchall()
+
+    # NUNCA excluir em silencio: um gate que descarta linhas sem dizer quantas
+    # e indistinguivel de um gate que nao tem dados.
+    if source:
+        cur.execute(
+            "SELECT source, COUNT(*) FROM sinais "  # nosec B608
+            f"WHERE tipo = 'COMPRA' AND executado = {executado_literal}"
+            " AND pnl_usdt IS NOT NULL AND source IS NOT NULL"
+            f" AND source <> {ph} GROUP BY source",
+            (source,),
+        )
+        for src, n in cur.fetchall():
+            print(
+                f"  [GATE] EXCLUIDOS {n} trades de source='{src}' — a Etapa 2 mede "
+                f"apenas '{source}'. Estrategia secundaria/reprovada nao entra na "
+                f"conta que decide capital real."
+            )
+
     trades = []
     for ts, symbol, preco, preco_saida, pnl_usdt, pnl_pct, barreira in linhas:
         trades.append(

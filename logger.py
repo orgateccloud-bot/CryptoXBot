@@ -22,7 +22,7 @@ import csv
 import logging
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config.runtime_settings import DATABASE_BACKEND, DATABASE_URL, DB_PATH
 
@@ -74,6 +74,23 @@ def _configurar_stdlog() -> None:
 _configurar_stdlog()
 
 _TABELAS_EXPORT = {"log_avaliacoes", "log_trades", "log_performance"}
+
+# Formato canonico de timestamp no BANCO. Toda escrita e toda consulta usam este.
+FORMATO_TS = "%Y-%m-%d %H:%M:%S"
+
+
+def _janela_do_dia(agora=None):
+    """(data, inicio, fim) do dia corrente, em ISO, para filtro por range.
+
+    E-8: existe para que as duas consultas diarias (dados_relatorio_diario e
+    atualizar_performance_diaria) usem a MESMA janela. Antes as duas repetiam
+    `timestamp LIKE 'YYYY-MM-DD%'`, e as duas retornavam vazio pelo mesmo motivo:
+    estrategias/otimizada.py gravava '%d/%m/%Y %H:%M:%S'.
+    """
+    agora = agora or datetime.now()
+    hoje = agora.strftime("%Y-%m-%d")
+    amanha = (agora + timedelta(days=1)).strftime("%Y-%m-%d")
+    return hoje, f"{hoje} 00:00:00", f"{amanha} 00:00:00"
 
 
 def _is_postgres() -> bool:
@@ -339,23 +356,25 @@ class LoggerBot:
     def atualizar_performance_diaria(self, symbol="BTCUSDT"):
         """Calcula e salva performance do dia."""
         conn = self._connect()
-        hoje = datetime.now().strftime("%Y-%m-%d")
+        hoje, inicio, fim = _janela_do_dia()
         try:
+            # E-8: range em vez de LIKE — mesmo motivo de
+            # dados_relatorio_diario (ver o comentario longo la).
             trades = conn.execute(
                 self._sql("""
                 SELECT pnl_usdt, pnl_pct FROM log_trades
-                WHERE symbol=? AND timestamp_saida LIKE ?
+                WHERE symbol=? AND timestamp_saida >= ? AND timestamp_saida < ?
                 AND pnl_usdt IS NOT NULL
             """),
-                (symbol, f"{hoje}%"),
+                (symbol, inicio, fim),
             ).fetchall()
 
             avals = conn.execute(
                 self._sql("""
                 SELECT score, sinal FROM log_avaliacoes
-                WHERE symbol=? AND timestamp LIKE ?
+                WHERE symbol=? AND timestamp >= ? AND timestamp < ?
             """),
-                (symbol, f"{hoje}%"),
+                (symbol, inicio, fim),
             ).fetchall()
 
             total = len(trades)
@@ -465,15 +484,30 @@ class LoggerBot:
         relatorio_diario() (print) quanto pelo alerta Telegram agendado
         (P2-5, main.py) para nao duplicar a query."""
         conn = self._connect()
-        hoje = datetime.now().strftime("%Y-%m-%d")
+        hoje, inicio, fim = _janela_do_dia()
+        # E-8: filtro por RANGE, nao por LIKE.
+        #
+        # `timestamp LIKE '2026-08-08%'` casava 0 linhas porque
+        # estrategias/otimizada.py gravava '%d/%m/%Y %H:%M:%S' — medido no banco
+        # vivo: '08/08/2026 09:10:53'. O formato agora e ISO na origem, mas o
+        # LIKE continuaria fragil: qualquer variacao de prefixo (com 'T', com
+        # milissegundos, com offset de fuso) o quebra em silencio, e silencio
+        # aqui vira "0 avaliacoes, PnL 0,00" no alerta das 18h — mentira na
+        # direcao tranquilizadora, o pior tipo num sistema de risco. Um range
+        # compara ORDEM, nao texto.
+        #
+        # Efeito colateral desejado: linhas antigas em formato BR ficam FORA do
+        # range (lexicograficamente '0...' < '2026...'), entao nunca entram com
+        # data errada. Elas sao normalizadas por scripts/normalizar_timestamps.py.
         try:
             avals = conn.execute(
                 self._sql("""
                 SELECT COUNT(*), AVG(score),
                        SUM(CASE WHEN sinal IN ('COMPRA','VENDA') THEN 1 ELSE 0 END)
-                FROM log_avaliacoes WHERE symbol=? AND timestamp LIKE ?
+                FROM log_avaliacoes
+                WHERE symbol=? AND timestamp >= ? AND timestamp < ?
             """),
-                (symbol, f"{hoje}%"),
+                (symbol, inicio, fim),
             ).fetchone()
 
             trades = conn.execute(
@@ -481,10 +515,11 @@ class LoggerBot:
                 SELECT COUNT(*),
                        SUM(CASE WHEN pnl_usdt > 0 THEN 1 ELSE 0 END),
                        SUM(pnl_usdt), SUM(pnl_pct)
-                FROM log_trades WHERE symbol=? AND timestamp_saida LIKE ?
+                FROM log_trades
+                WHERE symbol=? AND timestamp_saida >= ? AND timestamp_saida < ?
                 AND pnl_usdt IS NOT NULL
             """),
-                (symbol, f"{hoje}%"),
+                (symbol, inicio, fim),
             ).fetchone()
         finally:
             conn.close()

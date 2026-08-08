@@ -607,12 +607,27 @@ def salvar_sinal(
     return sinal_id
 
 
-def marcar_sinal_executado(sinal_id: int | None) -> None:
+def marcar_sinal_executado(sinal_id: int | None, *, symbol: str | None = None) -> None:
     """P1-3: marca a linha de ENTRADA (criada por salvar_sinal) como
     realmente executada -- chamado por executor.abrir_long quando a ordem
-    de fato preenche. sinal_id=None (nenhum call site real passou o id, ou
-    a insercao original falhou) e um no-op silencioso."""
+    de fato preenche.
+
+    E-8: sinal_id=None deixou de ser no-op SILENCIOSO. Medido em 2026-08-08:
+    5.255 sinais na tabela, ZERO com executado=1 — o circuito de meta-labeling
+    nunca gravou uma linha em 4 meses, e nada no log dizia isso. Havia tres
+    fontes de None (caminho trend sem sinal_id, posicao reconstruida no boot,
+    falha na insercao original) e as tres desapareciam aqui.
+
+    Um trade sem vinculo nao e recuperavel depois: a Etapa 2 precisa de
+    entrada+saida do MESMO trade, e sem o id nao ha como pareá-los. Por isso o
+    aviso e obrigatorio — perder o vinculo e um defeito de dado, nao um detalhe.
+    """
     if sinal_id is None:
+        print(
+            f"[DB] AVISO: marcar_sinal_executado(None)"
+            f"{f' [{symbol}]' if symbol else ''} — trade aberto SEM vinculo ao "
+            f"sinal. O par entrada/saida nao entrara no track record da Etapa 2."
+        )
         return
     agora = _utcnow() if _backend() == "postgres" else datetime.now().isoformat()
     if _backend() == "postgres":
@@ -643,10 +658,19 @@ def atualizar_sinal_fechamento(
     volta a linha de ENTRADA -- da a sinais_executados()/kelly_do_banco() e
     a um futuro dataset de meta-labeling o PnL real e a barreira
     efetivamente tocada (STOP/TARGET/TARGET_PARCIAL/MANUAL), em vez de
-    inferir "ganho/perda" pelo sinal do PnL. sinal_id=None e um no-op
-    silencioso (trade sem entrada linkada -- ex: recuperado de crash antes
-    desta mudanca, ou aberto por um caminho que nao passou sinal_id)."""
+    inferir "ganho/perda" pelo sinal do PnL.
+
+    E-8: sinal_id=None deixou de ser no-op SILENCIOSO — mesma razao de
+    marcar_sinal_executado. Este e o ponto mais caro de perder: aqui o PnL REAL
+    do trade existe, foi calculado, e ia para o lixo sem uma linha de log. Zero
+    das 5.255 linhas de `sinais` tinha pnl_usdt preenchido depois de 4 meses.
+    """
     if sinal_id is None:
+        print(
+            f"[DB] AVISO: atualizar_sinal_fechamento(None) — PnL de "
+            f"${pnl_usdt:.2f} ({pnl_pct:+.2f}%, {barreira_tocada}) NAO foi "
+            f"vinculado a nenhum sinal e nao entra no track record."
+        )
         return
     if _backend() == "postgres":
         with _pg_connection() as conn:

@@ -237,8 +237,22 @@ def analisar(
             else round(preco * (1 - alvo_pct), 2) if sinal == "VENDA" else target
         )
 
+    # E-8: `timestamp` e ISO-8601, porque e o campo que vai para o BANCO
+    # (logger.registrar_avaliacao o grava em log_avaliacoes.timestamp). Era
+    # '%d/%m/%Y %H:%M:%S', e a query do relatorio diario filtra
+    # `timestamp LIKE 'YYYY-MM-DD%'` — que nunca casa com '08/08/2026 09:10:53'.
+    # Medido em 2026-08-08: 7.625 avaliacoes gravadas, e a query do dia devolvia
+    # 0 linhas enquanto 111 tinham sido gravadas naquele dia. logger.py converte
+    # o None resultante em 0.0, entao o alerta das 18h reportava "0 avaliacoes,
+    # PnL 0,00" todos os dias — uma mentira na direcao tranquilizadora, o pior
+    # tipo num sistema de risco.
+    #
+    # `timestamp_br` existe para a apresentacao continuar legivel sem que o
+    # formato humano volte a contaminar o banco.
+    agora = datetime.now()
     resultado = {
-        "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "timestamp": agora.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp_br": agora.strftime("%d/%m/%Y %H:%M:%S"),
         "sinal": sinal,
         "score": score_result["score_total"],
         "score_decisao": decisao,
@@ -400,7 +414,7 @@ def imprimir(
     print(
         f"  ESTRATEGIA OTIMIZADA — {r.get('symbol', 'BTCUSDT')}  (MTF + ATR + Volume + VWAP + ML)"
     )
-    print(f"  {r['timestamp']}")
+    print(f"  {r.get('timestamp_br') or r['timestamp']}")
     print("=" * 60)
     print(f"  Preco:    ${r['preco']:,.2f}")
     print(f"  EMA20/50 1H: ${r['ema20_1h']:,.2f} / ${r['ema50_1h']:,.2f}")

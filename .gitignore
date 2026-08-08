@@ -5,6 +5,11 @@ config/settings.py
 # NOTA: o codigo-fonte em data/ (cvd_calculator.py, stream_processor.py, __init__.py)
 # E versionado. Apenas os artefatos de runtime abaixo sao ignorados.
 data/*.db
+# Backups automaticos de scripts de migracao (purgar_fixtures_producao.py,
+# normalizar_timestamps.py). `data/*.db` nao os cobria porque o sufixo vem
+# DEPOIS da extensao: data/btc_data.db.bkp-ts-20260808-093743.
+*.db.bkp-*
+data/*.db.bkp*
 data/*.sqlite
 data/*.sqlite3
 data/*.csv

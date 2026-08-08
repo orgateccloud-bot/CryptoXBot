@@ -273,6 +273,11 @@ class Executor:
         self.posicao = None
         self._monitor = None
         self._ativo = False
+        # E-8: id da linha de ENTRADA em log_trades, para o fechamento poder
+        # completa-la. Nao vai dentro de self.posicao de proposito: aquele dict e
+        # persistido/reidratado, e um id de log local nao sobrevive a um restart
+        # de forma confiavel — carregar um id invalido seria pior que None.
+        self._log_trade_id = None
         # RLock (nao Lock): fechar_posicao/_aplicar_novo_stop sao chamados de
         # dentro de _monitorar, que tambem pode readquirir o lock -- Lock comum
         # causaria deadlock em chamada aninhada pela mesma thread.
@@ -824,7 +829,15 @@ class Executor:
         saldo = gestao_risco.get_saldo_usdt()
         if not self.simulacao:
             validacao = gestao_risco.validar_trade(
-                "COMPRA", preco_entrada, saldo, atr_relativo=atr_relativo
+                "COMPRA",
+                preco_entrada,
+                saldo,
+                atr_relativo=atr_relativo,
+                # E-8: o stop real ja esta aqui como argumento; nao passa-lo
+                # fazia esta revalidacao — a do caminho de DINHEIRO REAL — usar
+                # 1,5% fixo e reportar risco errado justamente onde importa.
+                stop=stop_loss,
+                symbol=self.symbol,
             )
             if not validacao["pode"]:
                 print(f"[EXEC] Trade bloqueado pelo risco: {validacao['motivo']}")
@@ -932,9 +945,37 @@ class Executor:
         # P1-3: liga a entrada de fato executada ao sinal que a originou --
         # so agora (ordem preenchida), nao na hora do sinal ser gerado.
         try:
-            database.marcar_sinal_executado(sinal_id)
+            database.marcar_sinal_executado(sinal_id, symbol=self.symbol)
         except Exception as e:
             print(f"[EXEC] AVISO: falha ao marcar sinal executado: {e}")
+
+        # E-8: `log_trades` ganha escritor.
+        #
+        # logger.registrar_trade_entrada/saida existiam prontas e NUNCA foram
+        # chamadas em producao — a tabela tinha 0 linhas depois de 4 meses. E
+        # logger.dados_relatorio_diario le o PnL do dia DELA, entao o alerta das
+        # 18h somava um conjunto vazio e reportava PnL 0,00 mesmo num dia com
+        # trades. Duas tabelas guardam o resultado por razoes diferentes:
+        # `sinais` liga decisao->resultado (meta-labeling, Etapa 2 do gate) e
+        # `log_trades` e o diario operacional por trade. A ausencia de escritor
+        # tornava a segunda um bloco de leitura sobre o vazio.
+        self._log_trade_id = None
+        try:
+            from logger import logger as _log_estruturado
+
+            self._log_trade_id = _log_estruturado.registrar_trade_entrada(
+                self.symbol,
+                "LONG",
+                preco_exec,
+                tamanho_btc,
+                preco_exec * tamanho_btc,
+                stop_loss,
+                take_profit,
+                None,  # score: a estrategia o conhece, o executor nao
+                None,  # ml_prob: idem
+            )
+        except Exception as e:
+            print(f"[EXEC] AVISO: falha ao registrar entrada em log_trades: {e}")
 
         gestao_risco.incrementar_posicoes_abertas()
         gestao_risco.persistir_estado()
@@ -1100,6 +1141,37 @@ class Executor:
                 )
             except Exception as e:
                 print(f"[EXEC] AVISO: falha ao atualizar sinal de fechamento: {e}")
+
+            # E-8: fecha a linha em `log_trades` — a tabela que
+            # logger.dados_relatorio_diario le para somar o PnL do dia. Sem este
+            # par entrada/saida, o alerta das 18h somava conjunto vazio e
+            # reportava PnL 0,00 num dia com trades.
+            log_id = getattr(self, "_log_trade_id", None)
+            if log_id is not None:
+                try:
+                    from logger import logger as _log_estruturado
+
+                    _log_estruturado.registrar_trade_saida(
+                        log_id,
+                        preco_saida,
+                        _classificar_barreira(motivo),
+                        round(pnl_usdt_total, 2),
+                        round(pnl_pct_total, 4),
+                        gestao_risco.get_saldo_usdt(),
+                        motivo,
+                    )
+                except Exception as e:
+                    print(f"[EXEC] AVISO: falha ao registrar saida em log_trades: {e}")
+                finally:
+                    self._log_trade_id = None
+            else:
+                # Sem id de entrada: a posicao foi reidratada de um restart ou a
+                # insercao de entrada falhou. Avisa em vez de sumir — igual ao
+                # tratamento de sinal_id=None em database.py.
+                print(
+                    f"[EXEC] AVISO: trade fechado sem linha de entrada em log_trades "
+                    f"(PnL ${pnl_usdt_total:.2f}); o relatorio diario nao vai conta-lo."
+                )
 
             with self._lock:
                 self.posicao = None
@@ -1468,6 +1540,14 @@ class Executor:
                 # ids resolvidos de novo na proxima _liberar/_mover_protecao
                 "stop_order_id": None,
                 "oco_list_id": None,
+                # E-8: posicao ORFA reconstruida da exchange nao tem vinculo com
+                # nenhuma linha de `sinais` — o crash aconteceu justamente entre
+                # o fill e a persistencia. Fica None de proposito: inventar um
+                # vinculo (ex: pegar o ultimo sinal COMPRA do par) atribuiria o
+                # PnL deste trade a um sinal que talvez nao o tenha originado,
+                # contaminando o track record com um par entrada/saida falso —
+                # pior que a lacuna. O fechamento deste trade agora AVISA que o
+                # PnL nao entrou no track record (database.py), em vez de sumir.
                 "sinal_id": None,
                 "pnl_usdt_parcial_acumulado": 0.0,
             }

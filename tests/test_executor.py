@@ -91,11 +91,16 @@ def gestao_risco_mock(monkeypatch):
             self._estado_risco = {"posicoes_abertas": 0}
             self.resultados = []
             self.persistido = 0
+            self.validacoes = []  # E-8: kwargs recebidos em validar_trade
 
         def get_saldo_usdt(self):
             return 1000.0
 
-        def validar_trade(self, sinal, preco, capital, atr_relativo=None):
+        def validar_trade(self, sinal, preco, capital, **kwargs):
+            # E-8: captura os kwargs para que os testes possam PROVAR que o
+            # executor passa o stop real (antes validava com 1,5% fixo e
+            # reportava o risco do BTC para ETH e SOL).
+            self.validacoes.append({"sinal": sinal, "preco": preco, "capital": capital, **kwargs})
             return {"pode": True, "motivo": "ok"}
 
         def registrar_resultado(self, pnl_usdt):

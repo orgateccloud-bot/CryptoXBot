@@ -40,7 +40,8 @@ def gestao_risco_mock(monkeypatch):
         def get_saldo_usdt(self):
             return 1000.0
 
-        def validar_trade(self, sinal, preco, capital, atr_relativo=None):
+        def validar_trade(self, sinal, preco, capital, **kwargs):
+            # E-8: aceita stop/symbol — o executor passa o stop REAL agora.
             return {"pode": True, "motivo": "ok"}
 
         def registrar_resultado(self, pnl_usdt):

@@ -60,7 +60,11 @@ from estrategias.otimizada import registrar_sinal as registrar_sinal_otimizada
 from executor import Executor
 from health import start_health_server
 from logger import logger
-from suporte import ScaleIn
+# E-8: `from suporte import ScaleIn` removido — o scale-in saiu do caminho vivo
+# (as parcelas 2 e 3 eram inalcancaveis pelo gate `not exec_par.posicao`, e o
+# objeto nao resetado dimensionava o proximo trade sobre o tamanho do anterior).
+# A classe segue em suporte.py, com testes, para quando existir uma maquina de
+# estados que de fato avalie com posicao aberta.
 
 # Retreinamento automático semanal (domingo 02h)
 _RETREINAMENTO_HORA = 2  # hora do dia (02:00)
@@ -979,7 +983,12 @@ def _trend_abrir(par, exec_par, r, t0=None):
 
     saldo = gestao_risco.get_saldo_usdt()
     saldo = saldo if saldo > 0 else 100
-    validacao = gestao_risco.validar_trade("COMPRA", preco, saldo)
+    # E-8: o stop do trend e o canal Donchian-M, nao 1,5% — passa-lo faz
+    # `risco_usdt` refletir o risco real deste sistema, que e o dado que este
+    # experimento existe para produzir.
+    validacao = gestao_risco.validar_trade(
+        "COMPRA", preco, saldo, stop=stop, symbol=par
+    )
     if not validacao["pode"]:
         print(f"\033[91m[{par}][TREND][RISCO] Bloqueado: {validacao['motivo']}\033[0m")
         return
@@ -992,7 +1001,29 @@ def _trend_abrir(par, exec_par, r, t0=None):
     if tamanho <= 0:
         return
 
-    if exec_par.abrir_long(preco, tamanho, stop, float("inf")):
+    # E-8: registra o sinal ANTES de abrir, para ter um id que ligue entrada e
+    # fechamento. Sem isto o caminho trend chamava abrir_long sem sinal_id,
+    # executor.py gravava None, e marcar_sinal_executado /
+    # atualizar_sinal_fechamento eram no-ops silenciosos — e o trend e o caminho
+    # que esta rodando no worker agora, ou seja o unico produzindo track record.
+    #
+    # `source="trend_live"` nao e rotulo decorativo: relatorio_gate.py filtra a
+    # Etapa 2 por source, entao gravar aqui NAO contamina a conta que decide
+    # capital real com uma estrategia que foi REPROVADA no hold-out.
+    sinal_id = None
+    try:
+        sinal_id = database.salvar_sinal(
+            "COMPRA",
+            preco,
+            f"Donchian N: rompimento @ ${r['preco_ref']:,.2f} | stop canal M ${stop:,.2f} "
+            f"| risco ${validacao.get('risco_usdt', 0)}",
+            symbol=par,
+            source="trend_live",
+        )
+    except Exception as exc:
+        print(f"\033[93m[{par}][TREND] Falha ao registrar sinal: {exc}\033[0m")
+
+    if exec_par.abrir_long(preco, tamanho, stop, float("inf"), sinal_id=sinal_id):
         # preco (fresco, lido acima) e o preco de mercado; r["preco_ref"] e o
         # close do candle fechado em que a estrategia decidiu.
         _registrar_execucao(par, "trend", r["preco_ref"], preco, exec_par, t0, tamanho)
@@ -1193,6 +1224,11 @@ def loop_par(par, intervalo_min, simulacao):
                     saldo if saldo > 0 else 100,
                     atr_relativo=atr_relativo,
                     regime=resultado.get("regime"),
+                    # E-8: o stop REAL do par. Sem ele, validar_trade dimensionava
+                    # e reportava risco com 1,5% fixo para os tres pares, quando
+                    # ETH usa 2,0% e SOL 3,0% (config/params_pares.py).
+                    stop=stop,
+                    symbol=par,
                 )
                 if validacao["pode"]:
                     tamanho_base = validacao["tamanho_btc"]
@@ -1200,31 +1236,36 @@ def loop_par(par, intervalo_min, simulacao):
                     tamanho = round(tamanho_base * fator, 6)
                     score_val = resultado.get("score", 0)
 
-                    # Scale-In
-                    sup_forte = resultado.get("suporte_forte", 0)
-                    scale_in = estado["scale_in"]
-                    if scale_in is None or scale_in.completo:
-                        scale_in = ScaleIn(tamanho, sup_forte)
-                        estado["scale_in"] = scale_in
-                        parcela = scale_in.entrada_parcela1(preco)
-                        print(
-                            f"\n\033[93m[{par}][SCALE-IN] Parcela 1/3: {parcela:.6f} @ ${preco:,.2f} "
-                            f"(Score:{score_val}){reset}"
-                        )
-                    elif scale_in.parcela_atual == 1:
-                        parcela = scale_in.entrada_parcela2(preco)
-                        print(
-                            f"\n\033[93m[{par}][SCALE-IN] Parcela 2/3: {parcela:.6f} @ ${preco:,.2f} "
-                            f"(PM: ${scale_in.preco_medio:,.2f}){reset}"
-                        )
-                    elif scale_in.parcela_atual == 2:
-                        parcela = scale_in.entrada_parcela3(preco)
-                        print(
-                            f"\n\033[93m[{par}][SCALE-IN] Parcela 3/3: {parcela:.6f} @ ${preco:,.2f} "
-                            f"(PM: ${scale_in.preco_medio:,.2f}) COMPLETO{reset}"
-                        )
-                    else:
-                        parcela = tamanho
+                    # ── E-8: ScaleIn REMOVIDO do caminho vivo ─────────────
+                    #
+                    # As parcelas 2 e 3 nunca foram alcancaveis. Este bloco esta
+                    # dentro de `if sinal == "COMPRA" and not exec_par.posicao`:
+                    # a parcela 1 ABRE posicao, entao no ciclo seguinte a guarda
+                    # `not exec_par.posicao` e falsa e o codigo das parcelas 2/3
+                    # nao e executado. Nas 5.255 avaliacoes gravadas, zero
+                    # parcelas 2 ou 3.
+                    #
+                    # Pior que inutil: nada resetava estado["scale_in"] no
+                    # fechamento. Como `scale_in.completo` so vira True apos a
+                    # parcela 3 — que nunca vinha — o proximo trade caia no ramo
+                    # `elif scale_in.parcela_atual == 1` e dimensionava a entrada
+                    # sobre o tamanho_total do trade ANTERIOR (suporte.py:296,305),
+                    # nao sobre o que validar_trade acabara de autorizar. O
+                    # resultado: 40% do tamanho na 1a entrada de cada ciclo de vida
+                    # do objeto e um multiplo arbitrario do tamanho velho depois.
+                    #
+                    # Agora abre com o tamanho INTEGRAL autorizado. A classe
+                    # ScaleIn continua existindo em suporte.py, testada, para o dia
+                    # em que houver uma maquina de estados que de fato chame as
+                    # parcelas 2 e 3 (exigiria avaliar com posicao aberta, o que o
+                    # gate acima proibe hoje).
+                    parcela = tamanho
+                    estado["scale_in"] = None
+                    print(
+                        f"\n\033[93m[{par}][ENTRADA] {parcela:.6f} @ ${preco:,.2f} "
+                        f"(Score:{score_val} | risco ${validacao.get('risco_usdt', 0)} | "
+                        f"limitado por {validacao.get('limitado_por', '?')}){reset}"
+                    )
 
                     # Telegram
                     try:
@@ -1250,8 +1291,40 @@ def loop_par(par, intervalo_min, simulacao):
                     # sobre dado velho. Uma chamada de rede a mais por ENTRADA
                     # (raro: teto de 1 posicao aberta), nao por ciclo.
                     preco_mercado = exec_par.get_preco() or preco
+                    # E-8: a ordem vai com o preco FRESCO, nao com o de kline em
+                    # cache. `preco_mercado` ja era lido nesta linha e usado APENAS
+                    # para telemetria, enquanto a ordem seguia com `preco`
+                    # (= f1h[-1], TTL de 30s). Em paper isso falsificava o preco de
+                    # entrada gravado, que e a base de todo pnl_usdt da Etapa 2; com
+                    # dinheiro real, e a diferenca entre o limite calculado e o
+                    # mercado onde a ordem de fato descansa.
+                    #
+                    # stop/target continuam derivados de `preco` (a decisao foi
+                    # tomada sobre ele) — recalcula-los sobre o preco fresco mudaria
+                    # os niveis que a estrategia aprovou. A invariante de E-7
+                    # dentro de abrir_long valida a coerencia do trio de qualquer
+                    # forma, agora contra o preco que sera efetivamente usado.
+                    #
+                    # Consequencia a tratar ANTES de chamar abrir_long: se o
+                    # mercado andou mais que stop_pct (1,5%-3%) durante o TTL de
+                    # 30s, `preco_mercado` pode ja estar fora do trio. Isso e
+                    # SINAL VELHO, nao insumo quebrado — a invariante do executor
+                    # o registraria como CRITICAL, gerando alarme falso justo no
+                    # canal que I-9 acabou de fazer funcionar. Distinguir os dois
+                    # casos e o ponto: aqui vira um descarte informativo.
+                    desatualizado = incoerencia_de_precos(sinal, preco_mercado, stop, target)
+                    if desatualizado:
+                        deriva = (preco_mercado - preco) / preco * 100 if preco else 0.0
+                        print(
+                            f"\033[93m[{par}][SINAL VELHO] Entrada descartada: o mercado "
+                            f"andou {deriva:+.2f}% (kline ${preco:,.2f} -> agora "
+                            f"${preco_mercado:,.2f}) e saiu do trio aprovado "
+                            f"(stop ${stop:,.2f} / target ${target:,.2f}). {desatualizado}\033[0m"
+                        )
+                        continue
+
                     if exec_par.abrir_long(
-                        preco,
+                        preco_mercado,
                         parcela,
                         stop,
                         target,

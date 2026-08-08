@@ -30,11 +30,12 @@ config/            # runtime_settings (env > local > default) + params por par
 data/              # cvd_calculator + klines (fetch consolidado, cache TTL) — artefatos (*.db/*.pkl) gitignored
 deploy/            # systemd units, Caddyfile, setup.sh
 estrategias/       # Estratégias de trading (otimizada)
-scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 + purgar_fixtures_producao.py
+scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 +
+                   #   purgar_fixtures_producao.py + normalizar_timestamps.py (BR->ISO, E-8)
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (1274 passed, 8 skipped) — isolado de producao via conftest.py da raiz
+tests/             # pytest (1330 passed, 8 skipped) — isolado de producao via conftest.py da raiz
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -121,7 +122,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1274 passed, 8 skipped em ~2min40s
+pytest tests/ -q                    # 1330 passed, 8 skipped em ~2min40s
 # A suite e ISOLADA do estado de producao pelo conftest.py da RAIZ: banco em
 # tmp + guard que FALHA o teste se alguem abrir data/btc_data.db. Leia o
 # cabecalho de conftest.py antes de mexer nele — ate 2026-07-31 `pytest tests/`
