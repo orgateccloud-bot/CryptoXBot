@@ -275,3 +275,81 @@ class TestChecarExposicaoRede:
     def test_bind_exposto_sem_token_fora_de_producao_so_avisa(self, capsys):
         dashboard._checar_exposicao_rede("0.0.0.0", "", "development")
         assert "AVISO" in capsys.readouterr().out
+
+
+# ── Testes: /api/bot_events (I-9) ─────────────────────────────────────────────
+
+
+class TestApiBotEvents:
+    """A tabela bot_events tinha 14 escritores no worker e ZERO leitor em todo o
+    repositorio. /api/eventos, que parecia ser esse leitor, le um deque em
+    memoria do PROPRIO processo do dashboard — nunca viu um incidente do bot.
+
+    A rota importa `database` em tempo de chamada, portanto resolve o modulo
+    REAL (o mock de sys.modules deste arquivo vale so no import). Por isso o
+    monkeypatch abaixo e no modulo real.
+    """
+
+    _EVENTOS = [
+        {
+            "id": 9,
+            "timestamp": "2026-08-07T12:00:00",
+            "service": "worker",
+            "symbol": "BTCUSDT",
+            "event_type": "thread_crash",
+            "severity": "CRITICAL",
+            "message": "loop morreu",
+        }
+    ]
+
+    def test_devolve_eventos_da_tabela(self, client, monkeypatch):
+        import database as db_real
+
+        monkeypatch.setattr(db_real, "listar_bot_events", lambda **k: self._EVENTOS)
+        r = client.get("/api/bot_events")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["total"] == 1
+        assert data["eventos"][0]["event_type"] == "thread_crash"
+
+    def test_repassa_filtros_da_query_string(self, client, monkeypatch):
+        import database as db_real
+
+        capturado = {}
+
+        def _fake(**k):
+            capturado.update(k)
+            return []
+
+        monkeypatch.setattr(db_real, "listar_bot_events", _fake)
+        client.get("/api/bot_events?severidade=CRITICAL&tipo=bot_travado&limite=7")
+        assert capturado == {"limite": 7, "severidade": "CRITICAL", "tipo": "bot_travado"}
+
+    def test_limite_e_saturado_nos_extremos(self, client, monkeypatch):
+        import database as db_real
+
+        vistos = []
+        monkeypatch.setattr(
+            db_real, "listar_bot_events", lambda **k: vistos.append(k["limite"]) or []
+        )
+        client.get("/api/bot_events?limite=99999")
+        client.get("/api/bot_events?limite=0")
+        client.get("/api/bot_events?limite=abc")
+        assert vistos == [500, 1, 100]
+
+    def test_db_indisponivel_devolve_503_e_nao_500(self, client, monkeypatch):
+        import database as db_real
+
+        def _fora(**k):
+            raise RuntimeError("no such table: bot_events")
+
+        monkeypatch.setattr(db_real, "listar_bot_events", _fora)
+        r = client.get("/api/bot_events")
+        assert r.status_code == 503
+        assert "no such table" in r.get_json()["erro"]
+
+    def test_api_eventos_antiga_continua_intacta(self, client):
+        """A rota legada nao pode mudar de contrato: e o que o front consome."""
+        r = client.get("/api/eventos")
+        assert r.status_code == 200
+        assert isinstance(r.get_json(), list)

@@ -18,7 +18,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from config.runtime_settings import DATABASE_BACKEND, PORT
+from config.runtime_settings import DATABASE_BACKEND, HEALTH_BIND, PORT
 
 _server: ThreadingHTTPServer | None = None
 
@@ -123,6 +123,27 @@ def _metrics_text() -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+_threads_esperadas: set[str] = set()
+
+
+def registrar_thread_essencial(nome: str) -> None:
+    """Declara uma thread cuja morte torna o worker inutil (I-9).
+
+    Chamado por main.py ao subir cada loop_par. A morte de uma dessas threads e
+    silenciosa hoje: o processo continua vivo, o health server continua
+    respondendo, e o par simplesmente para de ser avaliado.
+    """
+    _threads_esperadas.add(nome)
+
+
+def _threads_mortas() -> list[str]:
+    """Nomes das threads essenciais declaradas que nao estao mais vivas."""
+    if not _threads_esperadas:
+        return []
+    vivas = {t.name for t in threading.enumerate() if t.is_alive()}
+    return sorted(_threads_esperadas - vivas)
+
+
 def _payload(
     status: str, role: str, ready: bool = True, extra: dict[str, Any] | None = None
 ) -> bytes:
@@ -159,6 +180,18 @@ class HealthHandler(BaseHTTPRequestHandler):
         ws_ok = True
         ws_depth_ok = True
         error = None
+
+        # I-9: /health deixa de ser 200 INCONDICIONAL. Antes toda a verificacao
+        # vivia sob `if self.path == "/ready"`, entao /health provava apenas que
+        # a thread do http.server estava viva -- respondia 200 para um worker
+        # cujas threads de avaliacao e de monitor de posicao ja tinham morrido.
+        # E /health e o endpoint que um supervisor naturalmente consulta.
+        if self.path == "/health" and self.role == "worker":
+            mortas = _threads_mortas()
+            if mortas:
+                ws_ok = False  # reaproveita o discriminante de `pronto`
+                error = f" threads_mortas={','.join(mortas)}"
+
         if self.path == "/ready":
             try:
                 import database
@@ -231,6 +264,17 @@ def start_health_server(role: str = "worker", port: int | None = None) -> None:
 
     bind_port = port or PORT
     HealthHandler.role = role
-    _server = ThreadingHTTPServer(("0.0.0.0", bind_port), HealthHandler)
+    # I-9: bind configuravel com default LOCAL. Era ("0.0.0.0", porta) fixo, sem
+    # auth e sem variavel para mudar, publicando pnl_dia, drawdown_dia_pct,
+    # ml_prob e desvios de execucao para qualquer dispositivo da LAN -- politica
+    # oposta a que o dashboard ja adotara (DASHBOARD_BIND=127.0.0.1 + token).
+    _server = ThreadingHTTPServer((HEALTH_BIND, bind_port), HealthHandler)
+    # Comparacao com o literal so para AVISAR; a exposicao, se houver, e escolha
+    # explicita de quem definiu HEALTH_BIND no ambiente.
+    if HEALTH_BIND == "0.0.0.0":  # nosec B104
+        print(
+            "[HEALTH] AVISO: escutando em 0.0.0.0 — /metrics expoe pnl_dia e drawdown "
+            "para a rede. Use HEALTH_BIND=127.0.0.1 ou ponha atras de proxy autenticado."
+        )
     thread = threading.Thread(target=_server.serve_forever, daemon=True, name=f"health-{role}")
     thread.start()

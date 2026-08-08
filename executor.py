@@ -399,6 +399,13 @@ class Executor:
         )
         print(log)
 
+        # I-9: a metrica conta ordens nos DOIS modos. Ela estava logo abaixo do
+        # `return` do ramo de simulacao, ou seja permanentemente 0 no unico modo
+        # que roda -- um contador que nunca sai de zero nao e observabilidade, e
+        # decoracao. Agora `ordens_total` mede atividade real do bot em paper, o
+        # que a torna util como sinal de vida.
+        health.increment_metric("ordens_total")
+
         if self.simulacao:
             preco_exec = preco or self.get_preco()
             return {
@@ -410,7 +417,6 @@ class Executor:
             }
 
         # Ordem real (P0-4: idempotente via newClientOrderId + retry + confirmacao pos-timeout)
-        health.increment_metric("ordens_total")
         client_id = f"bx-{uuid.uuid4().hex[:20]}"
         params = {
             "symbol": self.symbol,

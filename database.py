@@ -934,6 +934,69 @@ def salvar_bot_event(
     conn.close()
 
 
+def listar_bot_events(
+    *,
+    limite: int = 100,
+    severidade: str | None = None,
+    tipo: str | None = None,
+    desde_id: int | None = None,
+    crescente: bool = False,
+) -> list[dict[str, Any]]:
+    """LEITOR de bot_events — a tabela nao tinha nenhum (I-9).
+
+    Eram 14 call sites de escrita, incluindo thread_crash CRITICAL, divergencia
+    local-vs-exchange e fill sem persistencia, e ZERO `SELECT` em todo o
+    repositorio: 4 linhas em 4 meses, num destino que ninguem lia. Escrever
+    incidente em tabela sem leitor e o mesmo que nao registrar.
+
+    desde_id permite consumo incremental (o vigia de main.py escala so o que
+    ainda nao viu, sem re-alertar o historico a cada varredura).
+
+    `crescente` NAO e cosmetico, e o que torna o consumo incremental correto:
+
+      - DESC + LIMIT n devolve os n MAIS NOVOS acima do cursor. Quem depois
+        avanca o cursor para o maior id visto PULA para sempre tudo que ficou
+        entre o cursor antigo e o lote — perda silenciosa, justo na tabela de
+        incidentes. Serve para HISTORICO (dashboard), nao para consumo.
+      - ASC + LIMIT n devolve os n mais ANTIGOS ainda nao vistos; avancar o
+        cursor para o maior deles nao deixa lacuna, e o lote seguinte continua
+        de onde este parou.
+    """
+    onde, params = [], []
+    if severidade:
+        onde.append("severity = ?")
+        params.append(severidade.upper())
+    if tipo:
+        onde.append("event_type = ?")
+        params.append(tipo)
+    if desde_id is not None:
+        onde.append("id > ?")
+        params.append(desde_id)
+    clausula = (" WHERE " + " AND ".join(onde)) if onde else ""
+    cols = "id, timestamp, service, symbol, event_type, severity, message"
+    # `cols` e os fragmentos de `onde` sao literais deste modulo; TODO valor
+    # vindo do chamador (severidade, tipo, desde_id, limite) vai em `params`,
+    # por placeholder ligado. A isencao abaixo vale so para esse padrao — ha
+    # dois testes dedicados (test_alertas.py::test_injecao_por_*) que provam
+    # que severidade/tipo maliciosos nao alteram a query.
+    ordem = "ASC" if crescente else "DESC"
+    sql = f"SELECT {cols} FROM bot_events{clausula} ORDER BY id {ordem} LIMIT ?"  # nosec B608
+    params.append(int(limite))
+
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            cur = conn.execute(sql.replace("?", "%s"), tuple(params))
+            return [dict(r) for r in cur.fetchall()]
+
+    conn = conectar()
+    try:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(sql, tuple(params))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def salvar_metricas_modelo(
     symbol: str,
     modelo_tipo: str,

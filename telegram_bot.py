@@ -19,33 +19,121 @@ Alertas enviados:
   - Relatório diário (18h)
 """
 
+import threading
+import time
 from datetime import datetime
 
 import requests
 
 from config.runtime_settings import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
 
+# ── I-9: por que 0 de 8 alertas eram entregues ────────────────
+# A guarda era `if not TELEGRAM_TOKEN`, que testa VAZIO. O .env do projeto traz
+# 'your_telegram_bot_token_here' -- uma string TRUTHY. Ela atravessava a guarda,
+# o POST ia para um token invalido, e a funcao devolvia False SEM LOG. Resultado
+# medido: 10 call sites reais, 8 tipos de alerta, zero entregas em 4 meses -- em
+# silencio absoluto.
+#
+# Mesma classe de problema que binance_conta.py ja resolvia para as chaves da
+# Binance. Deteccao por substring, nao por igualdade, porque o placeholder varia
+# entre .env, .env.example e a documentacao.
+_PLACEHOLDERS = ("your_", "_here", "xxx", "placeholder", "changeme", "seu_token", "coloque")
 
-def _enviar(mensagem):
-    """Envia mensagem via Telegram API."""
+# Falha de ENTREGA e ela mesma um incidente -- e alertar sobre isso pelo canal
+# que falhou nao funciona. Vai para bot_events (que agora tem leitor), com
+# debounce, porque os call sites disparam por ciclo.
+_ESCALA_INTERVALO_S = 900
+_estado_envio = {"ultima_falha_alertada": 0.0, "em_falha": False}
+_lock_envio = threading.Lock()
+
+
+def token_configurado() -> bool:
+    """True se token e chat_id parecem reais (nao placeholder)."""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[TELEGRAM] Token ou Chat ID nao configurados. Pule este modulo.")
         return False
+    if len(TELEGRAM_TOKEN) < 20:
+        return False
+    baixo = TELEGRAM_TOKEN.lower()
+    return not any(p in baixo for p in _PLACEHOLDERS)
+
+
+def _registrar_falha_de_entrega(detalhe: str) -> None:
+    """Grava a falha em bot_events, com debounce. NUNCA levanta."""
+    agora = time.time()
+    with _lock_envio:
+        novo = not _estado_envio["em_falha"]
+        vencido = (agora - _estado_envio["ultima_falha_alertada"]) > _ESCALA_INTERVALO_S
+        if not (novo or vencido):
+            return
+        _estado_envio["em_falha"] = True
+        _estado_envio["ultima_falha_alertada"] = agora
+    try:
+        import database
+
+        database.salvar_bot_event(
+            "alerta_nao_entregue",
+            f"Falha ao entregar alerta por Telegram: {detalhe}. "
+            f"O canal de escalonamento esta CEGO — incidentes nao chegam a ninguem.",
+            service="worker",
+            severity="CRITICAL",
+        )
+    except Exception:
+        pass
+
+
+def _enviar(mensagem, *, devolver_detalhe: bool = False):
+    """Envia mensagem via Telegram API.
+
+    Devolve bool (compatibilidade com os 10 call sites) ou, com
+    devolver_detalhe=True, a tupla (ok, detalhe) usada pelo modo --teste.
+    """
+    if not token_configurado():
+        motivo = (
+            "TELEGRAM_TOKEN/CHAT_ID ausentes"
+            if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID
+            else "TELEGRAM_TOKEN e placeholder, nao um token real"
+        )
+        print(f"[TELEGRAM] NAO ENVIADO: {motivo}")
+        _registrar_falha_de_entrega(motivo)
+        return (False, motivo) if devolver_detalhe else False
+
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         r = requests.post(
             url,
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": mensagem,
-                "parse_mode": "HTML",
-            },
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "HTML"},
             timeout=10,
         )
-        return r.status_code == 200
     except Exception as e:
-        print(f"[TELEGRAM] Erro: {e}")
-        return False
+        detalhe = f"{type(e).__name__}: {e}"
+        print(f"[TELEGRAM] Erro de rede: {detalhe}")
+        _registrar_falha_de_entrega(detalhe)
+        return (False, detalhe) if devolver_detalhe else False
+
+    if r.status_code == 200:
+        with _lock_envio:
+            if _estado_envio["em_falha"]:
+                _estado_envio["em_falha"] = False
+                print("[TELEGRAM] Entrega restabelecida.")
+        mid = None
+        try:
+            mid = (r.json() or {}).get("result", {}).get("message_id")
+        except Exception:
+            pass
+        return (True, f"message_id={mid}") if devolver_detalhe else True
+
+    # ANTES: `return r.status_code == 200` e nada mais. O corpo da resposta da
+    # Telegram diz exatamente o que esta errado (token invalido, chat nao
+    # encontrado, bot bloqueado) e era descartado.
+    corpo = ""
+    try:
+        corpo = str(r.text)[:200]
+    except Exception:
+        pass
+    detalhe = f"HTTP {r.status_code} — {corpo}"
+    print(f"[TELEGRAM] FALHA na entrega: {detalhe}")
+    _registrar_falha_de_entrega(detalhe)
+    return (False, detalhe) if devolver_detalhe else False
 
 
 # ── Tipos de alertas ──────────────────────────────────────────
@@ -162,5 +250,93 @@ def testar_conexao():
     return ok
 
 
+_LOTE_ESCALONAMENTO = 20
+
+
+def escalar_eventos_criticos(desde_id: int | None = None) -> tuple[int, int | None]:
+    """Le bot_events CRITICAL novos e os escala por Telegram (I-9).
+
+    Devolve (quantos_escalados, ultimo_id_visto) para consumo incremental — sem
+    isso, cada varredura re-alertaria todo o historico.
+
+    Le em ordem CRESCENTE de propósito: `crescente=True` traz os mais ANTIGOS
+    ainda nao vistos. Com a leitura DESC (mais novos primeiro) e um cursor que
+    avanca para o maior id, um lote cheio pularia para sempre tudo que ficasse
+    abaixo dele — perda silenciosa na tabela de incidentes, que e precisamente o
+    defeito que esta frente existe para eliminar.
+
+    Nao escala o proprio 'alerta_nao_entregue': avisar por Telegram que o
+    Telegram falhou e loop inutil.
+    """
+    try:
+        import database
+
+        eventos = database.listar_bot_events(
+            limite=_LOTE_ESCALONAMENTO,
+            severidade="CRITICAL",
+            desde_id=desde_id,
+            crescente=True,
+        )
+    except Exception as e:
+        print(f"[TELEGRAM] Nao foi possivel ler bot_events: {e}")
+        return 0, desde_id
+
+    if not eventos:
+        return 0, desde_id
+
+    maior = max(int(e["id"]) for e in eventos)
+    if len(eventos) >= _LOTE_ESCALONAMENTO:
+        # Nunca truncar em silencio: dizer que ha fila e o que este lote cobriu.
+        print(
+            f"[TELEGRAM] Lote cheio ({len(eventos)} eventos, ate id {maior}); "
+            f"pode haver mais na fila — a proxima varredura continua daqui."
+        )
+    enviados = 0
+    for ev in sorted(eventos, key=lambda x: x["id"]):
+        if ev.get("event_type") == "alerta_nao_entregue":
+            continue
+        msg = (
+            f"🚨 <b>{ev.get('event_type', 'evento')}</b>\n"
+            f"⏰ {str(ev.get('timestamp'))[:19]}\n"
+            f"🔧 {ev.get('service') or '-'}"
+            f"{' · ' + ev['symbol'] if ev.get('symbol') else ''}\n\n"
+            f"{str(ev.get('message'))[:900]}"
+        )
+        if _enviar(msg):
+            enviados += 1
+    return enviados, maior
+
+
 if __name__ == "__main__":
-    testar_conexao()
+    import argparse
+    import sys
+
+    ap = argparse.ArgumentParser(description="Alertas Telegram — diagnostico")
+    ap.add_argument(
+        "--teste",
+        action="store_true",
+        help="prova a entrega de ponta a ponta e imprime o message_id devolvido pela API",
+    )
+    ap.add_argument("--escalar", action="store_true", help="escala bot_events CRITICAL pendentes")
+    args = ap.parse_args()
+
+    if args.escalar:
+        n, ult = escalar_eventos_criticos()
+        print(f"escalados: {n} (ultimo id visto: {ult})")
+        raise SystemExit(0 if n >= 0 else 1)
+
+    # Padrao e --teste: e o criterio de saida da frente I-9.
+    print(f"  token_configurado(): {token_configurado()}")
+    ok, detalhe = _enviar(
+        f"✅ <b>CryptoXbot — teste de entrega</b>\n"
+        f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+        f"Se esta mensagem chegou, o canal de escalonamento funciona.",
+        devolver_detalhe=True,
+    )
+    print(f"  entrega: {'OK' if ok else 'FALHOU'} — {detalhe}")
+    if not ok:
+        print()
+        print("  O canal de alerta esta CEGO. Enquanto isso durar, nenhum incidente")
+        print("  (circuit breaker, stop atingido, posicao sem protecao, thread morta)")
+        print("  chega a um humano. Configure TELEGRAM_TOKEN e TELEGRAM_CHAT_ID no .env.")
+    sys.exit(0 if ok else 1)

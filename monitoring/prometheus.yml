@@ -1,14 +1,49 @@
+# Prometheus — configuracao de scrape do worker
+#
+# ATENCAO (I-9, 2026-08-07): este arquivo NAO TEM CONSUMIDOR neste repositorio.
+# O servico `prometheus` vivia no docker-compose.yml, que nao existe mais aqui
+# (a implantacao real e NSSM no Windows e Railway). Nenhum Prometheus le este
+# arquivo hoje, e nao ha Alertmanager.
+#
+# Ele foi corrigido em vez de aposentado porque estava ATIVAMENTE ERRADO — dizia
+# `botbinance:8000`, um host e uma porta que nunca existiram nesta implantacao —
+# e um arquivo de monitoramento errado e pior que ausente: sugere cobertura que
+# nao ha. Os valores abaixo agora descrevem o alvo real.
+#
+# O caminho de escalonamento que DE FATO entrega hoje nao passa por aqui:
+#   bot_events (CRITICAL) → main.iniciar_vigia_de_eventos() a cada 30s
+#                          → telegram_bot.escalar_eventos_criticos()
+#   Diagnostico: `python telegram_bot.py --teste` (sai 0 e imprime message_id).
+#
+# Para usar este arquivo de verdade, duas coisas sao necessarias:
+#   1. HEALTH_BIND acessivel ao Prometheus (o default e 127.0.0.1 de proposito:
+#      /metrics expoe pnl_dia e drawdown_dia_pct sem nenhuma autenticacao);
+#   2. um Prometheus rodando + Alertmanager com destino real — sem o segundo,
+#      regras de alerta aqui seriam mais um destino que ninguem le.
+
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
 rule_files:
-  # - "first_rules.yml"
-  # - "second_rules.yml"
+  # Deliberadamente vazio: regra de alerta sem Alertmanager configurado e
+  # exatamente o antipadrao que I-9 corrigiu (escrever onde ninguem le).
 
 scrape_configs:
-  - job_name: 'botbinance-hft'
+  # Worker (main.py). Porta = PORT do ambiente; o servico BXBotWorker usa 8080.
+  # Metricas: botbinance_{sinais,ordens,ordens_erro,circuit_breaker_ativacoes,
+  # drawdown_bloqueios,ws_reconexoes}_total, uptime, gauges de pnl/drawdown/
+  # regime, definidos em health.py.
+  - job_name: 'cryptoxbot-worker'
     static_configs:
-      - targets: ['botbinance:8000']
-    scrape_interval: 5s
+      - targets: ['127.0.0.1:8080']
+    scrape_interval: 15s
     metrics_path: /metrics
+
+  # Dashboard (dashboard.py) — expoe /health e /ready, nao /metrics; incluido
+  # apenas como probe de disponibilidade se algum dia houver blackbox_exporter.
+  # Comentado para nao gerar target permanentemente com erro de scrape.
+  # - job_name: 'cryptoxbot-dashboard'
+  #   static_configs:
+  #     - targets: ['127.0.0.1:5000']
+  #   metrics_path: /health

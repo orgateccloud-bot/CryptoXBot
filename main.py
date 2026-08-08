@@ -754,6 +754,41 @@ def iniciar_retreinamento_automatico(pares: list[str]):
     )
 
 
+_VIGIA_INTERVALO_S = 30  # criterio de I-9: <= 60s entre o evento e a mensagem
+
+
+def iniciar_vigia_de_eventos():
+    """Thread que da CONSUMO aos bot_events CRITICAL (I-9).
+
+    A tabela tinha 14 escritores e ZERO leitor em todo o repositorio -- 4 linhas
+    em 4 meses num destino que ninguem lia. thread_crash, divergencia
+    local-vs-exchange, fill sem persistencia, reidratacao recusada e a nova trava
+    permanente todos escreviam ali e morriam ali.
+    """
+
+    def _loop():
+        ultimo_id = None
+        # Na primeira volta, aprende o ID atual sem escalar o historico -- senao
+        # o primeiro boot dispararia uma mensagem por evento CRITICAL antigo.
+        try:
+            recentes = database.listar_bot_events(limite=1, severidade="CRITICAL")
+            ultimo_id = int(recentes[0]["id"]) if recentes else 0
+        except Exception:
+            ultimo_id = 0
+
+        while not _shutdown_event.is_set():
+            time.sleep(_VIGIA_INTERVALO_S)
+            try:
+                n, ultimo_id = telegram_bot.escalar_eventos_criticos(desde_id=ultimo_id)
+                if n:
+                    print(f"[VIGIA] {n} evento(s) CRITICAL escalado(s) por Telegram.")
+            except Exception as e:
+                print(f"[VIGIA] falha ao escalar eventos: {e}")
+
+    threading.Thread(target=_loop, daemon=True, name="vigia-eventos").start()
+    print(f"[VIGIA] Vigia de bot_events CRITICAL ativo (varredura a cada {_VIGIA_INTERVALO_S}s).")
+
+
 def iniciar_relatorio_diario(symbol: str):
     """Thread que dispara o relatorio diario (Telegram) 1x por dia às
     _RELATORIO_HORA. Não bloqueia o loop principal. (P2-5: telegram_bot.
@@ -1503,11 +1538,23 @@ def main():
     # Thread de relatorio diario via Telegram (P2-5)
     iniciar_relatorio_diario(pares[0])
 
+    # I-9: vigia que da consumo aos bot_events CRITICAL
+    iniciar_vigia_de_eventos()
+
     # Threads — uma por par
     for par in pares:
+        nome = f"loop-{par}"
         threading.Thread(
-            target=loop_par, args=(par, args.intervalo, simulacao), daemon=True, name=f"loop-{par}"
+            target=loop_par, args=(par, args.intervalo, simulacao), daemon=True, name=nome
         ).start()
+        # I-9: declara a thread como essencial para o /health. A morte de uma
+        # loop_par era completamente silenciosa: o processo seguia vivo, o health
+        # server seguia respondendo 200, e o par simplesmente parava de ser
+        # avaliado sem que nada denunciasse.
+        try:
+            health.registrar_thread_essencial(nome)
+        except Exception:
+            pass
 
     # C-7: encerramento limpo. NSSM (Windows) manda CTRL_C_EVENT (SIGINT) e
     # CTRL_BREAK_EVENT (SIGBREAK) no stop; systemd/Railway (Linux) manda SIGTERM.

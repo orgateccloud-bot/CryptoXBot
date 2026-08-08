@@ -111,6 +111,11 @@ DB_POOL_MAX = _env_int("DB_POOL_MAX", 5)
 APP_ENV = _env("ENV", _env("APP_ENV", "development"))
 SERVICE_ROLE = _env("SERVICE_ROLE", "worker").lower()
 PORT = _env_int("PORT", 5000)
+# I-9: bind do health server do WORKER (/health, /ready, /metrics). Default LOCAL,
+# alinhado com DASHBOARD_BIND. Antes o bind era ("0.0.0.0", porta) hardcoded, sem
+# auth e sem variavel para mudar, publicando pnl_dia, drawdown_dia_pct e desvios
+# de execucao para qualquer dispositivo da LAN.
+HEALTH_BIND = _env("HEALTH_BIND", "127.0.0.1")
 SECRET_KEY = _env("SECRET_KEY", "botbinance-local-dev")
 # Segurança: nunca usar a chave-padrão pública em produção. Sem SECRET_KEY no
 # ambiente, gera uma efêmera aleatória (sessões/CSRF reiniciam a cada deploy,

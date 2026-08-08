@@ -600,8 +600,39 @@ def api_score(symbol="BTCUSDT"):
 
 @app.route("/api/eventos")
 def api_eventos():
+    """Eventos do PROPRIO processo do dashboard (deque em memoria).
+
+    Nao confundir com /api/bot_events, que le a tabela `bot_events` escrita pelo
+    WORKER — sao fontes diferentes e este endpoint nunca viu um incidente do bot.
+    """
     with _lock:
         return jsonify(list(eventos_sistema[:100]))
+
+
+@app.route("/api/bot_events")
+def api_bot_events():
+    """LEITOR da tabela bot_events (I-9).
+
+    A tabela tinha 14 escritores no worker e ZERO leitor em todo o repositorio:
+    thread_crash CRITICAL, divergencia local-vs-exchange, fill sem persistencia,
+    reidratacao recusada e a trava permanente todos escreviam ali e morriam ali.
+    4 linhas em 4 meses num destino que ninguem consultava.
+
+    Query: ?severidade=CRITICAL&tipo=bot_travado&limite=50
+    """
+    import database as _db
+
+    try:
+        limite = max(1, min(int(request.args.get("limite", 100)), 500))
+    except (TypeError, ValueError):
+        limite = 100
+    sev = request.args.get("severidade") or None
+    tipo = request.args.get("tipo") or None
+    try:
+        eventos = _db.listar_bot_events(limite=limite, severidade=sev, tipo=tipo)
+    except Exception as exc:
+        return jsonify({"erro": str(exc)[:200], "eventos": []}), 503
+    return jsonify({"total": len(eventos), "eventos": eventos})
 
 
 @app.route("/api/trades")
