@@ -367,11 +367,27 @@ class TestSharpeEsperadoMax:
 
 
 class TestDeflatedSharpeRatio:
-    def test_sem_trials_igual_psr_zero(self):
+    def test_sem_trials_levanta(self):
+        """ASSERT INVERTIDO em I-12.
+
+        Este teste travava exatamente o comportamento que ERA o defeito:
+        `deflated_sharpe_ratio(retornos, None)` devolvia PSR puro — probabilidade
+        contra SR=0, sem nenhuma correção por multiplicidade — e quatro
+        chamadores gravavam esse número sob a chave "dsr". O dashboard servia
+        `dsr = 0.839`, que não era DSR.
+
+        O deflated Sharpe existe para punir a busca; sem o número de tentativas
+        ele não pune nada. A função agora recusa, em vez de devolver outra coisa
+        com o nome errado.
+        """
         retornos = [1.0, 2.0, -0.5, 1.5, 0.8]
-        assert metricas.deflated_sharpe_ratio(retornos, None) == pytest.approx(
-            metricas.probabilistic_sharpe_ratio(retornos, 0.0)
-        )
+        with pytest.raises(TypeError, match="exige sharpes_trials"):
+            metricas.deflated_sharpe_ratio(retornos, None)
+
+    def test_um_trial_equivale_a_psr_zero(self):
+        """Continua válido — e agora é uma DECLARAÇÃO do chamador: uma única
+        tentativa não tem multiplicidade a corrigir."""
+        retornos = [1.0, 2.0, -0.5, 1.5, 0.8]
         assert metricas.deflated_sharpe_ratio(retornos, [0.5]) == pytest.approx(
             metricas.probabilistic_sharpe_ratio(retornos, 0.0)
         )

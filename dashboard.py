@@ -781,13 +781,84 @@ def api_conexao():
 
 @app.route("/api/backtest/<symbol>")
 def api_backtest(symbol="BTCUSDT"):
-    from backtesting.motor_ensemble import imprimir_relatorio, rodar
+    """Backtest sob demanda — DESLIGADO por padrão (I-12).
+
+    Esta rota era o único artefato do repositório que servia um número
+    falsamente POSITIVO por HTTP, 24/7, para qualquer um que abrisse o
+    dashboard. Medido em 2026-08-09, antes das correções:
+
+        retorno +2,54% | Sharpe 1,04 | profit factor 1,01 | DSR 0,839
+        e o frontend traduzia isso em "ESTRATEGIA PROMISSORA"
+
+    Dois defeitos produziam esse número:
+
+      1. LOOK-AHEAD no mapeamento 1h->4h (`idx4 = i // 4`), que lia um candle
+         4h ainda ABERTO em 17.563 de 17.563 barras — 100%.
+      2. TAXA de FUTUROS (0,0004) num motor que modela execução SPOT (0,001).
+
+    Com os dois corrigidos, o mesmo motor sobre os mesmos dados devolve:
+
+        retorno -45,83% | Sharpe -0,30 | profit factor 0,75 | DD 48,93%
+
+    48,4 pontos percentuais de diferença. O número honesto é uma perda de quase
+    metade do capital.
+
+    A rota continua desligada mesmo depois da correção do look-ahead e da taxa,
+    porque o motor ainda usa `_score_backtest` — uma função de score DIFERENTE
+    da de produção (`score.calcular`): pesos regime 25/mtf 20/ml 15 contra
+    18/12/20, e sem os componentes CVD e OBI. Ou seja, ele mede uma estratégia
+    que não é a que roda. Unificar as duas réguas é o resto de I-12; até lá,
+    servir esse número por HTTP é servir uma medição de outra coisa.
+
+    Para rodar mesmo assim (uso local, consciente):
+        BACKTEST_HTTP=1 python dashboard.py
+    """
+    import os as _os
+
+    if _os.getenv("BACKTEST_HTTP", "").strip().lower() not in {"1", "true", "yes", "on"}:
+        return (
+            jsonify(
+                {
+                    "erro": "MEDICAO INVALIDA — rota desligada (I-12)",
+                    "motivo": (
+                        "O motor deste endpoint usa _score_backtest, que NAO e a funcao "
+                        "de score de producao (score.calcular): pesos diferentes e sem "
+                        "CVD/OBI. O numero mediria outra estrategia."
+                    ),
+                    "historico": {
+                        "antes_das_correcoes": {
+                            "retorno_total_%": 2.54,
+                            "sharpe_ratio": 1.04,
+                            "veredito_exibido": "ESTRATEGIA PROMISSORA",
+                        },
+                        "depois_de_corrigir_lookahead_e_taxa": {
+                            "retorno_total_%": -45.83,
+                            "sharpe_ratio": -0.30,
+                            "profit_factor": 0.75,
+                        },
+                        "nota": (
+                            "48,4 pontos percentuais vinham de duas linhas: idx4 = i//4 "
+                            "(look-ahead em 100% das barras) e TAXA=0.0004 (futuros num "
+                            "bot spot)."
+                        ),
+                    },
+                    "para_rodar_local": "BACKTEST_HTTP=1 python dashboard.py",
+                }
+            ),
+            409,
+        )
+
+    from backtesting.motor_ensemble import rodar
 
     r = rodar(symbol.upper(), "1h", "4h", 1000.0, usar_ml=False)
     if not r or "erro" in r:
         return jsonify({"erro": r.get("erro", "Sem dados") if r else "Sem dados"})
     ops = r.pop("operacoes", [])
     r["operacoes"] = ops[-30:]
+    r["aviso"] = (
+        "Score do backtest != score de producao (I-12). Numero nao comparavel "
+        "com o desempenho ao vivo."
+    )
     return jsonify(r)
 
 

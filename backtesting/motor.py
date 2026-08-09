@@ -28,7 +28,7 @@ import indicadores as ind
 import score as score_mod
 from backtesting.metricas import (
     calmar_ratio,
-    deflated_sharpe_ratio,
+    probabilistic_sharpe_ratio,
     profit_factor,
     sharpe_ratio,
     sortino_ratio,
@@ -293,7 +293,10 @@ def calcular_metricas(operacoes, capital_inicial, capital_final, intervalo):
         "sharpe_ratio": round(sharpe, 2),
         "sortino_ratio": round(sortino_ratio(retornos), 2),
         "calmar_ratio": round(calmar_ratio(retorno_total, max(max_dd, 0.0), dias_periodo), 2),
-        "dsr": round(deflated_sharpe_ratio(retornos, None), 4),
+        # I-12: era `"dsr": deflated_sharpe_ratio(retornos, None)`, que devolvia PSR
+        # PURO (benchmark SR=0) com nome de DSR. Sem o numero de tentativas
+        # nao ha deflacao a aplicar. A chave agora diz o que o numero e.
+        "psr": round(probabilistic_sharpe_ratio(retornos, 0.0), 4),
         "expectancia_%": round(expectancia, 2),
         "media_ganho_%": round(media_ganho, 2),
         "media_perda_%": round(media_perda, 2),
@@ -343,8 +346,8 @@ def imprimir_relatorio(r):
         f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}    {nota(r.get('calmar_ratio', 0), 1.0, 2.0)}"
     )
     print(
-        f"  DSR (PSR, sem correção de multiple-testing — 1 único backtest): "
-        f"{r.get('dsr', 0):6.4f}    {nota(r.get('dsr', 0), 0.90, 0.95)}"
+        f"  PSR (prob. de Sharpe > 0; NAO e DSR — sem correcao de multiple-testing): "
+        f"{r.get('psr', 0):6.4f}    {nota(r.get('psr', 0), 0.90, 0.95)}"
     )
     print(f"  Retorno Total: {r['retorno_total_%']:6.2f}%")
     print()

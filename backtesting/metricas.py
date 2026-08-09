@@ -131,12 +131,36 @@ def cvar_historico(retornos_pct: list[float], nivel_confianca: float = 0.95) -> 
     return statistics.mean(ordenados[:n_cauda])
 
 
-def deflated_sharpe_ratio(
-    retornos_pct: list[float], sharpes_trials: Optional[list[float]] = None
-) -> float:
-    """DSR = PSR(SR*) onde SR* = 0 se sharpes_trials ausente/<=1 trial, senao
-    SR* = sharpe_esperado_max(sharpes_trials). Retorna probabilidade em [0,1]."""
-    if not sharpes_trials or len(sharpes_trials) <= 1:
+def deflated_sharpe_ratio(retornos_pct: list[float], sharpes_trials: list[float]) -> float:
+    """DSR = PSR(SR*) com SR* = sharpe_esperado_max(sharpes_trials).
+
+    I-12: `sharpes_trials` deixou de ter default None.
+
+    O que a versão anterior fazia: com `sharpes_trials=None`, o benchmark caía
+    para SR* = 0 e a função devolvia **PSR puro** — a probabilidade de o Sharpe
+    ser maior que ZERO, sem nenhuma correção por quantas configurações foram
+    testadas. Quatro dos cinco chamadores passavam None e gravavam o resultado
+    sob a chave `"dsr"`. O dashboard servia `dsr = 0.839`: um número que não era
+    DSR e que, lido como DSR, sugere "sobrevive à correção por múltiplas
+    hipóteses" quando nenhuma correção foi aplicada.
+
+    O deflated Sharpe existe precisamente para punir a busca. Sem o número de
+    tentativas ele não tem como punir nada — chamar o resultado de DSR é o mesmo
+    erro de chamar de "hold-out" um conjunto que foi reavaliado.
+
+    Quem quer só a probabilidade contra SR=0 deve chamar
+    `probabilistic_sharpe_ratio(retornos, 0.0)` e gravar sob a chave `"psr"`:
+    igualmente útil, e honesto. Uma lista com <= 1 trial continua aceita e
+    equivale a PSR — uma única tentativa não tem multiplicidade a corrigir; o
+    que se recusa é o silêncio de não informar.
+    """
+    if sharpes_trials is None:
+        raise TypeError(
+            "deflated_sharpe_ratio exige sharpes_trials (I-12). Sem o numero de "
+            "tentativas nao ha deflacao — o resultado seria PSR puro com nome de "
+            "DSR. Para PSR, use probabilistic_sharpe_ratio(retornos, 0.0)."
+        )
+    if len(sharpes_trials) <= 1:
         sr_benchmark = 0.0
     else:
         sr_benchmark = sharpe_esperado_max(sharpes_trials)

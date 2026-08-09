@@ -22,9 +22,10 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
+from backtesting.alinhamento import mapear_idx_fechado
 from backtesting.metricas import (
     calmar_ratio,
-    deflated_sharpe_ratio,
+    probabilistic_sharpe_ratio,
     profit_factor,
     sharpe_ratio,
     sortino_ratio,
@@ -34,7 +35,11 @@ from ml_filtro import extrair_features
 
 DB_PATH = "data/btc_data.db"
 
-TAXA = 0.0004
+# I-12: 0.001 = taxa de SPOT taker por lado. Era 0.0004, que e tarifa de
+# FUTUROS, num motor que modela um bot cujo executor manda /api/v3/order
+# (spot). trend_following.py:36 ja usava 0.001 com o comentario correto —
+# eram duas reguas cobrando taxas diferentes pela mesma execucao.
+TAXA = 0.001
 SLIPPAGE = 0.0005
 ATR_MIN_RATIO = 0.5
 VOL_MIN_RATIO = 1.1
@@ -281,6 +286,7 @@ def rodar(
     f4h = [r[4] for r in k4h]
     m4h = [r[2] for r in k4h]
     n4h = [r[3] for r in k4h]
+    ts4h = [r[0] for r in k4h]  # I-12: necessario p/ o alinhamento causal
 
     # Pre-computar indicadores 1H
     ema20 = ind.ema(f1h, 20)
@@ -346,8 +352,24 @@ def rodar(
         except Exception as e:
             print(f"  [ML] Erro no treinamento: {e}")
 
+    # I-12: mapeamento CAUSAL 1h -> 4h, calculado uma vez.
+    #
+    # Era `idx4 = min(idx_1h // 4, len(f4h) - 1)`, que devolve o candle 4h que
+    # CONTEM o candle 1h — e esse 4h so fecha depois. Medido nesta serie:
+    # 17.563 de 17.563 barras (100%) liam um 4h ainda ABERTO, ou seja EMA20/EMA50
+    # de 4h calculadas com preco que a estrategia nao teria no instante da
+    # decisao. Nao e vies sutil: e o futuro entrando em TODA barra.
+    #
+    # A correcao ja existia em walk_forward._mapear_idx4_fechado desde a Etapa 1
+    # e nunca foi propagada para os outros motores.
+    idx4_fechado = mapear_idx_fechado(ts1h, ts4h)
+
     def tend_4h_em(idx_1h):
-        idx4 = min(idx_1h // 4, len(f4h) - 1)
+        idx4 = idx4_fechado[idx_1h]
+        if idx4 < 0:
+            # Nenhum 4h fechou ainda: sem informacao MTF. LATERAL e o neutro que
+            # o resto do codigo ja trata (nao aprova nem reprova).
+            return "LATERAL"
         p = f4h[idx4]
         e20 = ema20_4h[idx4]
         e50 = ema50_4h[idx4]
@@ -559,7 +581,10 @@ def rodar(
         "sharpe_ratio": round(sharpe, 2),
         "sortino_ratio": round(sortino_ratio(rets), 2),
         "calmar_ratio": round(calmar_ratio(retorno, max(max_dd, 0.0), dias_periodo), 2),
-        "dsr": round(deflated_sharpe_ratio(rets, None), 4),
+        # I-12: era `"dsr": deflated_sharpe_ratio(rets, None)`, que devolvia PSR
+        # PURO (benchmark SR=0) com nome de DSR. Sem o numero de tentativas
+        # nao ha deflacao a aplicar. A chave agora diz o que o numero e.
+        "psr": round(probabilistic_sharpe_ratio(rets, 0.0), 4),
         "expectancia_%": round(exp, 2),
         "media_ganho_%": round(mg, 2),
         "media_perda_%": round(mp, 2),
@@ -617,8 +642,8 @@ def imprimir_relatorio(r):
         f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}    {nota(r.get('calmar_ratio', 0), 1.0, 2.0)}"
     )
     print(
-        f"  DSR (PSR, sem correção de multiple-testing — 1 único backtest): "
-        f"{r.get('dsr', 0):6.4f}    {nota(r.get('dsr', 0), 0.90, 0.95)}"
+        f"  PSR (prob. de Sharpe > 0; NAO e DSR — sem correcao de multiple-testing): "
+        f"{r.get('psr', 0):6.4f}    {nota(r.get('psr', 0), 0.90, 0.95)}"
     )
     print(f"  Retorno Total: {r['retorno_total_%']:6.2f}%")
     print()

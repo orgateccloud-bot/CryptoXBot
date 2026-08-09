@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
 from backtesting.metricas import (
     calmar_ratio,
-    deflated_sharpe_ratio,
+    probabilistic_sharpe_ratio,
     profit_factor,
     sharpe_ratio,
     sortino_ratio,
@@ -269,7 +269,10 @@ def rodar(intervalo_entrada="1h", intervalo_mtf="4h", capital_inicial=1000.0):
         "sharpe_ratio": round(sharpe, 2),
         "sortino_ratio": round(sortino_ratio(rets), 2),
         "calmar_ratio": round(calmar_ratio(retorno, max(max_dd, 0.0), dias_periodo), 2),
-        "dsr": round(deflated_sharpe_ratio(rets, None), 4),
+        # I-12: era `"dsr": deflated_sharpe_ratio(rets, None)`, que devolvia PSR
+        # PURO (benchmark SR=0) com nome de DSR. Sem o numero de tentativas
+        # nao ha deflacao a aplicar. A chave agora diz o que o numero e.
+        "psr": round(probabilistic_sharpe_ratio(rets, 0.0), 4),
         "expectancia_%": round(exp, 2),
         "media_ganho_%": round(mg, 2),
         "media_perda_%": round(mp, 2),

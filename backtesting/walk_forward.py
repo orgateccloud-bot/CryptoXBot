@@ -60,7 +60,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
 from backtesting.metricas import (
     calmar_ratio,
-    deflated_sharpe_ratio,
+    probabilistic_sharpe_ratio,
     profit_factor,
     sharpe_ratio,
     sortino_ratio,
@@ -521,7 +521,10 @@ def walk_forward(
         "sharpe_ratio": round(sharpe, 2),
         "sortino_ratio": round(sortino_ratio(rets), 2),
         "calmar_ratio": round(calmar_ratio(retorno, max(max_dd, 0.0), dias_periodo), 2),
-        "dsr": round(deflated_sharpe_ratio(rets, None), 4),
+        # I-12: era `"dsr": deflated_sharpe_ratio(rets, None)`, que devolvia PSR
+        # PURO (benchmark SR=0) com nome de DSR. Sem o numero de tentativas
+        # nao ha deflacao a aplicar. A chave agora diz o que o numero e.
+        "psr": round(probabilistic_sharpe_ratio(rets, 0.0), 4),
         "media_ganho_%": round(mg, 2),
         "media_perda_%": round(mp, 2),
         "buy_and_hold": bh,
@@ -554,7 +557,9 @@ def imprimir_relatorio(r):
     print(f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%  (equity por trade fechado)")
     print(f"  Sortino Ratio: {r.get('sortino_ratio', 0):6.2f}")
     print(f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}")
-    print(f"  DSR/PSR:       {r.get('dsr', 0):6.4f}  (probabilidade; criterio do gate: >= 0.95)")
+    # I-12: e PSR, nao DSR — o rotulo "DSR/PSR" deixava ambiguo qual dos dois.
+    print(f"  PSR:           {r.get('psr', 0):6.4f}  (prob. Sharpe > 0; criterio do gate: >= 0.95)")
+    print("                 (NAO e DSR: sem correcao por multiple-testing — ver metricas.py)")
     print(f"  Retorno Total: {r['retorno_total_%']:6.2f}%")
     print(f"  Capital:       ${r['capital_inicial']:,.2f} -> ${r['capital_final']:,.2f}")
 

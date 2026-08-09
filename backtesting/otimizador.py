@@ -24,6 +24,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
 from backtesting import metricas
+from backtesting.alinhamento import mapear_idx_fechado
 from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, _score_backtest, carregar
 from ml_filtro import extrair_features
 
@@ -36,6 +37,7 @@ def _rodar_com_params(
     n1h,
     v1h,
     ts1h,
+    ts4h,
     f4h,
     m4h,
     n4h,
@@ -60,8 +62,17 @@ def _rodar_com_params(
     score_op = params["score_operar"]
     score_ch = params["score_cheio"]
 
+    # I-12: alinhamento CAUSAL. Era `idx_1h // 4`, que le o candle 4h que
+    # CONTEM o 1h — e esse 4h so fecha depois. Medido: 100% das barras liam um
+    # 4h ainda aberto. Num OTIMIZADOR o efeito e pior que num backtest solto:
+    # ele escolhe parametros maximizando um retorno que o futuro produziu, e o
+    # resultado vai direto para config/params_pares.py.
+    idx4_fechado = mapear_idx_fechado(ts1h, ts4h)
+
     def tend_4h_em(idx_1h):
-        idx4 = min(idx_1h // 4, len(f4h) - 1)
+        idx4 = idx4_fechado[idx_1h]
+        if idx4 < 0:
+            return "LATERAL"
         p = f4h[idx4]
         e20 = ema20_4h[idx4]
         e50 = ema50_4h[idx4]
@@ -213,6 +224,7 @@ def grid_search(symbol="BTCUSDT", intervalo="1h", rapido=False):
     n1h = [r[3] for r in k1h]
     v1h = [r[5] for r in k1h]
     ts1h = [r[0] for r in k1h]
+    ts4h = [r[0] for r in k4h]  # I-12: alinhamento causal
 
     f4h = [r[4] for r in k4h]
     m4h = [r[2] for r in k4h]
@@ -279,6 +291,7 @@ def grid_search(symbol="BTCUSDT", intervalo="1h", rapido=False):
             n1h,
             v1h,
             ts1h,
+            ts4h,
             f4h,
             m4h,
             n4h,

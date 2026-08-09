@@ -267,11 +267,25 @@
       d.expectancia_    > 0,
     ].filter(Boolean).length;
 
-    const cores = {5:'#26a69a', 4:'#26a69a', 3:'#f6c90e', 2:'#ef5350', 1:'#ef5350', 0:'#ef5350'};
+    // I-12: nenhum veredito desta tela autoriza capital.
+    //
+    // O texto de 5/5 dizia "Pode operar com capital real" — frase que, lida
+    // como autorizacao, contradiz o GATE_GO_LIVE.md inteiro (Etapa 1 REPROVADA;
+    // Etapa 2 exige 90 dias de paper e >=30 trades fechados).
+    //
+    // Alem disso, o backtest que alimenta esta tela usa `_score_backtest`, que
+    // NAO e a funcao de score de producao (`score.calcular`): pesos regime
+    // 25/mtf 20/ml 15 contra 18/12/20, e sem os componentes CVD e OBI. Ele mede
+    // uma estrategia que nao e a que roda.
+    //
+    // Ate 2026-08-09 esta tela exibiu "ESTRATEGIA PROMISSORA" sobre +2,54% que
+    // era artefato de look-ahead (100% das barras liam um candle 4h aberto) mais
+    // taxa de futuros num bot spot. Corrigidos os dois, o mesmo motor da -45,83%.
+    const cores = {5:'#f6c90e', 4:'#f6c90e', 3:'#f6c90e', 2:'#ef5350', 1:'#ef5350', 0:'#ef5350'};
     const textos = {
-      5: 'ESTRATEGIA EXCELENTE — Pode operar com capital real',
-      4: 'ESTRATEGIA BOA — Pequenos ajustes antes de operar',
-      3: 'ESTRATEGIA PROMISSORA — Otimize os parametros',
+      5: '5/5 criterios — NAO autoriza capital (regua != producao, ver I-12)',
+      4: '4/5 criterios — NAO autoriza capital (regua != producao, ver I-12)',
+      3: 'Criterios parciais — regua diferente da de producao',
       2: 'ESTRATEGIA FRACA — Reformule antes de arriscar capital',
       1: 'ESTRATEGIA FRACA — Reformule antes de arriscar capital',
       0: 'ESTRATEGIA FRACA — Reformule antes de arriscar capital',
