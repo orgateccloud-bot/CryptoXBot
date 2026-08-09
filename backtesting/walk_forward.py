@@ -40,11 +40,17 @@ aplicadas apos verificacao adversarial de 2026-07-23 (registradas no gate):
 --mtf-lookahead-legado: APENAS DIAGNOSTICO — reproduz o bug B1 (idx//4)
 para quantificar o delta do vies. NUNCA usar para medicao oficial.
 
+--politica-saida: "producao" (default) modela a saida que o bot executa —
+parcial de 50% no target1, stop a breakeven, target2 e trailing. "alvo_unico"
+e o modelo antigo (um stop, um alvo), que nao corresponde ao bot e serve so
+para medir a diferenca.
+
 Uso:
   python backtesting/walk_forward.py
   python backtesting/walk_forward.py --par ETHUSDT
   python backtesting/walk_forward.py --treino 720 --teste 168
   python backtesting/walk_forward.py --taxa 0.00075   # maker+BNB
+  python backtesting/walk_forward.py --politica-saida alvo_unico  # comparacao
 """
 
 import json
@@ -52,6 +58,7 @@ import os
 import sqlite3
 import statistics
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 
 import numpy as np
@@ -99,6 +106,111 @@ TAXA_SPOT_DEFAULT = 0.001
 
 MS_1H = 3_600_000
 MS_4H = 14_400_000
+
+# ── Politica de saida real (I-12h) ────────────────────────────────────────
+#
+# O backtest media UMA saida: stop fixo ou alvo fixo. O bot roda outra coisa
+# (executor.avaliar_tick_monitor):
+#
+#   1. stop loss                              -> terminal
+#   2. no target1, vende 50% e move o stop para breakeven (entrada*1,002)
+#   3. com a parcial feita, target2 fecha o resto -> terminal
+#   4. a partir de +1% de ganho, o stop segue o pico a -0,8% (trailing)
+#
+# O item 4 e o que mais falta: sem trailing, o backtest deixa cada posicao
+# correr ate o alvo cheio ou ate o stop inicial. Em producao a maioria sai
+# muito antes, arrastada pelo trailing.
+#
+# Sobre 2 e 3: `target2` e `entrada*1,05` HARDCODED em executor.abrir_long,
+# enquanto `target1` vem do par. Nos tres pares configurados isso torna o
+# "runner" inerte:
+#
+#     par        target1 (par)   target2 (fixo)   runner corre?
+#     BTCUSDT      1,050            1,050          nao — iguais
+#     ETHUSDT      1,060            1,050          nao — target2 ABAIXO
+#     SOLUSDT      1,050            1,050          nao — iguais
+#
+# Ou seja: a metade "runner" fecha no tick seguinte ao da parcial, no mesmo
+# preco. Nao e um bug do backtest — e o que a producao faz. O backtest passa
+# a reproduzir isso em vez de fingir uma saida unica.
+FRACAO_PARCIAL = 0.5  # vende metade no target1
+BREAKEVEN_MULT = 1.002  # stop pos-parcial (executor.avaliar_tick_monitor)
+TARGET2_MULT = 1.05  # alvo do runner, hardcoded em executor.abrir_long
+TRAILING_ATIVACAO = 0.01  # ativa trailing apos 1% de ganho
+TRAILING_DISTANCIA = 0.008  # stop segue 0,8% abaixo do pico
+
+POLITICAS_SAIDA = ("producao", "alvo_unico")
+
+
+def avaliar_tick_saida(
+    entrada,
+    stop_atual,
+    target1,
+    target2,
+    parcial_feita,
+    preco_alta,
+    preco_baixa,
+    preco_pico,
+    trailing_ativacao=TRAILING_ATIVACAO,
+    trailing_distancia=TRAILING_DISTANCIA,
+):
+    """Decisao PURA de um tick de saida, com alta e baixa separadas.
+
+    Espelha `executor.avaliar_tick_monitor` na ordem e nos limiares. A unica
+    diferenca e que o preco entra em duas pontas: um candle 1h nao tem preco
+    unico, e a convencao conservadora do backtest e testar o STOP contra a
+    MINIMA e os ALVOS contra a MAXIMA. Com preco_alta == preco_baixa a funcao
+    decide exatamente o mesmo que a de producao — `tests/test_walk_forward.py
+    ::TestParidadeComProducao` prova isso sobre uma grade de estados.
+
+    Nao decide `parcial_feita and preco >= target2` no mesmo tick em que a
+    parcial dispara: producao le o snapshot do estado, entao o runner so pode
+    fechar num tick POSTERIOR. O loop do backtest reproduz isso chamando esta
+    funcao duas vezes no mesmo candle (uma hora tem ticks de sobra).
+
+    `stop_breakeven` e `novo_stop_trailing` saem SEPARADOS, como em producao,
+    e o chamador aplica nesta ordem — breakeven, depois trailing. Nao e
+    detalhe cosmetico: `executor._aplicar_novo_stop` grava `stop_atual =
+    novo_stop` sem checar se o valor SOBE (executor.py:1212), entao a parcial
+    pode BAIXAR um stop que o trailing ja tinha subido. Um `max()` aqui
+    mediria um bot melhor do que o que roda.
+    """
+    acao = {
+        "fechar_total": None,
+        "fechar_parcial": False,
+        "stop_breakeven": None,
+        "novo_stop_trailing": None,
+        "preco_pico": preco_pico,
+    }
+
+    # 1. Stop (terminal) — contra a MINIMA. Vem primeiro tambem no candle
+    #    ambiguo, que toca stop e alvo: nao da para saber a ordem intra-candle
+    #    e a convencao conservadora e assumir a pior.
+    if preco_baixa <= stop_atual:
+        acao["fechar_total"] = "STOP"
+        return acao
+
+    # 2. Parcial de 50% no target1 — nao encerra
+    if not parcial_feita and preco_alta >= target1:
+        acao["fechar_parcial"] = True
+        acao["stop_breakeven"] = entrada * BREAKEVEN_MULT
+
+    # 3. Target2 fecha o resto (terminal) — so com a parcial JA feita
+    if parcial_feita and preco_alta >= target2:
+        acao["fechar_total"] = "TARGET_FINAL"
+        return acao
+
+    # 4. Trailing a partir de trailing_ativacao de ganho. A comparacao e
+    #    contra o stop do SNAPSHOT, nao contra o breakeven recem-decidido —
+    #    de novo, como em producao.
+    if (preco_alta - entrada) / entrada >= trailing_ativacao:
+        pico = preco_alta if preco_alta > preco_pico else preco_pico
+        acao["preco_pico"] = pico
+        novo = pico * (1 - trailing_distancia)
+        if novo > stop_atual:
+            acao["novo_stop_trailing"] = novo
+
+    return acao
 
 
 def carregar(symbol, intervalo):
@@ -213,10 +325,21 @@ def walk_forward(
     taxa=TAXA_SPOT_DEFAULT,
     mtf_lookahead_legado=False,
     permitir_sem_fng=False,
+    politica_saida="producao",
 ):
     """
     Walk-forward validation com retreino do XGBoost a cada janela.
+
+    politica_saida (I-12h):
+      "producao"   — parcial 50% no target1, stop a breakeven, target2 e
+                     trailing, como executor.avaliar_tick_monitor. Default.
+      "alvo_unico" — modelo antigo (um stop, um alvo). Nao corresponde ao bot;
+                     existe so para medir o quanto a politica real muda o
+                     resultado.
     """
+    if politica_saida not in POLITICAS_SAIDA:
+        raise ValueError(f"politica_saida invalida: {politica_saida!r}; use {POLITICAS_SAIDA}")
+
     # I-12: parametros DO PAR, nao constantes de modulo.
     _p = get_params(symbol)
     stop_pct = _p.get("stop_pct", STOP_PCT_FALLBACK)
@@ -227,8 +350,17 @@ def walk_forward(
     score_cheio = _p.get("score_cheio", 70)
     print(
         f"  [PARAMS] {symbol}: stop={stop_pct:.3f} target={target_pct:.3f} "
-        f"rsi=[{rsi_min},{rsi_max}] score_operar={score_operar}"
+        f"rsi=[{rsi_min},{rsi_max}] score_operar={score_operar} "
+        f"saida={politica_saida}"
     )
+    if politica_saida == "producao" and target_pct >= TARGET2_MULT - 1:
+        # Ver a nota da politica no topo: target2 e fixo em 1,05. Quando
+        # target1 >= target2, a metade "runner" fecha no tick seguinte ao da
+        # parcial, no mesmo preco — a saida em dois estagios e decorativa.
+        print(
+            f"  [NOTA] target1 ({1 + target_pct:.3f}) >= target2 ({TARGET2_MULT:.3f}): "
+            f"o runner nao corre; quem move a saida e o trailing."
+        )
 
     k1h = carregar(symbol, intervalo)
     k4h = carregar(symbol, "4h")
@@ -333,22 +465,58 @@ def walk_forward(
 
     current = inicio + janela_treino
 
-    def _fechar(preco_saida, tipo_saida, i, contabiliza_ganho=None):
-        """Fecha a posicao corrente no preco dado, com taxa nos 2 lados.
-        B4: registra tambem o retorno LIQUIDO sobre o capital antes do trade."""
-        nonlocal capital, posicao
+    def _perna(preco_saida, fracao, rotulo, i):
+        """Vende `fracao` do notional AINDA ABERTO, com taxa nos 2 lados.
+
+        A taxa se divide proporcionalmente: duas pernas de meio notional a
+        `taxa*2` custam o mesmo que uma perna cheia — a conta nao muda por
+        fatiar a saida, so por sair em precos diferentes.
+        """
+        notional = posicao["usdt_aberto"] * fracao
         pnl = (
-            posicao["usdt"] * ((preco_saida - posicao["entrada"]) / posicao["entrada"])
-            - posicao["usdt"] * taxa * 2
+            notional * ((preco_saida - posicao["entrada"]) / posicao["entrada"])
+            - notional * taxa * 2
         )
+        posicao["usdt_aberto"] -= notional
+        posicao["pnl_acumulado"] += pnl
+        posicao["pernas"].append(
+            {
+                "rotulo": rotulo,
+                "preco": round(preco_saida, 6),
+                "notional": round(notional, 4),
+                "pnl": pnl,
+                "dt": datetime.fromtimestamp(ts1h[i] / 1000).strftime("%d/%m/%Y %H:%M"),
+            }
+        )
+        return pnl
+
+    def _fechar(preco_saida, tipo_saida, i):
+        """Encerra o round trip: vende o que sobrou e registra UMA operacao.
+
+        Uma posicao pode sair em duas pernas (parcial + final), mas
+        economicamente e UM trade. Registrar duas operacoes inflaria
+        `total_trades` e mediria Sharpe/win rate sobre meias-posicoes.
+        `resultado` e o PnL do round trip inteiro; as pernas ficam em
+        `pernas` para auditoria.
+
+        B4: registra tambem o retorno LIQUIDO sobre o capital antes do trade.
+        """
+        nonlocal capital, posicao
+        _perna(preco_saida, 1.0, tipo_saida, i)
+        pnl = posicao["pnl_acumulado"]
         capital_antes = capital
         capital += pnl
         todas_ops.append(
             {
                 "resultado": pnl,
-                "resultado_pct": round((preco_saida - posicao["entrada"]) / posicao["entrada"] * 100, 4),
+                # I-12h: com saida em pernas, "(saida-entrada)/entrada" nao
+                # descreve o trade — cada perna saiu num preco. O retorno do
+                # round trip e o PnL liquido sobre o notional aplicado.
+                "resultado_pct": round(pnl / posicao["usdt"] * 100, 4),
                 "ret_capital_pct": round(pnl / capital_antes * 100, 4),
                 "tipo_saida": tipo_saida,
+                "parcial_feita": posicao["parcial_feita"],
+                "pernas": posicao["pernas"],
                 "janela": janela_num,
                 "entrada_dt": posicao.get("dt", ""),
                 "saida_dt": datetime.fromtimestamp(ts1h[i] / 1000).strftime("%d/%m/%Y %H:%M"),
@@ -439,14 +607,78 @@ def walk_forward(
                 mn = n1h[i]
                 mx = m1h[i]
 
-                if mn <= posicao["stop"]:
-                    pnl = _fechar(posicao["stop"] * (1 - SLIPPAGE), "STOP", i)
-                    ops_janela += 1
-                elif mx >= posicao["target"]:
-                    pnl = _fechar(posicao["target"] * (1 - SLIPPAGE), "TARGET", i)
-                    ops_janela += 1
-                    if pnl > 0:
-                        ganhos_janela += 1
+                if politica_saida == "alvo_unico":
+                    # Modo legado, mantido so para comparacao: uma saida so.
+                    if mn <= posicao["stop_atual"]:
+                        pnl = _fechar(posicao["stop_atual"] * (1 - SLIPPAGE), "STOP", i)
+                        ops_janela += 1
+                        if pnl > 0:
+                            ganhos_janela += 1
+                    elif mx >= posicao["target1"]:
+                        pnl = _fechar(posicao["target1"] * (1 - SLIPPAGE), "TARGET", i)
+                        ops_janela += 1
+                        if pnl > 0:
+                            ganhos_janela += 1
+                else:
+                    # I-12h: politica de producao. Duas passadas no mesmo
+                    # candle porque uma hora tem muitos ticks: producao le o
+                    # snapshot de `parcial_feita`, entao a parcial dispara num
+                    # tick e o runner so pode fechar no seguinte — que ainda
+                    # cai dentro da mesma hora.
+                    for _passada in range(2):
+                        if posicao is None:
+                            break
+                        d = avaliar_tick_saida(
+                            entrada=posicao["entrada"],
+                            stop_atual=posicao["stop_atual"],
+                            target1=posicao["target1"],
+                            target2=posicao["target2"],
+                            parcial_feita=posicao["parcial_feita"],
+                            preco_alta=mx,
+                            preco_baixa=mn,
+                            preco_pico=posicao["pico"],
+                        )
+                        posicao["pico"] = d["preco_pico"]
+
+                        if d["fechar_parcial"]:
+                            _perna(
+                                posicao["target1"] * (1 - SLIPPAGE),
+                                FRACAO_PARCIAL,
+                                "TARGET_PARCIAL",
+                                i,
+                            )
+                            posicao["parcial_feita"] = True
+
+                        # Ordem identica a de _monitorar: breakeven primeiro,
+                        # trailing depois. Ver a nota em avaliar_tick_saida —
+                        # a parcial PODE baixar um stop ja trilhado, e o
+                        # backtest tem de reproduzir isso, nao corrigir.
+                        if d["stop_breakeven"] is not None:
+                            posicao["stop_atual"] = d["stop_breakeven"]
+                            posicao["stop_movido"] = True
+                        if d["novo_stop_trailing"] is not None:
+                            posicao["stop_atual"] = d["novo_stop_trailing"]
+                            posicao["stop_movido"] = True
+
+                        if d["fechar_total"] == "STOP":
+                            # Rotulo diz QUAL stop levou a posicao: o inicial,
+                            # ou um ja arrastado pelo breakeven/trailing. Sem
+                            # isso, "STOP" no relatorio confunde perda com
+                            # lucro travado.
+                            rotulo = "STOP_MOVIDO" if posicao["stop_movido"] else "STOP"
+                            pnl = _fechar(posicao["stop_atual"] * (1 - SLIPPAGE), rotulo, i)
+                            ops_janela += 1
+                            if pnl > 0:
+                                ganhos_janela += 1
+                            break
+                        if d["fechar_total"] == "TARGET_FINAL":
+                            pnl = _fechar(posicao["target2"] * (1 - SLIPPAGE), "TARGET_FINAL", i)
+                            ops_janela += 1
+                            if pnl > 0:
+                                ganhos_janela += 1
+                            break
+                        if not d["fechar_parcial"]:
+                            break  # nada mudou nesta passada; a 2a seria igual
 
             # Entrada
             if posicao is None:
@@ -498,9 +730,19 @@ def walk_forward(
                     usdt = min(capital * 0.02 / stop_pct, capital) * fator
                     posicao = {
                         "entrada": entrada,
-                        "stop": entrada * (1 - stop_pct),
-                        "target": entrada * (1 + target_pct),
-                        "usdt": usdt,
+                        "stop_inicial": entrada * (1 - stop_pct),
+                        "stop_atual": entrada * (1 - stop_pct),
+                        "stop_movido": False,
+                        # target1 vem do par; target2 e o 1,05 hardcoded de
+                        # executor.abrir_long (ver nota da politica no topo)
+                        "target1": entrada * (1 + target_pct),
+                        "target2": entrada * TARGET2_MULT,
+                        "parcial_feita": False,
+                        "pico": entrada,
+                        "usdt": usdt,  # notional inicial (para resultado_pct)
+                        "usdt_aberto": usdt,  # o que ainda nao foi vendido
+                        "pnl_acumulado": 0.0,
+                        "pernas": [],
                         "dt": datetime.fromtimestamp(ts1h[i] / 1000).strftime("%d/%m/%Y %H:%M"),
                     }
 
@@ -609,6 +851,15 @@ def walk_forward(
         "janela_teste": janela_teste,
         "taxa": taxa,
         "mtf_lookahead_legado": mtf_lookahead_legado,
+        "politica_saida": politica_saida,
+        "stop_pct": stop_pct,
+        "target_pct": target_pct,
+        # I-12h: como as posicoes efetivamente sairam. Se "STOP_MOVIDO"
+        # domina, quem determina o resultado e o trailing — nao o alvo.
+        "saidas_por_tipo": dict(
+            sorted(Counter(o["tipo_saida"] for o in todas_ops).items())
+        ),
+        "trades_com_parcial": sum(1 for o in todas_ops if o.get("parcial_feita")),
         "fng_historico_usado": not fng_ausente,
         "fng_cobertura": cobertura,
         "vale_para_o_gate": bool(cobertura["cobre"]),
@@ -652,8 +903,19 @@ def imprimir_relatorio(r):
         f"  Janelas:  {r['total_janelas']} (treino: {r['janela_treino']} / teste: {r['janela_teste']})"
     )
     print(f"  Taxa/lado: {r['taxa']*100:.3f}%  |  F&G historico: "
-          f"{'SIM' if r.get('fng_historico_usado') else 'NAO (score fixo 100)'}")
+          f"{'SIM' if r.get('fng_historico_usado') else 'NAO (F&G neutro 50)'}")
     print(f"  Trades:   {r['total_trades']} ({r['trades_ganhos']}W / {r['trades_perdas']}L)")
+
+    # I-12h: por onde as posicoes sairam de verdade.
+    saidas = r.get("saidas_por_tipo") or {}
+    if saidas:
+        print(f"  Politica de saida: {r.get('politica_saida', '?')}"
+              f"  (stop {r.get('stop_pct', 0)*100:.1f}% / alvo {r.get('target_pct', 0)*100:.1f}%)")
+        detalhe = "  ".join(
+            f"{tipo}={n} ({n / r['total_trades'] * 100:.0f}%)" for tipo, n in saidas.items()
+        )
+        print(f"  Saidas:   {detalhe}")
+        print(f"  Com parcial de 50%: {r.get('trades_com_parcial', 0)} de {r['total_trades']}")
     print()
     print(f"  Win Rate:      {r['win_rate_%']:6.1f}%")
     print(f"  Profit Factor: {r['profit_factor']:6.2f}")
@@ -723,6 +985,13 @@ if __name__ == "__main__":
         action="store_true",
         help="APENAS DIAGNOSTICO: reproduz o bug B1 para quantificar o vies",
     )
+    parser.add_argument(
+        "--politica-saida",
+        choices=POLITICAS_SAIDA,
+        default="producao",
+        help="producao = parcial 50%% + breakeven + trailing (o que o bot faz); "
+        "alvo_unico = modelo antigo, so p/ comparar",
+    )
     args = parser.parse_args()
 
     print(f"\n[WALK-FORWARD] {args.par} — Validacao com retreino automatico...\n")
@@ -736,6 +1005,7 @@ if __name__ == "__main__":
             taxa=args.taxa,
             mtf_lookahead_legado=args.mtf_lookahead_legado,
             permitir_sem_fng=args.sem_fng,
+            politica_saida=args.politica_saida,
         )
     except FngIndisponivel as exc:
         # I-12: exit != 0. Uma medicao que nao vale para o gate nao pode sair

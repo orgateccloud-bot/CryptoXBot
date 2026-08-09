@@ -496,3 +496,213 @@ class TestParamsPorPar:
                 wf.STOP_PCT_FALLBACK,
                 wf.TARGET_PCT_FALLBACK,
             ), f"{par} agora coincide com o fallback — revise o comentario de I-12f"
+
+
+# ══════════════════════════════════════════════════════════════
+# Politica de saida real (I-12h)
+# ══════════════════════════════════════════════════════════════
+#
+# O backtest media UMA saida (stop fixo ou alvo fixo). O bot faz outra coisa:
+# parcial de 50% no target1, stop a breakeven, target2, e — o que mais pesa —
+# trailing a partir de +1%. Estes testes provam que walk_forward passou a
+# decidir igual ao executor, defeito por defeito.
+
+
+class TestParidadeComProducao:
+    """avaliar_tick_saida tem de decidir o MESMO que executor.avaliar_tick_monitor
+    quando alta == baixa (um tick tem preco unico; um candle e que tem dois)."""
+
+    MAPA = {"Stop Loss": "STOP", "Take Profit Final": "TARGET_FINAL", None: None}
+
+    def test_constantes_batem_com_o_executor(self):
+        import executor as ex
+
+        assert wf.TRAILING_ATIVACAO == ex.TRAILING_ATIVACAO
+        assert wf.TRAILING_DISTANCIA == ex.TRAILING_DISTANCIA
+        # breakeven e target2 sao literais dentro do executor; se mudarem la,
+        # o backtest para de medir o bot que roda.
+        fonte = inspect.getsource(ex.avaliar_tick_monitor)
+        assert f"entrada * {wf.BREAKEVEN_MULT}" in fonte
+        assert f"preco_exec * {wf.TARGET2_MULT}" in inspect.getsource(ex.Executor.abrir_long)
+
+    def test_decisoes_identicas_numa_grade_de_estados(self):
+        import executor as ex
+
+        entrada = 100.0
+        casos = 0
+        for stop_atual in (98.5, 100.2, 104.0):
+            for target1, target2 in ((105.0, 105.0), (106.0, 105.0)):
+                for parcial in (False, True):
+                    for pico in (100.0, 103.0, 107.0):
+                        for preco in (
+                            97.0, 98.5, 99.0, 100.0, 100.2, 101.0,
+                            104.0, 105.0, 106.0, 110.0,
+                        ):
+                            meu = wf.avaliar_tick_saida(
+                                entrada=entrada, stop_atual=stop_atual,
+                                target1=target1, target2=target2,
+                                parcial_feita=parcial,
+                                preco_alta=preco, preco_baixa=preco,
+                                preco_pico=pico,
+                            )
+                            prod = ex.avaliar_tick_monitor(
+                                entrada, stop_atual, target1, target2,
+                                parcial, preco, pico,
+                            )
+                            ctx = (
+                                f"stop={stop_atual} t1={target1} t2={target2} "
+                                f"parcial={parcial} pico={pico} preco={preco}"
+                            )
+                            assert meu["fechar_total"] == self.MAPA[prod["fechar_total"]], ctx
+                            assert meu["fechar_parcial"] == prod["fechar_parcial"], ctx
+                            assert meu["stop_breakeven"] == prod["stop_breakeven"], ctx
+                            assert meu["novo_stop_trailing"] == prod["novo_stop_trailing"], ctx
+                            assert meu["preco_pico"] == prod["preco_pico"], ctx
+                            casos += 1
+        assert casos == 3 * 2 * 2 * 3 * 10
+
+    def test_stop_e_avaliado_contra_a_minima_e_alvo_contra_a_maxima(self):
+        # A unica divergencia proposital: um candle tem duas pontas.
+        d = wf.avaliar_tick_saida(
+            entrada=100.0, stop_atual=98.5, target1=105.0, target2=105.0,
+            parcial_feita=False, preco_alta=106.0, preco_baixa=98.0,
+            preco_pico=100.0,
+        )
+        # tocou os dois -> stop vence (convencao conservadora)
+        assert d["fechar_total"] == "STOP"
+        assert d["fechar_parcial"] is False
+
+    def test_parcial_pode_baixar_stop_ja_trilhado(self):
+        # Defeito REAL do executor, reproduzido de proposito: com o pico
+        # parado, o trailing nao propoe stop novo, e o breakeven da parcial
+        # sobrescreve um stop mais alto (executor.py:1212 nao checa se sobe).
+        d = wf.avaliar_tick_saida(
+            entrada=100.0,
+            stop_atual=104.16,  # ja trilhado (pico 105 * 0.992)
+            target1=105.0, target2=105.0, parcial_feita=False,
+            preco_alta=105.0, preco_baixa=104.5,
+            preco_pico=105.0,  # pico nao avancou -> trailing nao propoe nada
+        )
+        assert d["fechar_parcial"] is True
+        assert d["stop_breakeven"] == pytest.approx(100.2)
+        assert d["novo_stop_trailing"] is None  # 104.16 nao sobe
+        # aplicado na ordem de _monitorar, o stop CAI de 104.16 para 100.2
+
+
+class TestPoliticaDeSaidaNoBacktest:
+    def _rodar(self, wf_sintetico, preco_fn, entrada_em, politica="producao", n=300):
+        pu = wf_sintetico(n, preco_fn, entradas={entrada_em})
+        r = wf.walk_forward(
+            "BTCUSDT", "1h", janela_treino=60, janela_teste=100,
+            capital_inicial=1000.0, taxa=TAXA_TESTE,
+            permitir_sem_fng=True, politica_saida=politica,
+        )
+        return pu, r
+
+    def test_trailing_fecha_a_posicao_em_lucro(self, wf_sintetico):
+        # Sobe 3% (arma o trailing, pico em 103), depois recua. Sem trailing a
+        # posicao sobreviveria ate o fim; com trailing sai perto de 103*0.992.
+        def preco(i):
+            if i <= 160:
+                return 100.0
+            if i <= 165:
+                return 103.0
+            return 101.0  # low = 100.899 < 103*0.992 = 102.176
+
+        pu, r = self._rodar(wf_sintetico, preco, 160)
+        op = r["operacoes"][0]
+        assert op["tipo_saida"] == "STOP_MOVIDO"
+        assert op["resultado"] > 0, "trailing saiu em lucro, nao em perda"
+        # o stop trilhado veio do pico da MAXIMA do candle (103 * 1.001)
+        pico = pu(161) * 1.001
+        assert op["preco_saida"] == round(pico * (1 - wf.TRAILING_DISTANCIA) * (1 - SLIP), 2)
+
+    def test_alvo_unico_nao_tem_trailing_e_segura_a_posicao(self, wf_sintetico):
+        # Mesma serie, politica legada: nada fecha (nem stop nem alvo de 5%),
+        # entao a posicao so morre na censura final. E exatamente esse o vies
+        # que a politica antiga introduzia.
+        def preco(i):
+            if i <= 160:
+                return 100.0
+            if i <= 165:
+                return 103.0
+            return 101.0
+
+        _, r = self._rodar(wf_sintetico, preco, 160, politica="alvo_unico")
+        assert r["operacoes"][0]["tipo_saida"] == "FIM_DADOS"
+
+    def test_parcial_e_runner_no_mesmo_candle(self, wf_sintetico):
+        # BTC: target1 == target2 == entrada*1.05. Producao faz a parcial num
+        # tick e fecha o resto no seguinte — dentro da mesma hora.
+        def preco(i):
+            return 100.0 if i <= 160 else 106.0
+
+        _, r = self._rodar(wf_sintetico, preco, 160)
+        op = r["operacoes"][0]
+        assert op["tipo_saida"] == "TARGET_FINAL"
+        assert op["parcial_feita"] is True
+        assert [p["rotulo"] for p in op["pernas"]] == ["TARGET_PARCIAL", "TARGET_FINAL"]
+        assert r["trades_com_parcial"] == 1
+        # um round trip = UMA operacao, mesmo saindo em duas pernas
+        assert r["total_trades"] == 1
+
+    def test_taxa_total_nao_muda_por_fatiar_a_saida(self, wf_sintetico):
+        # Duas pernas de meio notional a taxa*2 custam o mesmo que uma perna
+        # cheia. Se o fatiamento cobrasse taxa a mais, o backtest penalizaria
+        # a politica real por um custo que nao existe.
+        def preco(i):
+            return 100.0 if i <= 160 else 106.0
+
+        _, r = self._rodar(wf_sintetico, preco, 160)
+        op = r["operacoes"][0]
+        usdt = 1000.0  # min(1000*0.02/0.015, 1000)
+        bruto = sum(
+            p["notional"] * ((p["preco"] - op["preco_entrada"]) / op["preco_entrada"])
+            for p in op["pernas"]
+        )
+        taxa_paga = bruto - op["resultado"]
+        # abs=1e-4: `pernas` grava preco/notional arredondados (para auditoria
+        # legivel); a conta interna e exata, so a reconstrucao aqui e que
+        # carrega o arredondamento.
+        assert taxa_paga == pytest.approx(usdt * TAXA_TESTE * 2, abs=1e-4)
+
+    def test_com_os_pares_reais_o_stop_breakeven_e_inalcancavel(self):
+        # Consequencia direta de target1 >= target2 nos tres pares: no candle
+        # em que a parcial dispara, `maxima >= target1 >= target2`, entao o
+        # runner fecha na passada seguinte, no mesmo candle. O stop a
+        # breakeven nunca chega a governar uma saida — nem aqui nem no bot.
+        from config.params_pares import PARAMS_PARES
+
+        for par, p in PARAMS_PARES.items():
+            assert 1 + p["target_pct"] >= wf.TARGET2_MULT, (
+                f"{par} passou a ter target1 < target2 — o runner agora corre "
+                f"e o breakeven vira alcancavel; revise a nota de I-12h"
+            )
+
+    def test_breakeven_governa_quando_o_runner_sobrevive(self, wf_sintetico, monkeypatch):
+        # Com target2 afastado (1,20), o runner sobrevive a parcial. Aqui o
+        # breakeven aparece: a metade restante desaba, mas sai em +0,2% em vez
+        # do stop inicial de -1,5%. E o mecanismo que os pares atuais anulam.
+        monkeypatch.setattr(wf, "TARGET2_MULT", 1.20)
+
+        def preco(i):
+            if i <= 160:
+                return 100.0
+            if i == 161:
+                return 105.5  # dispara a parcial em target1 (~105,15)
+            return 95.0  # desaba no candle seguinte
+
+        _, r = self._rodar(wf_sintetico, preco, 160)
+        op = r["operacoes"][0]
+        assert op["parcial_feita"] is True
+        assert op["tipo_saida"] == "STOP_MOVIDO"
+        assert op["preco_saida"] > op["preco_entrada"], "saiu abaixo da entrada"
+        assert [p["rotulo"] for p in op["pernas"]] == ["TARGET_PARCIAL", "STOP_MOVIDO"]
+
+    def test_politica_invalida_e_recusada(self):
+        with pytest.raises(ValueError, match="politica_saida invalida"):
+            wf.walk_forward("BTCUSDT", politica_saida="qualquer")
+
+    def test_default_e_a_politica_de_producao(self):
+        padrao = inspect.signature(wf.walk_forward).parameters["politica_saida"].default
+        assert padrao == "producao"
