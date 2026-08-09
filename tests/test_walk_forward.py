@@ -16,8 +16,10 @@ mockado para controlar exatamente quando há entrada; XGBoost nunca treina
 (janela de treino pequena demais → modelo None).
 """
 
+import inspect
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -197,14 +199,23 @@ class TestContabilidade:
         r = wf.walk_forward(
             "SINT", "1h", janela_treino=60, janela_teste=100, capital_inicial=1000.0,
             taxa=TAXA_TESTE,
+            # I-12: estes testes medem ARITMETICA de PnL; o historico de F&G e
+            # irrelevante para isso e esta mockado como {}. Sem a flag, o novo
+            # abort de F&G impediria a medicao.
+            permitir_sem_fng=True,
         )
         assert r["total_trades"] >= 1
         op = r["operacoes"][0]
         assert op["tipo_saida"] == "STOP"
         entrada = pu(160) * (1 + SLIP)
-        stop = entrada * (1 - wf.STOP_PCT)
+        # I-12: le o parametro do PAR, como o codigo faz. Antes era
+        # `wf.STOP_PCT`, a constante de modulo que nao correspondia a par
+        # nenhum — o teste passava porque media contra a mesma ficcao.
+        from config.params_pares import get_params
+        stop_pct = get_params("SINT")["stop_pct"]
+        stop = entrada * (1 - stop_pct)
         ps = stop * (1 - SLIP)
-        usdt = 1000.0  # min(1000*0.02/0.02, 1000) * 1.0
+        usdt = min(1000.0 * 0.02 / stop_pct, 1000.0)  # teto de capital domina
         pnl_esperado = usdt * ((ps - entrada) / entrada) - usdt * TAXA_TESTE * 2
         assert op["resultado"] == pytest.approx(pnl_esperado, abs=1e-6)
         # B4: retorno sobre capital antes do trade, líquido de taxa
@@ -227,6 +238,7 @@ class TestContabilidade:
         r = wf.walk_forward(
             "SINT", "1h", janela_treino=60, janela_teste=100,
             capital_inicial=1000.0, taxa=TAXA_TESTE,
+            permitir_sem_fng=True,
         )
         assert r["operacoes"][0]["tipo_saida"] == "STOP"
 
@@ -240,6 +252,10 @@ class TestContabilidade:
         r = wf.walk_forward(
             "SINT", "1h", janela_treino=60, janela_teste=100, capital_inicial=1000.0,
             taxa=TAXA_TESTE,
+            # I-12: estes testes medem ARITMETICA de PnL; o historico de F&G e
+            # irrelevante para isso e esta mockado como {}. Sem a flag, o novo
+            # abort de F&G impediria a medicao.
+            permitir_sem_fng=True,
         )
         tipos = [o["tipo_saida"] for o in r["operacoes"]]
         assert "FIM_DADOS" in tipos
@@ -265,6 +281,10 @@ class TestContabilidade:
         r = wf.walk_forward(
             "SINT", "1h", janela_treino=60, janela_teste=100, capital_inicial=1000.0,
             taxa=TAXA_TESTE,
+            # I-12: estes testes medem ARITMETICA de PnL; o historico de F&G e
+            # irrelevante para isso e esta mockado como {}. Sem a flag, o novo
+            # abort de F&G impediria a medicao.
+            permitir_sem_fng=True,
         )
         bh = r["buy_and_hold"]
         assert bh is not None
@@ -285,3 +305,194 @@ class TestContabilidade:
         )
         with pytest.raises(SystemExit):
             wf.walk_forward("SINT", "1h", janela_treino=60, janela_teste=100)
+
+
+# ══════════════════════════════════════════════════════════════
+# Gate do Fear & Greed (I-12g)
+# ══════════════════════════════════════════════════════════════
+#
+# Motivo destes testes: `data/fng_historico.json` NAO EXISTE nesta maquina.
+# Toda medicao oficial do gate rodou com `fg_valor = 50` fixo — ou seja, sem
+# o veto de sentimento que a producao aplica de verdade — e o unico registro
+# disso era um `fng_historico_usado: false` enterrado no JSON de saida, que
+# ninguem le. O gate novo aborta. Estes testes existem para que ele nao possa
+# voltar a degradar em silencio: se alguem trocar o default de
+# `permitir_sem_fng` para True, `test_default_e_fail_closed` quebra.
+
+
+def _dias_de(ts1h):
+    """Chaves 'YYYY-MM-DD' UTC cobrindo o periodo, como o arquivo real."""
+    ini = datetime.fromtimestamp(ts1h[0] / 1000, tz=timezone.utc)
+    fim = datetime.fromtimestamp(ts1h[-1] / 1000, tz=timezone.utc)
+    dias, d = [], ini
+    while d <= fim:
+        dias.append(d.strftime("%Y-%m-%d"))
+        d += timedelta(days=1)
+    return dias
+
+
+class TestCoberturaFng:
+    def test_historico_completo_cobre(self):
+        ts = [T0 + i * MS_1H for i in range(24 * 10)]
+        fng = {dia: 50 for dia in _dias_de(ts)}
+        c = wf._cobertura_fng(fng, ts)
+        assert c["cobre"] is True
+        assert c["faltantes"] == 0
+        assert c["dias"] == len(_dias_de(ts))
+
+    def test_historico_que_para_no_meio_nao_cobre(self):
+        # O caso que uma checagem de os.path.exists() deixaria passar: o
+        # arquivo existe e tem dados, mas so da primeira metade do periodo.
+        ts = [T0 + i * MS_1H for i in range(24 * 30)]
+        dias = _dias_de(ts)
+        fng = {dia: 50 for dia in dias[: len(dias) // 2]}
+        c = wf._cobertura_fng(fng, ts)
+        assert c["cobre"] is False
+        assert c["faltantes"] > 0
+
+    def test_buraco_curto_e_coberto_pelo_carry(self):
+        # Carry-forward de ate 7 dias e causal (usa o ultimo valor JA
+        # publicado), entao um buraco de 3 dias nao invalida a cobertura.
+        ts = [T0 + i * MS_1H for i in range(24 * 20)]
+        dias = _dias_de(ts)
+        fng = {dia: 50 for dia in dias}
+        for dia in dias[10:13]:
+            del fng[dia]
+        assert wf._cobertura_fng(fng, ts)["cobre"] is True
+
+    def test_buraco_longo_nao_e_coberto_pelo_carry(self):
+        ts = [T0 + i * MS_1H for i in range(24 * 20)]
+        dias = _dias_de(ts)
+        fng = {dia: 50 for dia in dias}
+        for dia in dias[5:15]:  # 10 dias > janela de carry de 7
+            del fng[dia]
+        c = wf._cobertura_fng(fng, ts)
+        assert c["cobre"] is False
+        assert c["faltantes"] >= 3
+
+    def test_historico_vazio_nao_cobre_nenhum_dia(self):
+        ts = [T0 + i * MS_1H for i in range(24 * 5)]
+        c = wf._cobertura_fng({}, ts)
+        assert c["cobre"] is False
+        assert c["faltantes"] == c["dias"] > 0
+
+    def test_serie_vazia_nao_cobre(self):
+        c = wf._cobertura_fng({"2024-01-01": 50}, [])
+        assert c["cobre"] is False
+        assert c["dias"] == 0
+
+
+class TestGateFngNaMedicao:
+    def test_default_e_fail_closed(self):
+        # Trava de regressao: o default NAO pode virar True. Se virar, a
+        # medicao volta a rodar sem sentimento sem ninguem perceber.
+        padrao = inspect.signature(wf.walk_forward).parameters["permitir_sem_fng"].default
+        assert padrao is False
+
+    def test_fng_ausente_aborta_a_medicao(self, wf_sintetico):
+        # A fixture ja mocka _carregar_fng -> {} (o estado real da maquina).
+        def preco(i):
+            return 100.0
+
+        wf_sintetico(300, preco, entradas=set())
+        with pytest.raises(wf.FngIndisponivel):
+            wf.walk_forward("SINT", "1h", janela_treino=60, janela_teste=100)
+
+    def test_cobertura_parcial_tambem_aborta(self, wf_sintetico, monkeypatch):
+        def preco(i):
+            return 100.0
+
+        wf_sintetico(300, preco, entradas=set())
+        ts = [T0 + i * MS_1H for i in range(300)]
+        dias = _dias_de(ts)
+        parcial = {dia: 50 for dia in dias[:2]}  # cobre so o comeco
+        monkeypatch.setattr(wf, "_carregar_fng", lambda: parcial)
+        with pytest.raises(wf.FngIndisponivel):
+            wf.walk_forward("SINT", "1h", janela_treino=60, janela_teste=100)
+
+    def test_flag_explicita_libera_e_fica_registrada_no_resultado(self, wf_sintetico):
+        def preco(i):
+            return 100.0
+
+        wf_sintetico(300, preco, entradas={160})
+        r = wf.walk_forward(
+            "SINT", "1h", janela_treino=60, janela_teste=100,
+            capital_inicial=1000.0, taxa=TAXA_TESTE, permitir_sem_fng=True,
+        )
+        # Nao basta rodar: o resultado tem de carregar a ressalva, senao o
+        # numero circula depois sem o aviso de que veio sem sentimento.
+        assert r["fng_historico_usado"] is False
+        assert r["fng_cobertura"]["cobre"] is False
+        assert r["fng_cobertura"]["faltantes"] == r["fng_cobertura"]["dias"]
+
+    def test_historico_completo_passa_sem_a_flag(self, wf_sintetico, monkeypatch):
+        def preco(i):
+            return 100.0
+
+        wf_sintetico(300, preco, entradas={160})
+        ts = [T0 + i * MS_1H for i in range(300)]
+        completo = {dia: 50 for dia in _dias_de(ts)}
+        monkeypatch.setattr(wf, "_carregar_fng", lambda: completo)
+        r = wf.walk_forward(
+            "SINT", "1h", janela_treino=60, janela_teste=100,
+            capital_inicial=1000.0, taxa=TAXA_TESTE,
+        )
+        assert r["fng_historico_usado"] is True
+        assert r["fng_cobertura"]["cobre"] is True
+
+
+# ══════════════════════════════════════════════════════════════
+# Parametros por par (I-12f)
+# ══════════════════════════════════════════════════════════════
+#
+# Antes, walk_forward media com STOP_PCT=0.020 / TARGET_PCT=0.040 fixos no
+# modulo — valores que nao correspondiam a NENHUM par de config/params_pares.py
+# (BTC 0.015/0.050, ETH 0.020/0.060, SOL 0.030/0.050). Como o sizing e
+# `min(capital * 0.02 / stop_pct, capital)`, medir com o stop errado erra
+# tambem o tamanho da posicao. Este teste prova que a leitura e por par.
+
+
+class TestParamsPorPar:
+    def test_pares_diferentes_produzem_stops_diferentes(self, wf_sintetico):
+        from config.params_pares import get_params
+
+        def preco(i):
+            return 100.0 if i <= 160 else 90.0  # despenca e toca qualquer stop
+
+        pu = wf_sintetico(300, preco, entradas={160})
+        entrada = pu(160) * (1 + SLIP)
+
+        saidas = {}
+        for par in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
+            r = wf.walk_forward(
+                par, "1h", janela_treino=60, janela_teste=100,
+                capital_inicial=1000.0, taxa=TAXA_TESTE, permitir_sem_fng=True,
+            )
+            op = r["operacoes"][0]
+            assert op["tipo_saida"] == "STOP"
+            saidas[par] = op["preco_saida"]
+            # o stop realizado bate com o stop_pct DAQUELE par
+            # (`preco_saida` e gravado com round(...,2) — walk_forward.py:356)
+            esperado = entrada * (1 - get_params(par)["stop_pct"]) * (1 - SLIP)
+            assert op["preco_saida"] == round(esperado, 2)
+
+        # e os tres sao mesmo distintos (o teste acima passaria se todos
+        # lessem o mesmo par por engano e get_params concordasse)
+        assert len(set(saidas.values())) == 3
+
+    def test_par_desconhecido_cai_no_default_sem_quebrar(self):
+        from config.params_pares import PARAMS_DEFAULT, get_params
+
+        assert get_params("PARINEXISTENTE")["stop_pct"] == PARAMS_DEFAULT["stop_pct"]
+
+    def test_fallbacks_do_modulo_nao_sao_mais_usados_por_nenhum_par(self):
+        # Trava de documentacao viva: as constantes seguem no modulo so como
+        # ultimo recurso. Se um dia algum par passar a valer exatamente elas,
+        # este teste avisa que o comentario do modulo ficou desatualizado.
+        from config.params_pares import PARAMS_PARES
+
+        for par, p in PARAMS_PARES.items():
+            assert (p["stop_pct"], p["target_pct"]) != (
+                wf.STOP_PCT_FALLBACK,
+                wf.TARGET_PCT_FALLBACK,
+            ), f"{par} agora coincide com o fallback — revise o comentario de I-12f"

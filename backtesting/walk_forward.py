@@ -67,12 +67,27 @@ from backtesting.metricas import (
 )
 from backtesting.motor_ensemble import SLIPPAGE, _adx
 from backtesting.regua import score_unificado
+from config.params_pares import get_params
 from ml_filtro import extrair_features
 DB_PATH = "data/btc_data.db"
 FNG_PATH = "data/fng_historico.json"
 
-STOP_PCT = 0.020
-TARGET_PCT = 0.040
+# I-12: eram os limiares USADOS na medicao, como constantes de modulo. Nao
+# batiam com NENHUM par de config/params_pares.py:
+#
+#     par        stop_pct  target_pct     walk_forward media com
+#     BTCUSDT      0,015      0,050          0,020 / 0,040
+#     ETHUSDT      0,020      0,060          0,020 / 0,040
+#     SOLUSDT      0,030      0,050          0,020 / 0,040
+#
+# O relatorio dizia "ETH/SOL medidos com os limiares do BTC"; e pior — os
+# limiares nao eram de ninguem. O gate mediu os tres pares com parametros
+# ficticios, e o SIZING depende de stop_pct (usdt = capital*0,02/STOP_PCT),
+# entao o tamanho de posicao tambem estava errado nos tres.
+#
+# Mantidos so como fallback para um par sem entrada em params_pares.
+STOP_PCT_FALLBACK = 0.020
+TARGET_PCT_FALLBACK = 0.040
 ALVO_PCT = 0.015
 JANELA_FUTURA = 8
 ADX_TENDENCIA = 25
@@ -139,6 +154,42 @@ def _carregar_fng() -> dict:
         return json.load(f)
 
 
+class FngIndisponivel(RuntimeError):
+    """Historico de Fear & Greed ausente ou sem cobertura do periodo (I-12).
+
+    Excecao propria para que um chamador programatico consiga distinguir "nao ha
+    dado de sentimento" de qualquer outra falha — e para que o `--sem-fng` seja
+    uma decisao explicita, registrada no resultado, em vez de um default mudo.
+    """
+
+
+def _cobertura_fng(fng: dict, ts1h: list) -> dict:
+    """Quantos dias do periodo medido tem valor de F&G (com carry de 7 dias).
+
+    Checar EXISTENCIA do arquivo nao basta: um historico que cobre 2024 e para
+    em 2025 passaria na checagem e deixaria metade da medicao sem veto de
+    sentimento. O que importa e a cobertura do periodo que sera medido.
+    """
+    if not ts1h:
+        return {"cobre": False, "dias": 0, "faltantes": 0, "inicio": "-", "fim": "-"}
+    ini = datetime.fromtimestamp(ts1h[0] / 1000, tz=timezone.utc)
+    fim = datetime.fromtimestamp(ts1h[-1] / 1000, tz=timezone.utc)
+    dias, faltantes = 0, 0
+    d = ini
+    while d <= fim:
+        dias += 1
+        if _fng_do_dia(fng, int(d.timestamp() * 1000)) is None:
+            faltantes += 1
+        d = datetime.fromtimestamp(d.timestamp() + 86400, tz=timezone.utc)
+    return {
+        "cobre": dias > 0 and faltantes == 0,
+        "dias": dias,
+        "faltantes": faltantes,
+        "inicio": ini.strftime("%Y-%m-%d"),
+        "fim": fim.strftime("%Y-%m-%d"),
+    }
+
+
 def _fng_do_dia(fng: dict, ts_ms: int) -> int | None:
     """Valor do F&G para o dia UTC do timestamp; carry-forward de ate 7 dias
     (causal — usa sempre o ultimo valor ja publicado)."""
@@ -161,10 +212,24 @@ def walk_forward(
     capital_inicial=1000.0,
     taxa=TAXA_SPOT_DEFAULT,
     mtf_lookahead_legado=False,
+    permitir_sem_fng=False,
 ):
     """
     Walk-forward validation com retreino do XGBoost a cada janela.
     """
+    # I-12: parametros DO PAR, nao constantes de modulo.
+    _p = get_params(symbol)
+    stop_pct = _p.get("stop_pct", STOP_PCT_FALLBACK)
+    target_pct = _p.get("target_pct", TARGET_PCT_FALLBACK)
+    rsi_min = _p.get("rsi_min", 42)
+    rsi_max = _p.get("rsi_max", 62)
+    score_operar = _p.get("score_operar", 60)
+    score_cheio = _p.get("score_cheio", 70)
+    print(
+        f"  [PARAMS] {symbol}: stop={stop_pct:.3f} target={target_pct:.3f} "
+        f"rsi=[{rsi_min},{rsi_max}] score_operar={score_operar}"
+    )
+
     k1h = carregar(symbol, intervalo)
     k4h = carregar(symbol, "4h")
 
@@ -192,9 +257,37 @@ def walk_forward(
     # B1: join por timestamp — so candle 4h FECHADO no instante da decisao.
     idx4_fechado = _mapear_idx4_fechado(ts1h, ts4h)
 
-    # B6: historico real do Fear & Greed (score da funcao de producao).
+    # B6/I-12: historico real do Fear & Greed — e ABORTA se nao houver.
+    #
+    # `data/fng_historico.json` NAO EXISTE nesta maquina. Toda medicao do gate
+    # rodou sem F&G, e o unico vestigio disso era o campo
+    # `fng_historico_usado: false` enterrado no JSON de saida — ninguem le.
+    #
+    # Nao e detalhe: em producao o Fear & Greed e um BLOQUEIO ABSOLUTO (veta em
+    # <= 20 e em > 80). Medir sem ele significa medir uma estrategia que nunca
+    # e vetada por sentimento — e o backtest ganha todos os trades que a
+    # producao teria recusado em panico ou euforia extrema. Sempre para melhor.
     fng = _carregar_fng()
     fng_ausente = not fng
+    cobertura = _cobertura_fng(fng, ts1h)
+    if not permitir_sem_fng and (fng_ausente or not cobertura["cobre"]):
+        raise FngIndisponivel(
+            f"Fear & Greed indisponivel ou incompleto — medicao ABORTADA.\n"
+            f"  arquivo .......... {FNG_PATH} "
+            f"({'ausente' if fng_ausente else str(len(fng)) + ' dias'})\n"
+            f"  periodo medido ... {cobertura['inicio']} -> {cobertura['fim']}\n"
+            f"  dias sem valor ... {cobertura['faltantes']} de {cobertura['dias']}\n"
+            f"\n"
+            f"  Em producao o F&G VETA a entrada (<=20 ou >80). Sem o historico, o\n"
+            f"  backtest nunca aplica esse veto e superestima o desempenho.\n"
+            f"  Para medir mesmo assim (exploratorio, NAO vale para o gate):\n"
+            f"    python backtesting/walk_forward.py --par {symbol} --sem-fng"
+        )
+    if fng_ausente or not cobertura["cobre"]:
+        print(
+            f"  [AVISO] F&G incompleto ({cobertura['faltantes']}/{cobertura['dias']} dias "
+            f"sem valor). Resultado NAO vale para o gate."
+        )
 
     # Pre-computar indicadores 1H
     ema20 = ind.ema(f1h, 20)
@@ -394,15 +487,19 @@ def walk_forward(
                     atr_ratio=atr_ratio,
                     ml_prob=ml_p,
                     fear_greed_valor=fg_valor,
+                    rsi_min=rsi_min,
+                    rsi_max=rsi_max,
+                    score_operar=score_operar,
+                    score_cheio=score_cheio,
                 )
 
                 if fator > 0:
                     entrada = preco * (1 + SLIPPAGE)
-                    usdt = min(capital * 0.02 / STOP_PCT, capital) * fator
+                    usdt = min(capital * 0.02 / stop_pct, capital) * fator
                     posicao = {
                         "entrada": entrada,
-                        "stop": entrada * (1 - STOP_PCT),
-                        "target": entrada * (1 + TARGET_PCT),
+                        "stop": entrada * (1 - stop_pct),
+                        "target": entrada * (1 + target_pct),
                         "usdt": usdt,
                         "dt": datetime.fromtimestamp(ts1h[i] / 1000).strftime("%d/%m/%Y %H:%M"),
                     }
@@ -513,6 +610,8 @@ def walk_forward(
         "taxa": taxa,
         "mtf_lookahead_legado": mtf_lookahead_legado,
         "fng_historico_usado": not fng_ausente,
+        "fng_cobertura": cobertura,
+        "vale_para_o_gate": bool(cobertura["cobre"]),
         "total_janelas": janela_num,
         "total_trades": total,
         "win_rate_%": round(wrate, 1),
@@ -609,6 +708,11 @@ if __name__ == "__main__":
     parser.add_argument("--teste", type=int, default=100)
     parser.add_argument("--capital", type=float, default=1000.0)
     parser.add_argument(
+        "--sem-fng",
+        action="store_true",
+        help="mede sem historico de Fear & Greed (EXPLORATORIO — nao vale p/ o gate)",
+    )
+    parser.add_argument(
         "--taxa",
         type=float,
         default=TAXA_SPOT_DEFAULT,
@@ -622,14 +726,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"\n[WALK-FORWARD] {args.par} — Validacao com retreino automatico...\n")
-    r = walk_forward(
-        args.par,
-        args.intervalo,
-        args.treino,
-        args.teste,
-        args.capital,
-        taxa=args.taxa,
-        mtf_lookahead_legado=args.mtf_lookahead_legado,
-    )
+    try:
+        r = walk_forward(
+            args.par,
+            args.intervalo,
+            args.treino,
+            args.teste,
+            args.capital,
+            taxa=args.taxa,
+            mtf_lookahead_legado=args.mtf_lookahead_legado,
+            permitir_sem_fng=args.sem_fng,
+        )
+    except FngIndisponivel as exc:
+        # I-12: exit != 0. Uma medicao que nao vale para o gate nao pode sair
+        # com codigo 0 e ser encadeada por um script como se valesse.
+        print(f"\n[GATE] {exc}")
+        raise SystemExit(2) from exc
     if r:
         imprimir_relatorio(r)
