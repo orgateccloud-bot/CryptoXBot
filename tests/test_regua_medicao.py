@@ -353,3 +353,143 @@ class TestRotaBacktestDesligada:
         codigo = "\n".join(ln for ln in linhas if not ln.strip().startswith("//"))
         assert "Pode operar com capital real" not in codigo
         assert "ESTRATEGIA PROMISSORA" not in codigo
+
+
+# ══════════════════════════════════════════════════════════════════
+#  6. Régua única: o backtest usa score.calcular, sem cópia
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestReguaUnica:
+    """Critério de saída de I-12: o score da régua == score.calcular.
+
+    Aqui a igualdade é por CONSTRUÇÃO — `score_unificado` chama a função de
+    produção — e é justamente esse o ponto. O teste trava a construção: se
+    alguém reintroduzir uma cópia da fórmula, ele quebra.
+    """
+
+    BASE = dict(
+        preco=100.0, ema20=98.0, ema50=95.0, rsi=55, atr_atual=1.0, atr_media=1.0,
+        vol_rel=1.5, vwap_val=99.0, tend_4h="ALTA", adx=35, atr_ratio=1.0, ml_prob=0.7,
+    )
+
+    def test_score_bate_com_a_funcao_de_producao(self):
+        import score as producao
+        from backtesting.regua import classificar_regime, forca_do_regime, score_unificado
+
+        s, d, f, comp, _ = score_unificado(**self.BASE)
+        esperado = producao.calcular(
+            regime_info={
+                "regime_final": classificar_regime(100.0, 98.0, 95.0, 35, 1.0),
+                "score": forca_do_regime(35),
+            },
+            fear_info={"valor": 50},
+            tend_4h="ALTA", ml_prob=0.7, preco=100.0, ema20=98.0, ema50=95.0,
+            rsi=55, vwap_val=99.0, vol_rel=1.5, atr_atual=1.0, atr_media=1.0,
+            historico_ticks=None, obi=None,
+        )
+        assert (s, d, f) == (
+            esperado["score_total"], esperado["decisao"], esperado["tamanho_fator"]
+        )
+        assert comp == esperado["scores"]
+
+    def test_usa_os_pesos_de_producao_com_cvd_e_obi(self):
+        """Os 15 pontos que o backtest não tinha."""
+        import score as producao
+
+        _, _, _, comp, _ = score_unificado_base()
+        assert set(comp) == set(producao.PESOS)
+        assert producao.PESOS["cvd"] == 7 and producao.PESOS["obi"] == 8
+
+    def test_cvd_e_obi_entram_neutros(self):
+        """Não há histórico de @aggTrade/@depth. Fingir valor seria inventar
+        sinal; peso diferente seria voltar ao problema original."""
+        _, _, _, comp, _ = score_unificado_base()
+        assert comp["cvd"] == 50
+        assert comp["obi"] == 50
+
+    def test_avisa_o_que_nao_consegue_medir(self):
+        """Um relatório não pode omitir a limitação por descuido."""
+        *_, avisos = score_unificado_base()
+        texto = " ".join(avisos)
+        assert "cvd" in texto and "obi" in texto
+        assert "timeframe" in texto
+
+    def test_bloqueio_lateral_que_o_backtest_antigo_ignorava(self):
+        """`_score_backtest` só vetava por ADX baixo e ATR extremo. Produção veta
+        em LATERAL — e com ADX 10 o regime É LATERAL."""
+        from backtesting.regua import score_unificado
+
+        args = dict(self.BASE, adx=10)
+        s, d, f, _, _ = score_unificado(**args)
+        assert d == "AGUARDAR" and f == 0.0
+
+    @pytest.mark.parametrize("fg", [5, 20, 85, 95])
+    def test_bloqueio_por_fear_greed_extremo(self, fg):
+        """F&G era componente de PESO no backtest; em produção é também um VETO.
+        walk_forward passava o score convertido, então o veto nunca disparava."""
+        from backtesting.regua import score_unificado
+
+        _, d, f, _, _ = score_unificado(**dict(self.BASE, fear_greed_valor=fg))
+        assert d == "AGUARDAR" and f == 0.0
+
+    @pytest.mark.parametrize("fg", [30, 50, 70])
+    def test_fear_greed_normal_nao_bloqueia(self, fg):
+        from backtesting.regua import score_unificado
+
+        _, d, _, _, _ = score_unificado(**dict(self.BASE, fear_greed_valor=fg))
+        assert d != "AGUARDAR"
+
+    def test_classificacao_reusa_os_limiares_de_regime(self):
+        """Reusa as constantes de regime.py em vez de repetir os números: se
+        alguém ajustar ADX_TENDENCIA lá, o backtest acompanha. Foi a divergência
+        entre duas cópias que I-12 existe para eliminar."""
+        import regime
+        from backtesting.regua import classificar_regime
+
+        assert classificar_regime(100, 98, 95, regime.ADX_TENDENCIA, 1.0) == "TENDENCIA_ALTA"
+        assert classificar_regime(100, 98, 95, regime.ADX_TENDENCIA - 1, 1.0) == "LATERAL"
+        assert classificar_regime(95, 98, 100, regime.ADX_TENDENCIA, 1.0) == "TENDENCIA_BAIXA"
+        assert classificar_regime(100, 98, 95, 50, regime.ATR_EXTREMO + 0.1) == "VOLATILIDADE"
+
+    def test_score_backtest_foi_eliminada(self):
+        from backtesting import motor_ensemble
+
+        assert not hasattr(motor_ensemble, "_score_backtest")
+
+    @pytest.mark.parametrize(
+        "modulo",
+        ["backtesting.motor_ensemble", "backtesting.otimizador", "backtesting.walk_forward"],
+    )
+    def test_os_tres_motores_usam_a_regua_unica(self, modulo):
+        import importlib
+        import inspect
+
+        fonte = inspect.getsource(importlib.import_module(modulo))
+        assert "score_unificado(" in fonte
+
+    def test_walk_forward_passa_o_valor_bruto_de_fg(self):
+        """Passar o SCORE em vez do valor cru era o que impedia o veto de
+        medo/ganância extremos de disparar."""
+        import inspect
+
+        from backtesting import walk_forward
+
+        fonte = inspect.getsource(walk_forward)
+        assert "fear_greed_valor=fg_valor" in fonte
+        assert "fear_greed_score=fg_score" not in fonte
+
+    def test_sem_historico_de_fg_o_default_e_neutro_nao_maximo(self):
+        """O default antigo era 100 — o SCORE máximo. O backtest ganhava o
+        componente inteiro de graça em todo dia sem dado."""
+        import inspect
+
+        from backtesting import walk_forward
+
+        assert "fng_valor if fng_valor is not None else 50" in inspect.getsource(walk_forward)
+
+
+def score_unificado_base():
+    from backtesting.regua import score_unificado
+
+    return score_unificado(**TestReguaUnica.BASE)

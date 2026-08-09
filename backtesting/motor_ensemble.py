@@ -23,6 +23,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
 from backtesting.alinhamento import mapear_idx_fechado
+from backtesting.regua import score_unificado
 from backtesting.metricas import (
     calmar_ratio,
     probabilistic_sharpe_ratio,
@@ -93,151 +94,33 @@ def _adx(maximas, minimas, fechamentos, periodo=14):
     return pad + adx
 
 
-def _score_backtest(
-    preco,
-    ema20,
-    ema50,
-    rsi_v,
-    atr_v,
-    atr_med,
-    vol_rel,
-    bw_v,
-    bw_med,
-    vwap_v,
-    tend_4h,
-    adx_v,
-    atr_ratio,
-    ml_prob=None,
-    rsi_min=42,
-    rsi_max=60,
-    score_operar=60,
-    score_cheio=70,
-    fear_greed_score=100,
-):
-    """Calcula score simplificado para backtest (sem API calls).
-
-    fear_greed_score: score 0-100 do componente Fear & Greed. O default 100
-    equivale a assumir F&G na zona ideal 35-65 (producao: _score_fear_greed(50)
-    == 100) — comportamento historico deste motor, preservado para os callers
-    legados (otimizador/motor_ensemble). O walk_forward (gate) passa o score
-    REAL computado do historico do indice (alternative.me), para que bloqueios
-    de ganancia/medo extremos entrem na medicao (auditoria 2026-07-23)."""
-    scores = {}
-
-    # Regime (25%)
-    if atr_ratio > ATR_EXTREMO:
-        scores["regime"] = 0
-    elif adx_v >= ADX_TENDENCIA and preco > ema20 > ema50:
-        scores["regime"] = min(100, 60 + adx_v)
-    elif adx_v >= ADX_TENDENCIA and preco < ema20 < ema50:
-        scores["regime"] = 10
-    else:
-        scores["regime"] = 20
-
-    # MTF (20%)
-    scores["mtf"] = 100 if tend_4h == "ALTA" else 50 if tend_4h == "LATERAL" else 0
-
-    # ML (15%)
-    if ml_prob is not None:
-        scores["ml"] = min(100, max(0, int(ml_prob * 100)))
-    else:
-        scores["ml"] = 50
-
-    # EMA (10%)
-    if preco > ema20 > ema50:
-        dist = (preco - ema50) / ema50 * 100
-        scores["ema"] = min(100, 70 + dist * 10)
-    elif preco > ema20:
-        scores["ema"] = 50
-    elif preco > ema50:
-        scores["ema"] = 30
-    else:
-        scores["ema"] = 0
-
-    # Fear & Greed (10%) — parametrizado (ver docstring); default 100 =
-    # zona ideal (equivale a F&G neutro na funcao de producao).
-    scores["fear_greed"] = fear_greed_score
-
-    # RSI (8%)
-    if rsi_v is None:
-        scores["rsi"] = 50
-    elif rsi_min <= rsi_v <= rsi_max:
-        rsi_ideal = (rsi_min + rsi_max) / 2
-        dist_centro = abs(rsi_v - rsi_ideal) / ((rsi_max - rsi_min) / 2)
-        scores["rsi"] = int(100 - dist_centro * 30)
-    elif rsi_v < rsi_min:
-        scores["rsi"] = max(0, int((rsi_v - 30) / (rsi_min - 30) * 60))
-    else:
-        scores["rsi"] = max(0, int((80 - rsi_v) / (80 - rsi_max) * 60))
-
-    # VWAP (5%)
-    if vwap_v > 0:
-        dist_pct = (preco - vwap_v) / vwap_v * 100
-        scores["vwap"] = min(100, 70 + dist_pct * 5) if dist_pct > 0 else max(0, 40 + dist_pct * 8)
-    else:
-        scores["vwap"] = 50
-
-    # Volume (4%)
-    if vol_rel >= 2.0:
-        scores["volume"] = 100
-    elif vol_rel >= 1.3:
-        scores["volume"] = 80
-    elif vol_rel >= 1.0:
-        scores["volume"] = 60
-    elif vol_rel >= 0.7:
-        scores["volume"] = 40
-    else:
-        scores["volume"] = 20
-
-    # ATR (3%)
-    if atr_med > 0:
-        ratio = atr_v / atr_med
-        if ratio > 2.5:
-            scores["atr"] = 0
-        elif 0.7 <= ratio <= 1.8:
-            scores["atr"] = 100
-        elif ratio < 0.7:
-            scores["atr"] = 30
-        else:
-            scores["atr"] = 60
-    else:
-        scores["atr"] = 50
-
-    # Calcular score ponderado
-    pesos = {
-        "regime": 25,
-        "mtf": 20,
-        "ml": 15,
-        "ema": 10,
-        "fear_greed": 10,
-        "rsi": 8,
-        "vwap": 5,
-        "volume": 4,
-        "atr": 3,
-    }
-    total = sum(scores[k] * pesos[k] / 100 for k in pesos)
-
-    # Bloqueios
-    bloqueado = False
-    if scores["regime"] <= 20 and adx_v < ADX_TENDENCIA:
-        bloqueado = True
-    if atr_ratio > ATR_EXTREMO:
-        bloqueado = True
-
-    if bloqueado:
-        decisao = "AGUARDAR"
-        fator = 0.0
-    elif total >= score_cheio:
-        decisao = "OPERAR_CHEIO"
-        fator = 1.0
-    elif total >= score_operar:
-        decisao = "OPERAR_REDUZIDO"
-        fator = 0.5
-    else:
-        decisao = "AGUARDAR"
-        fator = 0.0
-
-    return round(total), decisao, fator, scores
+# ── I-12: `_score_backtest` foi ELIMINADA ────────────────────────────────────
+#
+# Eram DUAS funcoes de score no repositorio, e a que decidia no backtest nao era
+# a que decide em producao:
+#
+#   componente   score.calcular (producao)   _score_backtest (backtest)
+#   regime                18                       25
+#   ml                    20                       15
+#   mtf                   12                       20
+#   ema                    8                       10
+#   fear_greed             8                       10
+#   atr                    2                        3
+#   cvd                    7                    AUSENTE
+#   obi                    8                    AUSENTE
+#
+# Quinze pontos de peso (cvd+obi) simplesmente nao existiam, e os bloqueios
+# absolutos divergiam: producao veta em LATERAL e em F&G <= 20 ou > 80; este
+# motor vetava so por ADX baixo e ATR extremo. Todo numero de backtest media uma
+# estrategia diferente da que roda — e o otimizador escolhia parametros
+# maximizando a funcao errada.
+#
+# A regua agora e uma so: backtesting/regua.py chama score.calcular, a de
+# producao, sem copia. As duas limitacoes irredutiveis (cvd/obi neutros por falta
+# de historico de tick/livro; regime de 1 timeframe) ficam registradas em
+# `AVISOS_PADRAO` la, para que nenhum relatorio as omita por descuido.
+#
+# Se precisar do comportamento antigo para comparar: git show 828af1c^.
 
 
 def carregar(symbol, intervalo):
@@ -468,21 +351,24 @@ def rodar(
             t4h = tend_4h_em(i)
             ml_p = ml_probs[i]
 
-            score, decisao, fator, scores_det = _score_backtest(
-                preco,
-                e20,
-                e50,
-                rsi_v,
-                atr_v,
-                atr_med,
-                vr,
-                bw_v,
-                bw_med,
-                vwap_v,
-                t4h,
-                adx_v,
-                atr_ratio,
-                ml_p,
+            # I-12: REGUA UNICA — score.calcular, a mesma de producao.
+            # `_score_backtest` usava pesos diferentes (regime 25/mtf 20/ml 15
+            # contra 18/12/20) e nao tinha CVD nem OBI, 15% do peso. Media outra
+            # estrategia. bw_v/bw_med saem da chamada: a bollinger nunca foi
+            # componente do score de producao.
+            score, decisao, fator, scores_det, _avisos = score_unificado(
+                preco=preco,
+                ema20=e20,
+                ema50=e50,
+                rsi=rsi_v,
+                atr_atual=atr_v,
+                atr_media=atr_med,
+                vol_rel=vr,
+                vwap_val=vwap_v,
+                tend_4h=t4h,
+                adx=adx_v,
+                atr_ratio=atr_ratio,
+                ml_prob=ml_p,
                 rsi_min=RSI_MIN,
                 rsi_max=RSI_MAX,
                 score_operar=SCORE_OP,

@@ -164,14 +164,17 @@ def wf_sintetico(monkeypatch):
         k1h, k4h = estado["dados"]
         return k4h if intervalo == "4h" else k1h
 
-    def score_fake(preco, *a, **k):
+    def score_fake(*a, preco=None, **k):
+        # I-12: `_score_backtest` foi eliminada; walk_forward chama
+        # `score_unificado`, que recebe TUDO por keyword e devolve 5 posicoes
+        # (a quinta e a lista de avisos sobre o que a regua nao consegue medir).
         i = estado["mapa_preco"].get(round(preco, 9))
         if i in estado["entradas"]:
-            return 100, "OPERAR_CHEIO", 1.0, {}
-        return 0, "AGUARDAR", 0.0, {}
+            return 100, "OPERAR_CHEIO", 1.0, {}, ()
+        return 0, "AGUARDAR", 0.0, {}, ()
 
     monkeypatch.setattr(wf, "carregar", carregar_fake)
-    monkeypatch.setattr(wf, "_score_backtest", score_fake)
+    monkeypatch.setattr(wf, "score_unificado", score_fake)
     monkeypatch.setattr(wf, "_carregar_fng", lambda: {})
     monkeypatch.setattr(wf, "extrair_features", lambda *a, **k: None)
 

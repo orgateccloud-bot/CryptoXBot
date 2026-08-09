@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
 from backtesting import metricas
 from backtesting.alinhamento import mapear_idx_fechado
-from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, _score_backtest, carregar
+from backtesting.regua import score_unificado
+from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, carregar
 from ml_filtro import extrair_features
 
 DB_PATH = "data/btc_data.db"
@@ -108,9 +109,10 @@ def _rodar_com_params(
         atr_med = sum(x for x in atr14[max(0, i - 20) : i] if x) / max(
             1, len([x for x in atr14[max(0, i - 20) : i] if x])
         )
-        bw_med = sum(x for x in bw[max(0, i - 20) : i] if x) / max(
-            1, len([x for x in bw[max(0, i - 20) : i] if x])
-        )
+        # I-12: `bw_med` deixou de ser calculado. Ele so alimentava
+        # `_score_backtest`, e a bollinger nunca foi componente de
+        # `score.calcular` — a regua de producao. `bw_v` continua, porque os
+        # FILTROS binarios (nao o score) ainda o consultam.
         atr_ratio = atr_v / atr_med if atr_med > 0 else 1.0
 
         # Saida
@@ -156,21 +158,24 @@ def _rodar_com_params(
         # Entrada
         if posicao is None:
             t4h = tend_4h_em(i)
-            score, decisao, fator, _ = _score_backtest(
-                preco,
-                e20,
-                e50,
-                rsi_v,
-                atr_v,
-                atr_med,
-                vr,
-                bw_v,
-                bw_med,
-                vwap_v,
-                t4h,
-                adx_v,
-                atr_ratio,
-                None,
+            # I-12: REGUA UNICA. Num otimizador isto e decisivo: ele escolhe
+            # parametros maximizando o score, e o score que ele maximizava nao
+            # era o que decide em producao.
+            score, decisao, fator, _, _avisos = score_unificado(
+                preco=preco,
+                ema20=e20,
+                ema50=e50,
+                rsi=rsi_v,
+                atr_atual=atr_v,
+                atr_media=atr_med,
+                vol_rel=vr,
+                vwap_val=vwap_v,
+                tend_4h=t4h,
+                adx=adx_v,
+                atr_ratio=atr_ratio,
+                ml_prob=None,
+                rsi_min=rsi_min,
+                rsi_max=rsi_max,
             )
 
             # Usar limiares customizados

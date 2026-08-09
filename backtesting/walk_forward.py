@@ -65,10 +65,9 @@ from backtesting.metricas import (
     sharpe_ratio,
     sortino_ratio,
 )
-from backtesting.motor_ensemble import SLIPPAGE, _adx, _score_backtest
+from backtesting.motor_ensemble import SLIPPAGE, _adx
+from backtesting.regua import score_unificado
 from ml_filtro import extrair_features
-from score import _score_fear_greed
-
 DB_PATH = "data/btc_data.db"
 FNG_PATH = "data/fng_historico.json"
 
@@ -367,28 +366,34 @@ def walk_forward(
                     if feat:
                         ml_p = float(modelo.predict_proba([feat])[0][1])
 
-                # B6: score do F&G real do dia (funcao de producao); sem
-                # historico disponivel, cai no default legado (100).
+                # B6/I-12: valor BRUTO do F&G do dia, nao o score.
+                #
+                # Passava-se `fear_greed_score` (0-100 ja convertido), e por isso
+                # os BLOQUEIOS ABSOLUTOS de medo/ganancia extremos nunca podiam
+                # disparar: score.calcular decide o bloqueio pelo valor cru
+                # (<= 20 ou > 80), nao pelo score. F&G era componente de peso, e
+                # em producao e tambem um veto.
+                #
+                # Sem historico, 50 (neutro) — nao 100. O default antigo de 100
+                # era o SCORE maximo: o backtest ganhava o componente inteiro de
+                # graca todo dia em que faltasse dado.
                 fng_valor = _fng_do_dia(fng, ts1h[i])
-                fg_score = _score_fear_greed(fng_valor) if fng_valor is not None else 100
+                fg_valor = fng_valor if fng_valor is not None else 50
 
-                score, decisao, fator, _ = _score_backtest(
-                    preco,
-                    e20,
-                    e50,
-                    rsi_v,
-                    atr_v,
-                    atr_med,
-                    vr,
-                    bw_v,
-                    sum(x for x in bw[max(0, i - 20) : i] if x)
-                    / max(1, len([x for x in bw[max(0, i - 20) : i] if x])),
-                    vwap_v,
-                    t4h,
-                    adx_v,
-                    atr_ratio,
-                    ml_p,
-                    fear_greed_score=fg_score,
+                score, decisao, fator, _, _avisos = score_unificado(
+                    preco=preco,
+                    ema20=e20,
+                    ema50=e50,
+                    rsi=rsi_v,
+                    atr_atual=atr_v,
+                    atr_media=atr_med,
+                    vol_rel=vr,
+                    vwap_val=vwap_v,
+                    tend_4h=t4h,
+                    adx=adx_v,
+                    atr_ratio=atr_ratio,
+                    ml_prob=ml_p,
+                    fear_greed_valor=fg_valor,
                 )
 
                 if fator > 0:
