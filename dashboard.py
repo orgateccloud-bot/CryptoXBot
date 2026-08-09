@@ -803,12 +803,24 @@ def api_backtest(symbol="BTCUSDT"):
     48,4 pontos percentuais de diferença. O número honesto é uma perda de quase
     metade do capital.
 
-    A rota continua desligada mesmo depois da correção do look-ahead e da taxa,
-    porque o motor ainda usa `_score_backtest` — uma função de score DIFERENTE
-    da de produção (`score.calcular`): pesos regime 25/mtf 20/ml 15 contra
-    18/12/20, e sem os componentes CVD e OBI. Ou seja, ele mede uma estratégia
-    que não é a que roda. Unificar as duas réguas é o resto de I-12; até lá,
-    servir esse número por HTTP é servir uma medição de outra coisa.
+    A rota continua desligada depois de todo o I-12, mas o MOTIVO mudou. O
+    original era `_score_backtest` — uma função de score diferente da de
+    produção. Essa função foi ELIMINADA: o motor agora chama
+    `regua.score_unificado`, que delega a `score.calcular`. Com a régua
+    unificada o número passou de −45,83% para −38,98%.
+
+    Segue desligada por três razões que não são de régua:
+
+      1. −38,98% é o número honesto. Servir por HTTP uma curva que perde 39%
+         do capital, num painel cujo público é o operador, não ajuda ninguém.
+      2. `data/fng_historico.json` não existe: a medição roda com Fear & Greed
+         neutro fixo, sem o veto de sentimento que a produção aplica (I-12g).
+      3. O motor modela UMA saída (stop ou alvo). O bot faz parcial de 50%,
+         breakeven e trailing — `walk_forward.py` já modela isso (I-12h),
+         este motor não.
+
+    Enquanto 2 e 3 não forem fechados aqui, a medição válida é
+    `python backtesting/walk_forward.py`.
 
     Para rodar mesmo assim (uso local, consciente):
         BACKTEST_HTTP=1 python dashboard.py
@@ -821,9 +833,11 @@ def api_backtest(symbol="BTCUSDT"):
                 {
                     "erro": "MEDICAO INVALIDA — rota desligada (I-12)",
                     "motivo": (
-                        "O motor deste endpoint usa _score_backtest, que NAO e a funcao "
-                        "de score de producao (score.calcular): pesos diferentes e sem "
-                        "CVD/OBI. O numero mediria outra estrategia."
+                        "A regua ja foi unificada (score.calcular via regua.py) e o "
+                        "numero honesto e -38,98%. A rota segue desligada porque a "
+                        "medicao roda sem historico de Fear & Greed (sem o veto de "
+                        "sentimento da producao) e modela UMA saida, enquanto o bot "
+                        "faz parcial de 50% + breakeven + trailing."
                     ),
                     "historico": {
                         "antes_das_correcoes": {
@@ -836,12 +850,14 @@ def api_backtest(symbol="BTCUSDT"):
                             "sharpe_ratio": -0.30,
                             "profit_factor": 0.75,
                         },
+                        "depois_de_unificar_a_regua": {"retorno_total_%": -38.98},
                         "nota": (
                             "48,4 pontos percentuais vinham de duas linhas: idx4 = i//4 "
                             "(look-ahead em 100% das barras) e TAXA=0.0004 (futuros num "
                             "bot spot)."
                         ),
                     },
+                    "medicao_valida": "python backtesting/walk_forward.py",
                     "para_rodar_local": "BACKTEST_HTTP=1 python dashboard.py",
                 }
             ),

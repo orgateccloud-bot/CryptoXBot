@@ -1559,10 +1559,16 @@ def main():
         return
 
     if args.backtest:
-        from backtesting.motor import imprimir_relatorio, rodar_backtest
+        from backtesting.motor import MedicaoComMocks, imprimir_relatorio, rodar_backtest
 
         database.inicializar()
-        r = rodar_backtest(args.backtest, 1000.0)
+        try:
+            r = rodar_backtest(args.backtest, 1000.0)
+        except MedicaoComMocks as exc:
+            # I-12d: o harness pontua com 8 entradas fabricadas — o numero
+            # descreve outra estrategia. Sai != 0 em vez de imprimir veredito.
+            print(f"\n[MEDICAO BLOQUEADA] {exc}")
+            raise SystemExit(2) from exc
         if r:
             imprimir_relatorio(r)
         return

@@ -8,7 +8,7 @@ Regras simuladas:
   Saída:         Stop Loss 1.5% ou Take Profit 5.0%
   Tamanho:       Fixo por operação (configurável)
   Slippage:      0.05% por lado (simulação realista)
-  Taxa:          0.04% por lado (Binance Futures Taker)
+  Taxa:          0.10% por lado (Binance SPOT Taker — I-12d)
 
 Uso:
   python backtesting/motor.py
@@ -56,7 +56,10 @@ def calcular_rsi(fechamentos, periodo=14):
 # Parâmetros de risco
 STOP_PCT = 0.015  # 1.5%
 TARGET_PCT = 0.050  # 5.0%
-TAXA_BINANCE = 0.0004  # 0.04% por lado
+# I-12d: era 0.0004 — tarifa de FUTUROS num bot que executa /api/v3/order
+# (SPOT). O fix de I-12b passou por motor_ensemble/otimizador/walk_forward e
+# nao chegou aqui. 0.001 = spot taker sem descontos, o conservador.
+TAXA_BINANCE = 0.001  # 0.10% por lado (Binance SPOT taker)
 SLIPPAGE = 0.0005  # 0.05% por lado
 
 
@@ -113,10 +116,61 @@ def carregar_klines(intervalo):
 # ── Motor principal ───────────────────────────────────────────
 
 
-def rodar_backtest(intervalo="1h", capital_inicial=1000.0, risco_por_trade=0.02):
+class MedicaoComMocks(RuntimeError):
+    """Este motor pontua com entradas fabricadas (I-12d).
+
+    Excecao propria para que `main.py --backtest` consiga distinguir "harness
+    nao confiavel" de uma falha de dados, e para que rodar assim mesmo seja
+    uma decisao explicita em vez de um default mudo.
+    """
+
+
+def rodar_backtest(
+    intervalo="1h", capital_inicial=1000.0, risco_por_trade=0.02, permitir_mocks=False
+):
     """
     Risco por trade: 2% do capital (padrão conservador).
+
+    I-12d: este harness NAO executa a estrategia que diz medir. Oito das
+    entradas de `score.calcular` sao constantes hardcoded (:251-258) e duas
+    delas sao permanentemente altistas:
+
+        regime_final = "TENDENCIA_ALTA"      tend_4h = "ALTA"
+        fear_info    = {"valor": 50}         ml_prob = 0.55
+        vwap_val     = preco                 vol_rel = 1.0
+        atr_atual    = 500                   atr_media = 510
+
+    Com regime e MTF travados em alta, nenhum dos bloqueios absolutos de
+    producao (score.py:370-375) pode disparar, e o componente de regime entrega
+    o peso cheio em toda barra: o harness vira um comprador quase permanente.
+    Somando o `atr_atual`/`atr_media` fixos, o filtro de volatilidade extrema
+    tambem nunca atua. O numero que sai daqui descreve outra estrategia.
+
+    Mesma decisao da rota `/api/backtest` (I-12a): em vez de servir o numero
+    com uma ressalva que ninguem le, a medicao nao roda. Para rodar mesmo
+    assim (uso local, consciente):
+
+        BACKTEST_MOCKS=1 python backtesting/motor.py
+        BACKTEST_MOCKS=1 python main.py --backtest 1h
+
+    O caminho de saida nao e ligar a flag: e `backtesting/walk_forward.py`,
+    que pontua com `regua.score_unificado` sobre indicadores reais.
     """
+    if not permitir_mocks and os.getenv("BACKTEST_MOCKS", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        raise MedicaoComMocks(
+            "backtesting/motor.py pontua com 8 entradas hardcoded "
+            "(motor.py:251-258), duas delas permanentemente altistas "
+            '("TENDENCIA_ALTA" / "ALTA") — nenhum bloqueio absoluto de '
+            "producao pode disparar e o harness compra quase sempre.\n"
+            "  medicao valida ..... python backtesting/walk_forward.py\n"
+            "  rodar assim mesmo .. BACKTEST_MOCKS=1 (uso local, consciente)"
+        )
+
     klines = carregar_klines(intervalo)
     if len(klines) < EMA_LENTA + 10:
         print(f"Dados insuficientes para [{intervalo}]. Rode coletar_dados.py primeiro.")
@@ -405,6 +459,12 @@ if __name__ == "__main__":
     parser.add_argument("--risco", default=0.02, type=float, help="Risco por trade (0.02 = 2%)")
     args = parser.parse_args()
 
-    resultado = rodar_backtest(args.intervalo, args.capital, args.risco)
+    try:
+        resultado = rodar_backtest(args.intervalo, args.capital, args.risco)
+    except MedicaoComMocks as exc:
+        # I-12d: exit != 0. Uma medicao que descreve outra estrategia nao pode
+        # sair com codigo 0 e ser encadeada por um script como se valesse.
+        print(f"\n[MEDICAO BLOQUEADA] {exc}")
+        raise SystemExit(2) from exc
     if resultado:
         imprimir_relatorio(resultado)
