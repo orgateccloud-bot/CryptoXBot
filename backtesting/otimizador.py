@@ -27,9 +27,21 @@ from backtesting import metricas
 from backtesting.alinhamento import mapear_idx_fechado
 from backtesting.regua import score_unificado
 from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, carregar
+from backtesting.walk_forward import (
+    FRACAO_PARCIAL,
+    TARGET2_MULT,
+    _fng_do_dia,
+    avaliar_tick_saida,
+)
 from ml_filtro import extrair_features
 
 DB_PATH = "data/btc_data.db"
+
+# E-9: era 5. Um Sharpe sobre 5 trades nao e uma estimativa, e ruido — e o
+# grid escolhia o MAXIMO de milhares desses. Com piso de 5, a combinacao
+# vencedora tendia a ser a que teve poucos trades sortudos.
+MIN_TRADES = 50
+
 
 
 def _rodar_com_params(
@@ -54,8 +66,30 @@ def _rodar_com_params(
     ema50_4h,
     params,
     capital_inicial=1000.0,
+    fng=None,
+    politica_saida="producao",
 ):
-    """Roda backtest com um conjunto de parametros (rapido, sem ML)."""
+    """Roda backtest com um conjunto de parametros (rapido, sem ML).
+
+    E-9: tres correcoes que mudam o que este avaliador mede.
+
+    `fng` — historico de Fear & Greed (dia UTC -> valor). Ate agora
+    `score_unificado` era chamado SEM `fear_greed_valor`, entao o otimizador
+    escolhia parametros num mundo onde o veto de sentimento da producao nunca
+    dispara. Passar None mantem o comportamento antigo e o resultado NAO vale
+    para o gate — `rederivar_params.py` exige o historico.
+
+    `politica_saida` — "producao" usa a saida real (parcial de 50% no target1,
+    breakeven, target2 e trailing, via `walk_forward.avaliar_tick_saida`);
+    "alvo_unico" e o modelo antigo. Isto importa mais aqui do que num backtest
+    solto: o otimizador escolhe `target_pct` MAXIMIZANDO o resultado, e com a
+    saida antiga ele escolhia o alvo de uma estrategia que o bot nao executa.
+
+    Retornos: `rets` passou a ser o retorno LIQUIDO sobre o capital, nao a
+    variacao bruta de preco. O Sharpe que ordenava o grid ignorava taxa e
+    ignorava o tamanho da posicao — duas combinacoes com a mesma variacao de
+    preco e tamanhos diferentes tinham Sharpe identico.
+    """
     stop_pct = params["stop_pct"]
     target_pct = params["target_pct"]
     rsi_min = params["rsi_min"]
@@ -120,34 +154,76 @@ def _rodar_com_params(
             mn = n1h[i]
             mx = m1h[i]
 
-            if mn <= posicao["stop"]:
-                ps = posicao["stop"] * (1 - SLIPPAGE)
-                pnl = (
-                    posicao["usdt"] * ((ps - posicao["entrada"]) / posicao["entrada"])
-                    - posicao["usdt"] * TAXA * 2
+            def _perna(preco_saida, fracao):
+                """Vende `fracao` do notional aberto. A taxa se divide
+                proporcionalmente: fatiar a saida nao muda o custo total."""
+                notional = posicao["usdt_aberto"] * fracao
+                p = (
+                    notional * ((preco_saida - posicao["entrada"]) / posicao["entrada"])
+                    - notional * TAXA * 2
                 )
+                posicao["usdt_aberto"] -= notional
+                posicao["pnl"] += p
+
+            def _encerrar(preco_saida):
+                """Fecha o round trip e contabiliza UMA operacao."""
+                nonlocal capital, posicao, total, ganhos, perdas
+                _perna(preco_saida, 1.0)
+                pnl = posicao["pnl"]
+                capital_antes = capital
                 capital += pnl
-                rets.append((ps - posicao["entrada"]) / posicao["entrada"] * 100)
+                # E-9: retorno LIQUIDO sobre o capital, nao variacao bruta de
+                # preco. Era `(saida-entrada)/entrada`, que ignorava taxa e
+                # tamanho — duas combinacoes com o mesmo movimento de preco e
+                # tamanhos diferentes recebiam o mesmo Sharpe.
+                rets.append(pnl / capital_antes * 100 if capital_antes > 0 else 0.0)
                 if pnl > 0:
                     ganhos += 1
                 else:
                     perdas += 1
                 total += 1
                 posicao = None
-            elif mx >= posicao["target"]:
-                pt = posicao["target"] * (1 - SLIPPAGE)
-                pnl = (
-                    posicao["usdt"] * ((pt - posicao["entrada"]) / posicao["entrada"])
-                    - posicao["usdt"] * TAXA * 2
-                )
-                capital += pnl
-                rets.append((pt - posicao["entrada"]) / posicao["entrada"] * 100)
-                if pnl > 0:
-                    ganhos += 1
-                else:
-                    perdas += 1
-                total += 1
-                posicao = None
+
+            if politica_saida == "alvo_unico":
+                if mn <= posicao["stop_atual"]:
+                    _encerrar(posicao["stop_atual"] * (1 - SLIPPAGE))
+                elif mx >= posicao["target1"]:
+                    _encerrar(posicao["target1"] * (1 - SLIPPAGE))
+            else:
+                # Duas passadas no mesmo candle: producao le o snapshot de
+                # `parcial_feita`, entao o runner so fecha num tick posterior —
+                # que ainda cai dentro da mesma hora. Mesma logica de
+                # walk_forward (I-12h).
+                for _passada in range(2):
+                    if posicao is None:
+                        break
+                    d = avaliar_tick_saida(
+                        entrada=posicao["entrada"],
+                        stop_atual=posicao["stop_atual"],
+                        target1=posicao["target1"],
+                        target2=posicao["target2"],
+                        parcial_feita=posicao["parcial_feita"],
+                        preco_alta=mx,
+                        preco_baixa=mn,
+                        preco_pico=posicao["pico"],
+                    )
+                    posicao["pico"] = d["preco_pico"]
+                    if d["fechar_parcial"]:
+                        _perna(posicao["target1"] * (1 - SLIPPAGE), FRACAO_PARCIAL)
+                        posicao["parcial_feita"] = True
+                    # breakeven primeiro, trailing depois — ordem de _monitorar
+                    if d["stop_breakeven"] is not None:
+                        posicao["stop_atual"] = d["stop_breakeven"]
+                    if d["novo_stop_trailing"] is not None:
+                        posicao["stop_atual"] = d["novo_stop_trailing"]
+                    if d["fechar_total"] == "STOP":
+                        _encerrar(posicao["stop_atual"] * (1 - SLIPPAGE))
+                        break
+                    if d["fechar_total"] == "TARGET_FINAL":
+                        _encerrar(posicao["target2"] * (1 - SLIPPAGE))
+                        break
+                    if not d["fechar_parcial"]:
+                        break
 
             if capital > pico:
                 pico = capital
@@ -176,6 +252,11 @@ def _rodar_com_params(
                 ml_prob=None,
                 rsi_min=rsi_min,
                 rsi_max=rsi_max,
+                # E-9: o valor BRUTO do dia. Sem isto, `score_unificado` caia
+                # no neutro e os BLOQUEIOS ABSOLUTOS de medo/ganancia extremos
+                # (score.py:370-375) nunca podiam disparar — o otimizador
+                # escolhia parametros num mundo sem veto de sentimento.
+                fear_greed_valor=_fng_do_dia(fng, ts1h[i]) if fng else None,
             )
 
             # Usar limiares customizados
@@ -191,9 +272,18 @@ def _rodar_com_params(
                 usdt = min(capital * 0.02 / stop_pct, capital) * fator
                 posicao = {
                     "entrada": entrada,
-                    "stop": entrada * (1 - stop_pct),
-                    "target": entrada * (1 + target_pct),
+                    "stop_atual": entrada * (1 - stop_pct),
+                    # target1 e o alvo do GRID; target2 e o 1,05 hardcoded de
+                    # executor.abrir_long. Consequencia que o grid nao pode
+                    # expressar: para target_pct >= 5% o "runner" nao corre,
+                    # porque target2 fica igual ou abaixo de target1.
+                    "target1": entrada * (1 + target_pct),
+                    "target2": entrada * TARGET2_MULT,
+                    "parcial_feita": False,
+                    "pico": entrada,
                     "usdt": usdt,
+                    "usdt_aberto": usdt,
+                    "pnl": 0.0,
                 }
 
     if total == 0:
@@ -279,6 +369,11 @@ def grid_search(symbol="BTCUSDT", intervalo="1h", rapido=False):
     print(f"  Dados: {len(k1h)} candles {symbol}/{intervalo}")
 
     resultados = []
+    # E-9: `n_trials` do DSR precisa ser quantas combinacoes foram
+    # TESTADAS, nao quantas sobreviveram ao piso. Contar so as
+    # sobreviventes subestima o multiple-testing e infla o DSR — que e
+    # justamente a metrica que deveria descontar isso.
+    avaliados = 0
     for idx, combo in enumerate(combinacoes):
         params = dict(zip(keys, combo))
 
@@ -313,13 +408,16 @@ def grid_search(symbol="BTCUSDT", intervalo="1h", rapido=False):
             params,
         )
 
-        if r and r["total"] >= 5:
+        avaliados += 1
+        if r and r["total"] >= MIN_TRADES:
             resultados.append(r)
 
         if (idx + 1) % 100 == 0:
             print(f"    {idx+1}/{total_comb} testados... ({len(resultados)} validos)")
 
     print(f"  Concluido: {len(resultados)} resultados validos de {total_comb} combinacoes")
+    for r in resultados:
+        r["n_avaliados"] = avaliados
     return resultados
 
 
@@ -371,7 +469,8 @@ def imprimir_top(resultados, top_n=10, ordenar_por="sharpe"):
     # Melhor parametro
     best = resultados[0]
 
-    n_trials = len(resultados)
+    # E-9: combinacoes AVALIADAS (nao as que passaram do piso de trades).
+    n_trials = best.get("n_avaliados") or len(resultados)
     sharpes_trials_pt = [r["sharpe"] / (252**0.5) for r in resultados]  # DESANUALIZAR
     dsr_best = metricas.deflated_sharpe_ratio(best["retornos_pct"], sharpes_trials_pt)
 

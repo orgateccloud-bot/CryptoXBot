@@ -36,7 +36,7 @@ scripts/           # migrate_sqlite_to_supabase.py + restart-servico.ps1 +
 static/vendor/     # socket.io + chart.js vendorizados (sem CDN externo)
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard.html (SPA — tema claro/escuro)
-tests/             # pytest (1547 passed, 8 skipped) — isolado de producao via conftest.py da raiz
+tests/             # pytest (1567 passed, 8 skipped) — isolado de producao via conftest.py da raiz
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -123,7 +123,7 @@ python main.py --real --intervalo 15  # ordens reais (exige gates abaixo)
 python main.py --modo-trend --simulacao   # recusa iniciar com --real (SystemExit)
 
 # Testes
-pytest tests/ -q                    # 1547 passed, 8 skipped em ~2min40s
+pytest tests/ -q                    # 1567 passed, 8 skipped em ~2min40s
 # A suite e ISOLADA do estado de producao pelo conftest.py da RAIZ: banco em
 # tmp + guard que FALHA o teste se alguem abrir data/btc_data.db. Leia o
 # cabecalho de conftest.py antes de mexer nele — ate 2026-07-31 `pytest tests/`
