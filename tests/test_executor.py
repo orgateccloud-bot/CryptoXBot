@@ -494,11 +494,24 @@ def _novo_executor_real(monkeypatch):
     # Hermético: sem sync de relógio (rede). maker_first=False para exercitar o
     # caminho LIMIT de fallback — o caminho maker-first (P0-2) tem suíte própria
     # em tests/test_executor_maker.py.
+    #
+    # I-10d: `_abrir_protecao` TAMBEM precisa de stub. Antes só o relógio era
+    # mockado, então a colocação do stop caía em `_request_assinado` e batia na
+    # Binance de verdade (a suíte recebia `-2015 Invalid API-key`). Isso passava
+    # despercebido porque a falha da proteção era ignorada e a posição abria
+    # assim mesmo. Com `abrir_long` fail-closed a chamada de rede vira teste
+    # vermelho — que é o comportamento certo, mas o teste tinha de ser hermético
+    # desde sempre. Quem quiser exercitar a FALHA da proteção sobrescreve este
+    # stub (ver TestProtecaoFailClosed).
     monkeypatch.setattr(Executor, "_sincronizar_relogio", lambda self: None)
     ex = Executor(simulacao=False, symbol="BTCUSDT")
     ex._maker_first = False
     ex._monitorar = lambda: None
     ex.get_preco = lambda: 50000.0
+    ex._abrir_protecao = lambda qty, stop, alvo: {
+        "stop_order_id": "STOP-OK",
+        "oco_list_id": None,
+    }
     return ex
 
 

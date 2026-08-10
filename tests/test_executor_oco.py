@@ -462,6 +462,11 @@ def test_fechar_posicao_libera_oco_antes_do_sell(ex, monkeypatch, gestao_risco_m
         ordem["liberou_oco"] = True
         ex.posicao["oco_list_id"] = None
         ex.posicao["stop_order_id"] = None
+        # I-10e: `_liberar_protecao` passou a devolver bool. False significa
+        # "a protecao segue viva na exchange" e faz fechar_posicao ADIAR o
+        # SELL (senao ele cairia em -2010 e o ramo de falha duplicaria a
+        # protecao). O stub tem de honrar o contrato novo.
+        return True
 
     monkeypatch.setattr(ex, "_liberar_protecao", _liberar)
 

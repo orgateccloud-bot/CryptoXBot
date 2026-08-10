@@ -80,6 +80,20 @@ def _decimais(valor_str: str) -> int:
     return -exp if exp < 0 else 0
 
 
+# I-10c: quotes conhecidas, da mais longa para a mais curta — "BTCUSDT" tem de
+# casar com USDT (base BTC), nao com USD (que daria base "BTCT").
+_QUOTES_CONHECIDAS = ("USDT", "FDUSD", "TUSD", "USDC", "BUSD", "BTC", "ETH", "BNB", "EUR", "TRY")
+
+
+def _base_asset_do_symbol(symbol: str) -> str:
+    """Fallback para o baseAsset quando o exchangeInfo nao respondeu."""
+    symbol = symbol.upper()
+    for quote in sorted(_QUOTES_CONHECIDAS, key=len, reverse=True):
+        if symbol.endswith(quote) and len(symbol) > len(quote):
+            return symbol[: -len(quote)]
+    return symbol
+
+
 def _carregar_precisao(symbol: str) -> dict:
     """Busca LOT_SIZE/PRICE_FILTER reais do exchangeInfo (fonte de verdade).
     Cai no _PRECISAO hardcoded se a chamada falhar. Cacheado por símbolo.
@@ -91,7 +105,8 @@ def _carregar_precisao(symbol: str) -> dict:
         return _precisao_cache[symbol]
     try:
         r = requests.get(f"{BASE_URL}/api/v3/exchangeInfo", params={"symbol": symbol}, timeout=8)
-        filtros = {f["filterType"]: f for f in r.json()["symbols"][0]["filters"]}
+        info = r.json()["symbols"][0]
+        filtros = {f["filterType"]: f for f in info["filters"]}
         step = filtros["LOT_SIZE"]["stepSize"]
         tick = filtros["PRICE_FILTER"]["tickSize"]
         prec = {
@@ -100,11 +115,15 @@ def _carregar_precisao(symbol: str) -> dict:
             "price_prec": _decimais(tick),
             "tick_size": Decimal(tick).normalize().__str__(),
             "step_size": Decimal(step).normalize().__str__(),
+            # I-10c: o ativo em que a comissao de um BUY e debitada quando a
+            # conta nao paga taxa em BNB.
+            "base_asset": info.get("baseAsset") or _base_asset_do_symbol(symbol),
         }
     except Exception as e:
         print(f"[EXEC] exchangeInfo indisponivel p/ {symbol} ({e}) — usando fallback")
         prec = dict(_PRECISAO.get(symbol, _PRECISAO_DEFAULT))
         prec.setdefault("step_size", Decimal(str(prec["qty_step"])).normalize().__str__())
+        prec.setdefault("base_asset", _base_asset_do_symbol(symbol))
     _precisao_cache[symbol] = prec
     return prec
 
@@ -119,6 +138,18 @@ _PROTECAO_NAO_MOVIDA = object()
 
 TRAILING_ATIVACAO = 0.01  # ativa trailing após 1% de ganho
 TRAILING_DISTANCIA = 0.008  # stop segue 0.8% abaixo do pico
+
+# I-10g: de quantos em quantos ciclos do monitor perguntar a exchange se a
+# protecao ainda existe. O laco dorme 10s, entao 6 ciclos = ~1 minuto — barato
+# em peso de rate-limit (1 GET /api/v3/order por minuto por posicao aberta) e
+# suficiente para o criterio de saida do I-10 ("stop executado fora do bot =>
+# detectado em <= 1 ciclo" de decisao da estrategia, que roda em minutos).
+CICLOS_ENTRE_RECONCILIACOES = 6
+
+# I-10f: quantos fechamentos consecutivos podem falhar antes de escalar. 6
+# ciclos de 10s = ~1 minuto tentando sair sem conseguir — passou disso, nao e
+# mais um soluco de rede.
+MAX_FECHAMENTOS_FALHOS = 6
 
 
 def avaliar_tick_monitor(
@@ -290,6 +321,8 @@ class Executor:
         # e derrubar qty/preco valido no filtro da Binance.
         self._step_dec = Decimal(prec.get("step_size", str(prec["qty_step"])))
         self._tick_dec = Decimal(prec.get("tick_size", "0.01"))
+        # I-10c: em que ativo a comissao de um BUY cai quando nao ha BNB
+        self._base_asset = prec.get("base_asset") or _base_asset_do_symbol(self.symbol)
         self._offset_ms = 0
         # P0-2: parametros da execucao maker-first (instancia p/ serem ajustaveis em teste)
         self._maker_first = MAKER_FIRST
@@ -344,8 +377,25 @@ class Executor:
     def _request_assinado(self, metodo, path, params, timeout=10, tentativas=3):
         """P0-4: requisicao assinada com recvWindow + retry/backoff para
         429/-1003/5xx/timeout. Retorna dict da Binance ou {"erro": ...}.
+
+        I-10a: em caso de falha o dict devolve `timeout_rede=True` quando o
+        estado da ordem na exchange e DESCONHECIDO — e nao apenas quando houve
+        timeout de socket. Esse flag e o que gateia a recuperacao de ordem
+        fantasma (`_consultar_ordem`).
+
+        Antes, o flag era `"falha de rede" in ultima_falha`, que so casava com
+        a excecao de socket. Um 503 esgotando as 3 tentativas devolvia
+        `timeout_rede=False` e a recuperacao NAO rodava — mas a propria Binance
+        documenta 5xx como estado desconhecido: a ordem pode ter sido aceita e
+        so a resposta ter se perdido. O mesmo vale para 429/418 (a requisicao
+        pode ter chegado antes do rate-limit ser aplicado).
+
+        Um erro de NEGOCIO (-2010 saldo insuficiente, -1013 filtro) e outra
+        coisa: a exchange respondeu e recusou. Esses caem no `return data` e
+        nunca chegam aqui.
         """
         ultima_falha = "sem tentativa"
+        estado_desconhecido = False
         for i in range(tentativas):
             p = dict(params)
             p["timestamp"] = self._ts()
@@ -358,21 +408,27 @@ class Executor:
                 data = r.json()
             except Exception as e:
                 ultima_falha = f"falha de rede/resposta: {e}"
+                estado_desconhecido = True  # socket caiu: a ordem pode existir
                 time.sleep(2**i)
                 continue
             codigo = data.get("code") if isinstance(data, dict) else None
             # Rate limit / banimento temporario / erro interno: retry com backoff
             if r.status_code in (429, 418, 500, 502, 503) or codigo in (-1003, -1000):
                 ultima_falha = f"HTTP {r.status_code} code={codigo}: {data.get('msg', '')}"
+                # I-10a: 5xx e 429 tambem deixam o estado indefinido — a ordem
+                # pode ter sido aceita antes de a resposta se perder.
+                estado_desconhecido = True
                 time.sleep(2**i)
                 continue
             # -1021 (timestamp fora do recvWindow): ressincroniza e tenta de novo
             if codigo == -1021:
                 self._sincronizar_relogio()
                 ultima_falha = f"-1021 timestamp: {data.get('msg', '')}"
+                # -1021 e recusa deterministica (a exchange validou e rejeitou
+                # o timestamp): a ordem NAO entrou. Nao marca desconhecido.
                 continue
             return data
-        return {"erro": ultima_falha, "timeout_rede": "falha de rede" in ultima_falha}
+        return {"erro": ultima_falha, "timeout_rede": estado_desconhecido}
 
     def _consultar_ordem(self, client_order_id):
         """P0-4: apos timeout de rede, confirma na exchange se a ordem existe —
@@ -489,11 +545,18 @@ class Executor:
     # ordem STOP_LOSS_LIMIT viva na Binance — sobrevive a crash/travamento do bot.
 
     def _colocar_stop_exchange(self, qty, stop_price):
-        """Coloca STOP_LOSS_LIMIT SELL na exchange. Retorna orderId ou None."""
+        """Coloca STOP_LOSS_LIMIT SELL na exchange. Retorna orderId ou None.
+
+        I-10b: em estado desconhecido (5xx/429/socket), CONSULTA a exchange
+        pelo clientOrderId antes de desistir. Sem isso, um 503 na resposta
+        devolvia None enquanto a ordem existia — o bot perdia o id de um stop
+        VIVO, e o proximo `_liberar_protecao` nao teria o que cancelar.
+        """
         if self.simulacao:
             return None
         qty = self._arredondar_qty(qty)
         stop = self._arredondar_preco(stop_price)
+        client_id = f"bxstop-{uuid.uuid4().hex[:16]}"
         # price um pouco abaixo do stopPrice para garantir fill do limit
         params = {
             "symbol": self.symbol,
@@ -503,12 +566,20 @@ class Executor:
             "stopPrice": stop,
             "price": self._arredondar_preco(stop * 0.997),
             "timeInForce": "GTC",
-            "newClientOrderId": f"bxstop-{uuid.uuid4().hex[:16]}",
+            "newClientOrderId": client_id,
         }
         data = self._request_assinado("POST", "/api/v3/order", params)
         if isinstance(data, dict) and "orderId" in data:
             print(f"[EXEC] Stop na exchange @ ${stop:,.2f} (orderId={data['orderId']})")
             return data["orderId"]
+        if isinstance(data, dict) and data.get("timeout_rede"):
+            recuperada = self._consultar_ordem(client_id)
+            if recuperada:
+                print(
+                    f"[EXEC] Stop RECUPERADO apos estado desconhecido "
+                    f"(orderId={recuperada['orderId']}, clientOrderId={client_id})"
+                )
+                return recuperada["orderId"]
         print(f"[EXEC] AVISO: falha ao colocar stop na exchange: {data}")
         health.increment_metric("ordens_erro")
         return None
@@ -566,6 +637,7 @@ class Executor:
             return None
         stop = self._arredondar_preco(stop_price)
         alvo = self._arredondar_preco(target_price)
+        list_client_id = f"bxoco-{uuid.uuid4().hex[:13]}"
         params = {
             "symbol": self.symbol,
             "side": "SELL",
@@ -581,7 +653,7 @@ class Executor:
             "belowPrice": self._arredondar_preco(stop * 0.997),
             "belowTimeInForce": "GTC",
             "belowClientOrderId": f"bxsl-{uuid.uuid4().hex[:14]}",
-            "listClientOrderId": f"bxoco-{uuid.uuid4().hex[:13]}",
+            "listClientOrderId": list_client_id,
         }
         if trailing_bips and trailing_bips > 0:
             params["belowTrailingDelta"] = int(trailing_bips)
@@ -594,8 +666,64 @@ class Executor:
                 f"{f', trailing {trailing_bips}bips' if trailing_bips else ''})"
             )
             return handle
+        # I-10b: estado desconhecido — a lista pode existir. Perder o listId de
+        # um OCO vivo e pior que nao te-lo criado: as duas pernas ficam
+        # travando saldo sem ninguem para cancela-las.
+        if isinstance(data, dict) and data.get("timeout_rede"):
+            recuperada = self._consultar_oco(list_client_id)
+            if recuperada:
+                handle = self._extrair_pernas_oco(recuperada)
+                print(
+                    f"[EXEC] OCO RECUPERADO apos estado desconhecido "
+                    f"(listId={handle['oco_list_id']}, listClientOrderId={list_client_id})"
+                )
+                return handle
         print(f"[EXEC] AVISO: falha ao colocar OCO na exchange: {data}")
         health.increment_metric("ordens_erro")
+        return None
+
+    @staticmethod
+    def comissao_em_ativo_base(resp: dict, ativo_base: str) -> float:
+        """I-10c: soma a comissao cobrada NO ATIVO COMPRADO (ex.: BTC num BUY
+        de BTCUSDT). Funcao pura — testavel sem rede.
+
+        Numa conta SPOT sem desconto de BNB a Binance debita a taxa do proprio
+        ativo recebido: um BUY de 0,01 BTC com 0,1% de taxa credita 0,00999 BTC.
+        Dimensionar o stop pelos `executedQty` brutos (0,01) pede para vender
+        mais do que existe na conta — a exchange devolve -2010 e a posicao fica
+        SEM PROTECAO. Com BNB ligado a comissao vem em BNB e esta funcao
+        devolve 0,0, que e o certo: o saldo do ativo base nao foi tocado.
+
+        A resposta de MARKET/LIMIT traz `fills`, uma lista de
+        {price, qty, commission, commissionAsset} — uma entrada por nivel de
+        book consumido.
+        """
+        if not isinstance(resp, dict):
+            return 0.0
+        total = 0.0
+        for f in resp.get("fills") or []:
+            if not isinstance(f, dict):
+                continue
+            if str(f.get("commissionAsset", "")).upper() != ativo_base.upper():
+                continue  # taxa em BNB/USDT nao reduz o ativo comprado
+            try:
+                total += float(f.get("commission") or 0)
+            except (TypeError, ValueError):
+                continue
+        return total
+
+    def _consultar_oco(self, list_client_order_id):
+        """I-10b: par de `_consultar_ordem` para listas OCO. Confirma na
+        exchange se a lista existe depois de um estado desconhecido."""
+        data = self._request_assinado(
+            "GET",
+            "/api/v3/orderList",
+            {"origClientOrderId": list_client_order_id},
+            timeout=10,
+            tentativas=2,
+        )
+        if isinstance(data, dict) and data.get("orderListId") is not None:
+            return data
         return None
 
     @staticmethod
@@ -653,22 +781,103 @@ class Executor:
             print("[EXEC] OCO falhou — caindo no stop puro (protecao garantida)")
         return {"stop_order_id": self._colocar_stop_exchange(qty, stop_price), "oco_list_id": None}
 
+    def _desfazer_entrada_desprotegida(self, qty, preco_entrada, stop_pretendido):
+        """I-10d: vende a mercado uma entrada que ficou sem protecao.
+
+        Chamada quando `_abrir_protecao` nao conseguiu colocar nem OCO nem stop
+        puro. `self.posicao` ainda NAO foi montada neste ponto, entao esta
+        funcao nao pode usar `fechar_posicao` — ela opera sobre a quantidade
+        crua e registra o resultado direto.
+
+        Devolve True se a posicao foi realmente desfeita. False significa que o
+        capital esta exposto sem protecao e sem saida: o chamador tem de travar
+        o bot.
+        """
+        registrado = False
+        try:
+            database.salvar_bot_event(
+                "protecao_nao_colocada",
+                f"{self.symbol}: entrada de {qty} @ ${preco_entrada:,.2f} ficou sem "
+                f"stop (pretendido ${stop_pretendido:,.2f}). Desfazendo a mercado.",
+                service="executor",
+                symbol=self.symbol,
+                severity="CRITICAL",
+            )
+            registrado = True
+        except Exception:
+            pass
+
+        resp = self._enviar_ordem("SELL", qty, tipo="MARKET")
+        ok = isinstance(resp, dict) and resp.get("status") == "FILLED"
+        if ok:
+            preco_saida = preco_medio_fill(resp, preco_entrada)
+            prejuizo = (preco_saida - preco_entrada) * qty
+            print(
+                f"[EXEC] Entrada desprotegida DESFEITA @ ${preco_saida:,.2f} "
+                f"(custo: {prejuizo:+.2f} USDT + taxas)"
+            )
+            # O custo de desfazer e um resultado real: entra na contabilidade
+            # de risco como qualquer outro trade, senao o drawdown do dia
+            # subestima o que aconteceu.
+            try:
+                gestao_risco.registrar_resultado(prejuizo)
+                gestao_risco.persistir_estado()
+            except Exception as e:
+                print(f"[EXEC] AVISO: falha ao registrar o custo do desfazimento: {e}")
+        else:
+            print(f"[EXEC] CRITICO: SELL de desfazimento NAO preencheu: {resp}")
+
+        try:
+            telegram_bot.alerta_circuit_breaker(
+                f"{self.symbol}: protecao nao entrou. "
+                + (
+                    "Entrada desfeita a mercado."
+                    if ok
+                    else "SELL de desfazimento FALHOU — POSICAO REAL DESCOBERTA."
+                )
+            )
+        except Exception:
+            pass
+        if not registrado:
+            print("[EXEC] AVISO: bot_event de protecao_nao_colocada nao foi gravado")
+        return ok
+
     def _liberar_protecao(self):
-        """Cancela a protecao atual (lista OCO ou stop puro) e zera os ids no
-        estado. Idempotente / no-op em simulacao."""
+        """Cancela a protecao atual (lista OCO ou stop puro). Devolve True se a
+        exchange confirmou o cancelamento. Idempotente / no-op em simulacao.
+
+        I-10e: o retorno de `_cancelar_*_exchange` era DESCARTADO e os ids eram
+        zerados de qualquer jeito. Quando o cancelamento falhava, o bot
+        esquecia o id de uma ordem que continuava VIVA na exchange — travando
+        saldo que o SELL seguinte precisaria (-2010), e sem ninguem para
+        cancela-la depois, porque a referencia tinha sido apagada.
+
+        Agora os ids so sao zerados quando a exchange confirma, e a mudanca e
+        persistida (antes nao chamava `_persistir_posicao`, entao um restart
+        reidratava ids ja cancelados).
+        """
         if self.simulacao or not self.posicao:
-            return
+            return True
         oco_id = self.posicao.get("oco_list_id")
         if oco_id is not None:
-            self._cancelar_oco_exchange(oco_id)
+            ok = self._cancelar_oco_exchange(oco_id)
         else:
             stop_id = self.posicao.get("stop_order_id")
-            if stop_id:
-                self._cancelar_ordem_exchange(stop_id)
+            ok = self._cancelar_ordem_exchange(stop_id) if stop_id else True
+        if not ok:
+            print(
+                f"[EXEC] AVISO: protecao de {self.symbol} NAO cancelada — ids "
+                f"PRESERVADOS (oco={oco_id}, stop={self.posicao.get('stop_order_id')}). "
+                f"A ordem segue viva na exchange."
+            )
+            health.increment_metric("ordens_erro")
+            return False
         with self._lock:
             if self.posicao:
                 self.posicao["oco_list_id"] = None
                 self.posicao["stop_order_id"] = None
+        self._persistir_posicao()
+        return True
 
     def _mover_protecao(self, novo_stop):
         """Move a protecao para novo_stop (trailing/breakeven). Atualiza
@@ -868,7 +1077,20 @@ class Executor:
         if not self.simulacao:
             exec_qty = float(resp.get("executedQty", 0) or 0)
             if exec_qty > 0:
-                tamanho_btc = exec_qty
+                # I-10c: descontar a comissao cobrada NO ATIVO COMPRADO. Sem
+                # BNB, um BUY de 0,01 BTC com 0,1% credita 0,00999 BTC na
+                # conta; dimensionar o stop por 0,01 pede para vender mais do
+                # que existe e a exchange devolve -2010 — posicao real, SEM
+                # protecao. `_arredondar_qty` faz floor no step do par
+                # (ROUND_DOWN, :334) — arredondar para cima recriaria o mesmo
+                # problema por outro caminho.
+                comissao = self.comissao_em_ativo_base(resp, self._base_asset)
+                tamanho_btc = self._arredondar_qty(max(exec_qty - comissao, 0.0))
+                if comissao > 0:
+                    print(
+                        f"[EXEC] Comissao em {self._base_asset}: {comissao:.8f} "
+                        f"— posicao dimensionada por {tamanho_btc} (bruto {exec_qty})"
+                    )
 
         if self.modo_trend:
             # Sem alvo: a saida e o rompimento do canal Donchian-M (sinal), nao
@@ -886,6 +1108,36 @@ class Executor:
         # target1: o parcial de 50% e cancel-vende-recoloca, orquestrado pelo
         # monitor — um OCO nao expressa "50% aqui + 50% ali".
         prot = self._abrir_protecao(tamanho_btc, stop_loss, target2)
+
+        # I-10d: FAIL-CLOSED. Antes, o retorno de _abrir_protecao so alimentava
+        # o dict e a funcao seguia ate `return True` — qualquer falha (-2010
+        # saldo, -1013 filtro, rate-limit, rede) produzia uma posicao REAL
+        # anunciada como sucesso, com stop_order_id=None. Nada no loop
+        # perguntava a exchange, entao a posicao ficava desprotegida ate
+        # intervencao manual.
+        #
+        # Agora: desfaz a compra a mercado. Ficar comprado sem stop e o pior
+        # dos estados possiveis; sair imediatamente custa o spread + a taxa e
+        # devolve o sistema a um estado conhecido.
+        if not self.simulacao and prot["stop_order_id"] is None and prot["oco_list_id"] is None:
+            print(
+                f"[EXEC] CRITICO: protecao NAO entrou para {self.symbol} "
+                f"(qty={tamanho_btc}, stop=${stop_loss:,.2f}). Desfazendo a entrada."
+            )
+            health.increment_metric("ordens_erro")
+            desfeita = self._desfazer_entrada_desprotegida(tamanho_btc, preco_exec, stop_loss)
+            if not desfeita:
+                # Nao conseguiu nem sair: o unico caminho seguro e travar o bot
+                # e gritar. Melhor um bot parado com uma posicao conhecida do
+                # que um bot operando com uma posicao que ele acha protegida.
+                # `travar` (I-8) e permanente — nao se revoga na virada do dia
+                # nem no restart; so `destravar()` com a frase de confirmacao.
+                gestao_risco.travar(
+                    f"{self.symbol}: posicao aberta SEM protecao e SEM saida automatica "
+                    f"(qty={tamanho_btc} @ ${preco_exec:,.2f}) — POSICAO REAL DESCOBERTA, "
+                    f"exige intervencao manual na Binance"
+                )
+            return False
 
         with self._lock:
             self.posicao = {
@@ -1010,17 +1262,58 @@ class Executor:
         if not self.posicao:
             return
 
-        # Snapshot unico sob lock (M-2): todos os calculos de PnL/qty abaixo
-        # usam `pos`, nunca releem self.posicao diretamente -- evita reler um
-        # dict que outra chamada possa ter mutado/zerado no meio do caminho.
+        # I-10h: reentrancia. `fechar_posicao` e chamada do monitor (a cada 10s)
+        # e tambem de main.py/reconciliacao. Se a primeira chamada levantar
+        # depois de `registrar_resultado` mas antes de zerar `self.posicao`, a
+        # proxima entra de novo e contabiliza o MESMO PnL — indefinidamente, a
+        # cada ciclo. O snapshot sozinho nao protege disso: ele evita ler um
+        # dict mutado, nao evita a segunda entrada.
         with self._lock:
-            pos = dict(self.posicao) if self.posicao else None
-        if pos is None:
-            return
+            if not self.posicao:
+                return
+            if self.posicao.get("em_fechamento"):
+                print(f"[EXEC] fechar_posicao de {self.symbol} ja em andamento — ignorando")
+                return
+            self.posicao["em_fechamento"] = True
+            # Snapshot unico sob lock (M-2): todos os calculos de PnL/qty abaixo
+            # usam `pos`, nunca releem self.posicao diretamente -- evita reler
+            # um dict que outra chamada possa ter mutado/zerado no meio.
+            pos = dict(self.posicao)
 
+        try:
+            self._fechar_posicao_interno(pos, preco, motivo, parcial)
+        finally:
+            # So limpa se a posicao ainda existe: no caminho de sucesso ela ja
+            # foi para None e recriar a chave ressuscitaria um dict morto.
+            with self._lock:
+                if self.posicao:
+                    self.posicao["em_fechamento"] = False
+
+    def _fechar_posicao_interno(self, pos, preco, motivo, parcial):
         # P0-2/P2-1: liberar o saldo travado pela protecao (OCO ou stop puro)
-        # na exchange antes do SELL
-        self._liberar_protecao()
+        # na exchange antes do SELL.
+        #
+        # I-10e: se o cancelamento NAO confirmar, abortar aqui. A protecao
+        # segue viva travando o saldo, entao o SELL cairia em -2010 — e o ramo
+        # de falha abaixo chamaria `_abrir_protecao`, criando uma SEGUNDA
+        # protecao sobre o mesmo saldo. Melhor sair e tentar no proximo ciclo.
+        if not self._liberar_protecao():
+            print(
+                f"[EXEC] Fechamento de {self.symbol} ADIADO: protecao nao pode ser "
+                f"cancelada. Nova tentativa no proximo ciclo."
+            )
+            try:
+                database.salvar_bot_event(
+                    "fechamento_adiado",
+                    f"{self.symbol}: cancelamento da protecao falhou; SELL nao enviado "
+                    f"para nao duplicar protecao. Motivo do fechamento: {motivo}",
+                    service="executor",
+                    symbol=self.symbol,
+                    severity="WARNING",
+                )
+            except Exception:
+                pass
+            return
 
         qty = pos["tamanho_btc"]
         if parcial:
@@ -1099,15 +1392,28 @@ class Executor:
             f"Motivo: {motivo}"
         )
 
+        # I-10h: `salvar_sinal` vem ANTES de `registrar_resultado`, e o que pode
+        # falhar (I/O de banco) nao derruba mais a funcao.
+        #
+        # Era o contrario: `registrar_resultado` (que muta o estado de risco em
+        # memoria) rodava primeiro e `salvar_sinal` logo depois, sem try. Uma
+        # excecao no banco propagava ate o `except` do monitor, `self.posicao`
+        # nunca era zerada (isso so acontece bem abaixo), e 10 segundos depois o
+        # mesmo tick refazia tudo — somando o MESMO PnL ao drawdown do dia a
+        # cada ciclo, para sempre. O registro de risco agora e a ULTIMA coisa a
+        # acontecer nesta secao, e o unico passo que nao pode falhar.
+        try:
+            database.salvar_sinal(
+                "FECHAR_LONG" if pnl_usdt >= 0 else "STOP",
+                preco_saida,  # o preco EXECUTADO, nao a referencia do monitor
+                f"{motivo} | PnL: {pnl_pct:+.2f}%",
+                symbol=self.symbol,
+                source="executor",
+                executado=True,
+            )
+        except Exception as e:
+            print(f"[EXEC] AVISO: falha ao salvar sinal de fechamento: {e}")
         gestao_risco.registrar_resultado(pnl_usdt)
-        database.salvar_sinal(
-            "FECHAR_LONG" if pnl_usdt >= 0 else "STOP",
-            preco_saida,  # o preco EXECUTADO, nao a referencia do monitor
-            f"{motivo} | PnL: {pnl_pct:+.2f}%",
-            symbol=self.symbol,
-            source="executor",
-            executado=True,
-        )
 
         if parcial:
             # P1-3: acumula o PnL desta perna parcial -- o fechamento FINAL
@@ -1220,11 +1526,33 @@ class Executor:
 
         A decisão por-tick fica em avaliar_tick_monitor() (pura/testável); aqui
         há apenas I/O (preço, fechamento, sleep) e atualização de estado sob lock.
+
+        I-10f: esta thread e a unica coisa entre a posicao e o mercado quando o
+        stop server-side nao basta (parcial, trailing local). Ela nao pode
+        morrer em silencio, e por isso:
+
+        - `preco_pico` e inicializado DENTRO do laco protegido. Estava fora do
+          try: se `self.posicao` fosse None no instante do start (corrida com um
+          fechamento imediato), a thread levantava AttributeError e morria antes
+          do primeiro tick — sem log, sem alerta.
+        - o `break` apos `fechar_posicao` deixou de ser incondicional. O
+          fechamento tem caminhos que MANTEM a posicao de proposito (SELL nao
+          preencheu, cancelamento da protecao falhou); sair do laco ali deixava
+          a posicao viva e sem monitor.
         """
-        preco_pico = self.posicao["entrada"]
+        preco_pico = None
+        ciclos = 0
+        fechamentos_falhos = 0
 
         while self._ativo and self.posicao:
             try:
+                if preco_pico is None:
+                    with self._lock:
+                        if not self.posicao:
+                            break
+                        preco_pico = self.posicao["entrada"]
+
+                ciclos += 1
                 preco = self.get_preco()
                 if preco <= 0:
                     time.sleep(5)
@@ -1260,7 +1588,27 @@ class Executor:
                 # Fechamento terminal (stop loss ou take-profit final)
                 if d["encerrar"]:
                     self.fechar_posicao(preco, d["fechar_total"])
-                    break
+                    # I-10f: so encerra o laco se a posicao REALMENTE fechou.
+                    # `fechar_posicao` mantem a posicao de proposito quando o
+                    # SELL nao preenche ou a protecao nao pode ser cancelada;
+                    # o `break` incondicional matava o monitor e deixava a
+                    # posicao viva sem trailing, sem parcial e sem retry.
+                    if not self.posicao:
+                        break
+                    fechamentos_falhos += 1
+                    print(
+                        f"[EXEC] Fechamento de {self.symbol} nao concluiu "
+                        f"(tentativa {fechamentos_falhos}) — monitor SEGUE ativo."
+                    )
+                    # Retentar e melhor que morrer, mas retentar em silencio
+                    # para sempre e so outra forma de falhar sem ninguem ver.
+                    # Escala UMA vez ao cruzar o limite (latched) e segue
+                    # tentando: se a exchange voltar, a posicao ainda fecha.
+                    if fechamentos_falhos == MAX_FECHAMENTOS_FALHOS:
+                        self._escalar_fechamento_travado(fechamentos_falhos, d["fechar_total"])
+                    time.sleep(10)
+                    continue
+                fechamentos_falhos = 0
 
                 # Take-profit parcial (50%) + stop em breakeven
                 if d["fechar_parcial"]:
@@ -1281,10 +1629,171 @@ class Executor:
                     except Exception:
                         pass
 
+                # I-10g: perguntar a exchange, nao so olhar o preco.
+                if ciclos % CICLOS_ENTRE_RECONCILIACOES == 0:
+                    self._reconciliar_protecao_viva()
+
             except Exception as e:
                 print(f"[EXEC] Erro no monitor: {e}")
 
             time.sleep(10)  # verificar a cada 10 segundos
+
+    def _escalar_fechamento_travado(self, tentativas, motivo):
+        """I-10f: N fechamentos seguidos falharam. Grita uma vez e trava o bot.
+
+        A posicao segue aberta e o monitor segue tentando — travar impede
+        ENTRADAS novas, nao a saida desta. O que nao pode acontecer e o bot
+        abrir a proxima posicao enquanto esta esta presa.
+        """
+        msg = (
+            f"{self.symbol}: {tentativas} tentativas de fechamento ({motivo}) falharam "
+            f"seguidas. Posicao segue ABERTA; o monitor continua retentando."
+        )
+        print(f"[EXEC] CRITICO: {msg}")
+        try:
+            database.salvar_bot_event(
+                "fechamento_travado",
+                msg,
+                service="executor",
+                symbol=self.symbol,
+                severity="CRITICAL",
+            )
+        except Exception:
+            pass
+        try:
+            gestao_risco.travar(msg)
+        except Exception as e:
+            print(f"[EXEC] AVISO: falha ao travar o bot: {e}")
+
+    def _reconciliar_protecao_viva(self):
+        """I-10g: confirma na exchange que a protecao da posicao ainda existe.
+
+        Todo o resto do monitor decide olhando o PRECO. Isso e cego para os
+        dois estados que mais importam:
+
+          1. o stop EXECUTOU na exchange (gap noturno, ou o servidor trilhou
+             sozinho via trailingDelta) e o bot segue achando que esta
+             comprado — continua movendo stop de uma posicao que nao existe,
+             e o PnL nunca e contabilizado;
+          2. o stop foi CANCELADO por fora (na interface da Binance, ou por um
+             cancel-all) e a posicao esta descoberta sem ninguem saber.
+
+        `_status_ordem` existia e tinha 2 chamadores, um deles atras de flag
+        desligada. Aqui ela vira o unico caminho que fecha o circuito.
+        """
+        if self.simulacao or not self.posicao:
+            return
+        stop_id = self.posicao.get("stop_order_id")
+        if not stop_id:
+            return  # sem id para consultar (OCO com trailing server-side, etc.)
+        status = self._status_ordem(stop_id)
+        if not status:
+            return  # consulta falhou: nao concluir nada de uma resposta ausente
+        estado = status.get("status")
+        if estado == "FILLED":
+            preco_stop = float(status.get("price") or self.posicao.get("stop_atual") or 0) or None
+            print(
+                f"[EXEC] Stop de {self.symbol} EXECUTOU na exchange (orderId={stop_id}) "
+                f"— reconciliando o fechamento localmente."
+            )
+            try:
+                database.salvar_bot_event(
+                    "stop_executado_fora_do_bot",
+                    f"{self.symbol}: stop {stop_id} preencheu na exchange; o bot detectou "
+                    f"na reconciliacao periodica, nao no proprio fluxo de fechamento.",
+                    service="executor",
+                    symbol=self.symbol,
+                    severity="WARNING",
+                )
+            except Exception:
+                pass
+            # A protecao ja nao existe: zerar os ids ANTES de fechar evita que
+            # `_liberar_protecao` tente cancelar uma ordem preenchida.
+            with self._lock:
+                if self.posicao:
+                    self.posicao["stop_order_id"] = None
+                    self.posicao["oco_list_id"] = None
+            self._fechar_por_reconciliacao(preco_stop or self.get_preco(), "Stop Loss")
+        elif estado in ("CANCELED", "EXPIRED", "REJECTED"):
+            print(
+                f"[EXEC] AVISO: protecao de {self.symbol} sumiu da exchange "
+                f"(orderId={stop_id}, status={estado}) — recolocando."
+            )
+            health.increment_metric("ordens_erro")
+            prot = self._abrir_protecao(
+                self.posicao["tamanho_btc"],
+                self.posicao["stop_atual"],
+                self.posicao.get("target2"),
+            )
+            with self._lock:
+                if self.posicao:
+                    self.posicao["stop_order_id"] = prot["stop_order_id"]
+                    self.posicao["oco_list_id"] = prot["oco_list_id"]
+            self._persistir_posicao()
+            if prot["stop_order_id"] is None and prot["oco_list_id"] is None:
+                gestao_risco.travar(
+                    f"{self.symbol}: protecao sumiu da exchange e nao pode ser recolocada "
+                    f"— posicao real descoberta"
+                )
+
+    def _fechar_por_reconciliacao(self, preco, motivo):
+        """Fecha o registro LOCAL de uma posicao que a exchange ja encerrou.
+
+        Caminho separado de `fechar_posicao` de proposito: aquela envia um SELL
+        a mercado, e aqui a exchange ja vendeu — o SELL seria uma venda a
+        descoberto de um saldo que nao existe mais. Este metodo so contabiliza:
+        PnL, sinal, risco e limpeza de estado.
+        """
+        with self._lock:
+            pos = dict(self.posicao) if self.posicao else None
+            if pos is None or pos.get("em_fechamento"):
+                return
+            self.posicao["em_fechamento"] = True
+        try:
+            qty = pos["tamanho_btc"]
+            pnl_usdt = (preco - pos["entrada"]) * qty
+            pnl_pct = (preco - pos["entrada"]) / pos["entrada"] * 100 if pos["entrada"] else 0.0
+            print(
+                f"[EXEC] RECONCILIADO: {self.symbol} fechado na exchange @ ${preco:,.2f} "
+                f"| PnL: {pnl_usdt:+.2f} USDT ({pnl_pct:+.2f}%) | Motivo: {motivo}"
+            )
+            pnl_total = pos.get("pnl_usdt_parcial_acumulado", 0.0) + pnl_usdt
+            try:
+                database.atualizar_sinal_fechamento(
+                    pos.get("sinal_id"),
+                    preco,
+                    round(pnl_total, 2),
+                    round(pnl_pct, 4),
+                    _classificar_barreira(motivo),
+                )
+            except Exception as e:
+                print(f"[EXEC] AVISO: falha ao atualizar sinal na reconciliacao: {e}")
+            try:
+                database.salvar_sinal(
+                    "STOP",
+                    preco,
+                    f"{motivo} (reconciliado) | PnL: {pnl_pct:+.2f}%",
+                    symbol=self.symbol,
+                    source="executor",
+                    executado=True,
+                )
+            except Exception as e:
+                print(f"[EXEC] AVISO: falha ao salvar sinal na reconciliacao: {e}")
+            gestao_risco.registrar_resultado(pnl_usdt)
+            with self._lock:
+                self.posicao = None
+                self._ativo = False
+            self._persistir_posicao()
+            gestao_risco.decrementar_posicoes_abertas()
+            gestao_risco.persistir_estado()
+            try:
+                telegram_bot.alerta_stop(preco, pnl_total)
+            except Exception:
+                pass
+        finally:
+            with self._lock:
+                if self.posicao:
+                    self.posicao["em_fechamento"] = False
 
     # ── Reconciliacao de boot (auditoria 2026-07-22) ───────────
     # O boot recovery legado (main.py:loop_par) so lia database.carregar_

@@ -241,7 +241,7 @@ def test_sequencia_ratchet_e_reversao():
 # ── 8. Wrapper _monitorar (I/O do loop) — integração com mocks ─────────────
 
 
-def _exec_com_posicao(stop=STOP, t1=T1, t2=T2, parcial=False):
+def _exec_com_posicao(stop=STOP, t1=T1, t2=T2, parcial=False, fechamento_falha=False):
     ex = Executor(simulacao=True, symbol="BTCUSDT")
     ex.posicao = {
         "tipo": "LONG",
@@ -256,7 +256,20 @@ def _exec_com_posicao(stop=STOP, t1=T1, t2=T2, parcial=False):
         "order_id": "SIM-1",
     }
     ex._ativo = True
-    ex.fechar_posicao = MagicMock()
+    # I-10f: o monitor deixou de dar `break` incondicional depois de
+    # `fechar_posicao` — ele agora confere se a posicao REALMENTE fechou, para
+    # nao morrer quando o SELL nao preenche (a posicao ficava viva e sem
+    # monitor). Um MagicMock puro nunca limpa `ex.posicao`, entao o laco
+    # giraria para sempre; o mock precisa simular o efeito de um fechamento
+    # bem-sucedido. Quem quiser exercitar o fechamento que FALHA usa
+    # `_exec_com_posicao(fechamento_falha=True)`.
+    def _fechar_de_verdade(*a, **k):
+        if not k.get("parcial"):
+            ex.posicao = None
+
+    ex.fechar_posicao = MagicMock(
+        side_effect=None if fechamento_falha else _fechar_de_verdade
+    )
     return ex
 
 
