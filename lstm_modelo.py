@@ -101,6 +101,27 @@ def preparar_sequencias(intervalo="1h"):
     return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
 
 
+# E-10: piso de promocao. 0,55 nao e uma meta ambiciosa — e o minimo para o
+# modelo nao ser moeda. Um classificador com AUC 0,50 nao carrega informacao
+# nenhuma, e o MLP que estava em producao marcava 0,5685: dentro do ruido de
+# uma amostra deste tamanho, e ainda assim com 45% do peso do ensemble.
+CV_AUC_MINIMO = 0.55
+
+
+def promover_modelo(cv_mean, auc) -> bool:
+    """O modelo recem-treinado merece substituir o que esta em producao?
+
+    Usa o cv_auc PURGADO quando existe — e a estimativa honesta. So cai no AUC
+    do hold-out quando a CV nao pode ser calculada (serie curta demais).
+    Funcao pura, para que o gate seja testavel sem treinar nada.
+    """
+    referencia = cv_mean if cv_mean is not None else auc
+    try:
+        return float(referencia) >= CV_AUC_MINIMO
+    except (TypeError, ValueError):
+        return False
+
+
 def treinar(intervalo="1h", max_iter=200):
     """Treina o MLP sequencial e salva."""
     print(f"[SEQ] Preparando sequencias [{intervalo}]...")
@@ -208,8 +229,37 @@ def treinar(intervalo="1h", max_iter=200):
     # nao por par).
     verificar_drift_e_registrar(SYMBOL, "MLP", float(auc), cv_mean, cv_std)
 
+    # E-10: GATE DE PROMOCAO. O pickle era salvo INCONDICIONALMENTE — um MLP
+    # com cv_auc 0,5685 (ruido: 0,50 e moeda) foi promovido a 45% do peso do
+    # ensemble sem nenhum criterio. Um modelo pior que o anterior substituia o
+    # anterior, e o unico registro era uma linha de log.
+    if not promover_modelo(cv_mean, auc):
+        print(
+            f"[SEQ] MODELO NAO PROMOVIDO: cv_auc {cv_mean if cv_mean is not None else auc:.4f} "
+            f"< piso de {CV_AUC_MINIMO:.4f}. O pickle ANTERIOR foi preservado."
+        )
+        try:
+            import database
+
+            database.salvar_bot_event(
+                "modelo_nao_promovido",
+                f"MLP treinado com cv_auc={cv_mean} auc={auc} abaixo do piso "
+                f"{CV_AUC_MINIMO}; promocao recusada.",
+                service="worker",
+                symbol=SYMBOL,
+                severity="WARNING",
+            )
+        except Exception:
+            pass
+        return None
+
     os.makedirs("data", exist_ok=True)
-    with open(MODEL_PATH, "wb") as f:
+    # E-10: escrita ATOMICA (tmp + os.replace), como ml_filtro.py:352-367 ja
+    # fazia no mesmo repo. Um crash no meio do `pickle.dump` deixava um pickle
+    # TRUNCADO no lugar do modelo bom — e o proximo `prever()` explodiria no
+    # load, que e o caminho de fail-open que entregava pontos de graca.
+    tmp_path = f"{MODEL_PATH}.tmp"
+    with open(tmp_path, "wb") as f:
         pickle.dump(
             {
                 "modelo": modelo,
@@ -228,6 +278,7 @@ def treinar(intervalo="1h", max_iter=200):
             },
             f,
         )
+    os.replace(tmp_path, MODEL_PATH)
 
     print(f"[SEQ] Modelo salvo em: {MODEL_PATH}")
     return modelo
