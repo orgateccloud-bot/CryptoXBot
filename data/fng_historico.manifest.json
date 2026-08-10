@@ -1,0 +1,9 @@
+{
+  "coletado_em": "2026-08-10T21:37:05Z",
+  "dias": 3109,
+  "dias_faltantes": 4,
+  "fim": "2026-08-10",
+  "fonte": "https://api.alternative.me/fng/?limit=0&format=json",
+  "inicio": "2018-02-01",
+  "sha256": "9678cf8d3cd19a35b5b75025908894bdb33fbe3c95e10a968d31e9e33db6293e"
+}

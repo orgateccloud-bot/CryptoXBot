@@ -19,3 +19,7 @@ data/snapshots/** -text
 # Os vereditos re-derivados (JSON) sao comparados campo a campo, nao por hash,
 # mas mante-los estaveis evita diff ruidoso entre plataformas.
 research/vereditos/** -text
+
+# E-9: o sha256 do manifest quebra se o checkout converter LF->CRLF
+data/fng_historico.json -text
+data/fng_historico.manifest.json -text

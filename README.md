@@ -37,7 +37,7 @@ estrategias/       # Estratégias de trading (otimizada)
 scripts/           # migrate_sqlite_to_supabase.py
 supabase/          # migrations/ (schema Postgres)
 templates/         # dashboard HTML
-tests/             # pytest (1520 passed, 8 skipped)
+tests/             # pytest (1537 passed, 8 skipped)
 docs/              # vault Obsidian (relatórios, deploy, pontuações)
 ```
 
@@ -68,7 +68,7 @@ python dashboard.py                 # http://localhost:5000
 Testes:
 
 ```bash
-pytest tests/ -v                    # 1520 passed, 8 skipped
+pytest tests/ -v                    # 1537 passed, 8 skipped
 ```
 
 ## Deploy (VPS + Supabase)

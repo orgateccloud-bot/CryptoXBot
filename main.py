@@ -1506,6 +1506,12 @@ def main():
     # rebaixado para paper por falta da env passaria a operar trend com capital
     # real no dia em que ligasse a env, sem nenhum novo aviso.
     _validar_trend_so_em_simulacao(MODO_TREND, simulacao)
+    # E-9: recusa a INTENCAO de operar real com parametros sem procedencia —
+    # pelo mesmo motivo da trava de trend acima, e ANTES do downgrade por
+    # ALLOW_REAL_TRADING. Quem hoje e rebaixado a paper por falta da env
+    # passaria a operar com parametros inauditaveis no dia em que a ligasse,
+    # sem nenhum aviso novo. Paper e backtest nao passam por aqui: e com
+    # parametros nao auditados que se MEDE.
     if args.real and not ALLOW_REAL_TRADING:
         simulacao = True
         print(
@@ -1546,6 +1552,17 @@ def main():
         pares = [args.par.upper()]
     else:
         pares = PARES_ATIVOS
+
+    # E-9: capital real exige parametros com procedencia auditavel. A checagem
+    # olha `args.real` (a INTENCAO), nao `simulacao` — pelo mesmo motivo da
+    # trava de trend acima: quem hoje e rebaixado a paper por falta de
+    # ALLOW_REAL_TRADING passaria a operar com parametros inauditaveis no dia
+    # em que ligasse a env, sem nenhum aviso novo. Paper e backtest NAO passam
+    # por aqui: e justamente com parametros nao auditados que se mede.
+    if args.real:
+        from config import params_pares as _params_pares
+
+        _params_pares.exigir_params_auditados(pares)
 
     # Modos de uso único
     if args.relatorio:

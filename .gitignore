@@ -14,6 +14,13 @@ data/*.sqlite
 data/*.sqlite3
 data/*.csv
 data/*.json
+# E-9/I-12g: o historico de Fear & Greed E versionado. Sem ele nao existe
+# medicao valida para o gate (a producao aplica o veto de sentimento; o
+# backtest sem o arquivo rodava com neutro fixo). Sao ~100 KB de dado
+# publico, e versiona-los e o que torna a medicao reproduzivel num clone
+# limpo -- mesmo criterio de I-11.
+!data/fng_historico.json
+!data/fng_historico.manifest.json
 data/__pycache__/
 
 # I-11: o snapshot de pesquisa e VERSIONADO de proposito. Sem ele no git,
