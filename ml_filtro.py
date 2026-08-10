@@ -139,6 +139,45 @@ def extrair_features(fechamentos, maximas, minimas, volumes, i):
 # ── Preparar dataset ──────────────────────────────────────────
 
 
+def rotular_barreira_tripla(maximas, minimas, i, preco_entrada, alvo_pct, stop_pct, janela):
+    """Rótulo de barreira tripla (E-10). Devolve (label, barreira, velas).
+
+    O rótulo antigo era:
+
+        preco_futuro = max(fechamentos[i+1 : i+JANELA+1])
+        label = 1 if (preco_futuro - preco_entrada)/preco_entrada >= ALVO_PCT
+
+    Dois defeitos, e o segundo é o grave:
+
+    1. Lia só FECHAMENTOS. O stop e o alvo são tocados INTRABAR, pela mínima e
+       pela máxima — um alvo atingido no meio da vela e desfeito antes do
+       fechamento não aparecia, e um stop estourado no meio da vela também não.
+    2. Não tinha barreira INFERIOR. `max()` dos 8 fechamentos seguintes ignora
+       o CAMINHO: um trade que cai 3% (estourando o stop, encerrando a posição
+       com prejuízo) e só depois sobe 1,5% era rotulado **POSITIVO**. O modelo
+       estava sendo otimizado para uma pergunta que a mesa não faz.
+
+    Agora são três barreiras, e vence a primeira tocada:
+
+        superior  entrada * (1 + alvo_pct)   -> label 1
+        inferior  entrada * (1 - stop_pct)   -> label 0  (o trade morreu)
+        vertical  `janela` velas             -> label 0  (não andou a tempo)
+
+    No candle ambíguo — mínima abaixo do stop E máxima acima do alvo na MESMA
+    vela — o STOP vence. Não dá para saber a ordem intrabar, e assumir a pior
+    é a mesma convenção já usada em `walk_forward` e no `otimizador`.
+    """
+    alvo = preco_entrada * (1 + alvo_pct)
+    stop = preco_entrada * (1 - stop_pct)
+    fim = min(i + janela + 1, len(maximas))
+    for k in range(i + 1, fim):
+        if minimas[k] <= stop:  # stop-first no candle ambiguo
+            return 0, "STOP", k - i
+        if maximas[k] >= alvo:
+            return 1, "ALVO", k - i
+    return 0, "TEMPO", janela
+
+
 def preparar_dataset(intervalo="1h", symbol="BTCUSDT"):
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
@@ -161,16 +200,33 @@ def preparar_dataset(intervalo="1h", symbol="BTCUSDT"):
     minimas = [r[2] for r in rows]
     volumes = [r[3] for r in rows]
 
+    # E-10: a barreira inferior e o STOP REAL do par (config/params_pares.py),
+    # nao um numero inventado aqui — e ele que encerra a posicao em producao.
+    from config.params_pares import get_params
+
+    stop_pct = get_params(symbol)["stop_pct"]
+
     X, y = [], []
+    barreiras = {"ALVO": 0, "STOP": 0, "TEMPO": 0}
     for i in range(55, len(fechamentos) - JANELA):
         feat = extrair_features(fechamentos, maximas, minimas, volumes, i)
         if feat is None:
             continue
-        preco_entrada = fechamentos[i]
-        preco_futuro = max(fechamentos[i + 1 : i + JANELA + 1])
-        label = 1 if (preco_futuro - preco_entrada) / preco_entrada >= ALVO_PCT else 0
+        label, barreira, _velas = rotular_barreira_tripla(
+            maximas, minimas, i, fechamentos[i], ALVO_PCT, stop_pct, JANELA
+        )
+        barreiras[barreira] += 1
         X.append(feat)
         y.append(label)
+
+    total = max(len(y), 1)
+    print(
+        f"[ML] Rotulos (barreira tripla, alvo {ALVO_PCT:.1%} / stop {stop_pct:.1%} / "
+        f"{JANELA} velas): "
+        f"ALVO {barreiras['ALVO']} ({barreiras['ALVO']/total:.1%})  "
+        f"STOP {barreiras['STOP']} ({barreiras['STOP']/total:.1%})  "
+        f"TEMPO {barreiras['TEMPO']} ({barreiras['TEMPO']/total:.1%})"
+    )
 
     return np.array(X), np.array(y)
 
