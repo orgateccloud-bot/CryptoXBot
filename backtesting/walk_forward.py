@@ -625,6 +625,19 @@ def walk_forward(
                     # snapshot de `parcial_feita`, entao a parcial dispara num
                     # tick e o runner so pode fechar no seguinte — que ainda
                     # cai dentro da mesma hora.
+                    #
+                    # VIES CONHECIDO, medido em 2026-08-09 (BTCUSDT, 488
+                    # trades): TARGET_FINAL nunca dispara. Na 2a passada o
+                    # stop e checado antes do target2, e a essa altura
+                    # `stop_atual` ja e o trailing do pico DESTE candle
+                    # (pico*0,992). Para o runner chegar em target2, a minima
+                    # do candle teria de ficar a menos de 0,8% da propria
+                    # maxima — praticamente nunca. Producao, que roda por
+                    # tick, fecharia em target2 (~pico) no tick seguinte ao da
+                    # parcial. O vies e conservador e limitado: ~0,8% sobre
+                    # METADE da posicao, em 3 dos 488 trades. Manter a
+                    # convencao stop-first (a ordem intra-candle e desconhecida
+                    # e e a mesma escolha ja feita no candle ambiguo).
                     for _passada in range(2):
                         if posicao is None:
                             break
