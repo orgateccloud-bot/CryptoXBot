@@ -389,8 +389,20 @@ def test_cvd_negativo_bloqueia_compra_vira_aguardar(patch_otimizada):
 # ===========================================================================
 
 
-def test_ensemble_none_e_prever_lanca_usa_fallback(patch_otimizada, monkeypatch):
-    """ens.prever() explode -> except interno cai no dict de fallback 0.5."""
+def test_ensemble_indisponivel_resulta_em_aguardar(patch_otimizada, monkeypatch):
+    """E-10: `ens.prever()` explode -> AGUARDAR, nunca pontuação neutra.
+
+    Este teste AFIRMAVA o defeito. Ele exigia `ml_ensemble == 0.5` e
+    `ml_confianca == "NENHUM"` — que era exatamente o fail-open: substituir o
+    modelo quebrado por uma probabilidade neutra. E `_score_ml(0.5)` vale 50
+    de 100 num componente que pesa 20 pontos, então a FALHA entregava 10
+    pontos de graça e ainda liberava o filtro "ml".
+
+    O cenário é o mais favorável possível a uma COMPRA — regime
+    TENDENCIA_ALTA com score 90, F&G neutro, CVD positivo, série em alta —
+    justamente para que o único motivo de não comprar seja a ausência do
+    modelo.
+    """
     d1h = _serie_klines(n=100, base=100.0, passo=1.0, vol_ultima=2000.0)
     d4h = _serie_klines(n=60, base=100.0, passo=1.0)
     patch_otimizada(d1h, d4h, _regime("TENDENCIA_ALTA", score=90), _fear(valor=50), _suporte())
@@ -402,10 +414,12 @@ def test_ensemble_none_e_prever_lanca_usa_fallback(patch_otimizada, monkeypatch)
 
     r = otimizada.analisar("BTCUSDT", cvd_atual=10.0, ml_prob=0.80, ensemble_result=None)
 
-    assert r["sinal"] in ("COMPRA", "VENDA", "AGUARDAR")
-    # fallback: prob_ensemble 0.5 e confianca "NENHUM"
-    assert r["ml_ensemble"] == pytest.approx(0.5)
-    assert r["ml_confianca"] == "NENHUM"
+    assert r["sinal"] == "AGUARDAR", "modelo indisponivel nao pode gerar entrada"
+    assert r["tamanho_fator"] == 0.0, "o fator tem de zerar, nao so o sinal"
+    # e o estado tem de ser LEGIVEL: 0.5 dizia "o modelo achou 50%", o que e
+    # falso — ele nao achou nada.
+    assert r["ml_ensemble"] is None
+    assert r["ml_confianca"] == "INDISPONIVEL"
 
 
 # ===========================================================================

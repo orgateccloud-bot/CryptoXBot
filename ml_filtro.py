@@ -48,8 +48,44 @@ MODEL_PATH = _model_path()  # retrocompat
 # ── Extração de features ──────────────────────────────────────
 
 
+# E-10: quantas velas o extrator precisa ANTES de i para que todo indicador
+# recursivo tenha convergido. O ATR de Wilder e uma media exponencial: com 100
+# velas o valor em i ainda carrega memoria do inicio da janela, e o mesmo
+# indice calculado sobre a serie inteira dava outro numero. Com 300, o peso do
+# arranque decai a ~(13/14)^250 ~ 1e-8 — abaixo da tolerancia de paridade.
+CONTEXTO_MINIMO = 300
+
+
 def extrair_features(fechamentos, maximas, minimas, volumes, i):
-    """Extrai vetor de features para o índice i."""
+    """Extrai vetor de features para o índice i.
+
+    E-10 — TRAIN/SERVE SKEW. Este extrator e chamado dos dois lados: o treino
+    passa a serie INTEIRA (ml_filtro.py:128) e a inferencia passava 100 velas
+    (:340). Como ele fatia `[:i+1]`, qualquer indicador que dependa do TAMANHO
+    da janela produzia valores diferentes para a MESMA barra.
+
+    Medido em 200 barras de BTCUSDT 1h (serie de 17.563 velas):
+
+        feature      |dif| media   |dif| max
+        dist_vwap      0,258252     0,494499   <- e com SINAL INVERTIDO
+        atr_rel        0,000242     0,003428
+
+    Exemplo na barra 17.525: treino -0,1831, inferencia +0,0097. O modelo
+    aprendeu numa variedade que a producao nunca visita, e `dist_vwap` e
+    componente de um score que pesa 20 pontos.
+
+    As duas correcoes:
+
+    1. `vwap_rolling(20)` no lugar do VWAP CUMULATIVO. O cumulativo ancora no
+       inicio da janela — com 2 anos de serie ele fica a 20% do preco atual,
+       com 100 velas fica colado nele. A versao por janela nao depende de onde
+       a serie comeca, e e a que o backtest ja usava.
+    2. `CONTEXTO_MINIMO` velas de contexto, para o ATR de Wilder convergir.
+
+    O que isto invalida: modelos treinados antes desta mudanca aprenderam
+    `dist_vwap` cumulativo. Precisam ser RETREINADOS — o pickle antigo prediz
+    sobre uma feature que nao existe mais.
+    """
     if i < 55:
         return None
 
@@ -70,7 +106,9 @@ def extrair_features(fechamentos, maximas, minimas, volumes, i):
     bb_u, bb_m, bb_l = ind.bollinger(f, 20, 2)
     bw_v = ind.bandwidth(bb_u, bb_m, bb_l)[-1] or 0
     bw_med = sum(x for x in ind.bandwidth(bb_u, bb_m, bb_l)[-20:] if x) / 20
-    vwap_v = ind.vwap(m, mn, f, v)[-1]
+    # E-10: rolling(20), nao cumulativo — ver o docstring. O cumulativo fazia
+    # `dist_vwap` depender de onde a serie comeca.
+    vwap_v = ind.vwap_rolling(m, mn, f, v, periodo=20)[-1]
 
     var_1 = (f[-1] - f[-2]) / f[-2] if len(f) >= 2 else 0
     var_4 = (f[-1] - f[-5]) / f[-5] if len(f) >= 5 else 0
@@ -334,7 +372,10 @@ def prever(symbol="BTCUSDT"):
         try:
             r = requests.get(
                 f"{BASE_URL}/api/v3/klines",
-                params={"symbol": symbol, "interval": intervalo, "limit": 100},
+                # E-10: era 100. O ATR de Wilder e recursivo e com 100 velas ainda
+                # nao convergiu para o valor que o treino (serie inteira) ve na
+                # MESMA barra — divergencia medida de ate 0,0034 em atr_rel.
+                params={"symbol": symbol, "interval": intervalo, "limit": CONTEXTO_MINIMO},
                 timeout=8,
             )
             r.raise_for_status()

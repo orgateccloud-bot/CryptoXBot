@@ -116,14 +116,29 @@ def analisar(
     fear_info = fg.obter()
 
     # ── Ensemble ML (XGBoost + LSTM) ──────────────────────────
+    ensemble_indisponivel = False
     if ensemble_result is None:
         try:
             # E-7: ensemble DO PAR. Ha modelo XGBoost treinado para cada um dos
             # tres pares (data/modelo_xgb_{par}.pkl) — o que faltava era alguem
             # passar o symbol para que fosse carregado.
             ensemble_result = ens.prever(symbol, regime_info["regime_final"])
-        except Exception:
-            ensemble_result = {"prob_ensemble": 0.5, "pode_operar": True, "confianca": "NENHUM"}
+        except Exception as e:
+            # E-10: o fail-open PREMIAVA a falha. Substituia o ensemble por
+            # {prob 0.5, pode_operar True}, e `_score_ml(0.5)` vale 50 de 100
+            # num componente que pesa 20 pontos — modelo quebrado entregava 10
+            # pontos de graca e ainda liberava o filtro "ml". Pior: `pode_operar`
+            # nao e gate da decisao (quem decide e o score), entao nem o filtro
+            # segurava.
+            #
+            # Agora e fail-CLOSED: modelo indisponivel nao pontua neutro, nao
+            # pontua nada — a avaliacao devolve AGUARDAR. Reduzir exposicao
+            # seria o minimo; nao operar e o correto enquanto 20 dos 100 pontos
+            # do score vem de um numero que nao existe.
+            print(f"[OTIMIZADA] {symbol}: ensemble indisponivel ({e}) — AGUARDAR")
+            ensemble_indisponivel = True
+            ensemble_result = {"prob_ensemble": None, "pode_operar": False,
+                               "confianca": "INDISPONIVEL"}
 
     ml_ensemble_prob = ensemble_result.get("prob_ensemble", ml_prob or 0.5)
     ml_pode = ensemble_result.get("pode_operar", True)
@@ -172,7 +187,15 @@ def analisar(
     decisao = score_result["decisao"]
     tamanho_fator = score_result["tamanho_fator"]
 
-    if decisao == "OPERAR_CHEIO" and filtros["ema_1h"] and filtros["cvd"]:
+    # E-10: ensemble indisponivel veta a entrada, seja qual for o score. O
+    # componente ML pesa 20 dos 100 pontos; operar sem ele e operar com um
+    # quinto da regua faltando — e antes disso o fail-open ainda ENTREGAVA
+    # esses pontos como se o modelo tivesse opinado.
+    if ensemble_indisponivel:
+        decisao = "AGUARDAR"
+        tamanho_fator = 0.0
+        sinal = "AGUARDAR"
+    elif decisao == "OPERAR_CHEIO" and filtros["ema_1h"] and filtros["cvd"]:
         sinal = "COMPRA"
     elif decisao == "OPERAR_REDUZIDO" and filtros["ema_1h"] and filtros["cvd"]:
         sinal = "COMPRA"

@@ -318,7 +318,16 @@ def test_prever_envia_symbol_interval_limit_e_timeout():
         ml_filtro.prever("SOLUSDT")
 
     kwargs = get_mock.call_args.kwargs
-    assert kwargs["params"] == {"symbol": "SOLUSDT", "interval": "15m", "limit": 100}
+    # E-10: `limit` deixou de ser 100. O ATR de Wilder e recursivo e com 100
+    # velas nao converge para o valor que o TREINO (serie inteira) ve na mesma
+    # barra — divergencia medida de ate 0,0034 em atr_rel. O teste le a
+    # constante em vez de fixar o numero: se o contexto minimo mudar de novo,
+    # quem tem de falhar e o teste de PARIDADE, nao este.
+    assert kwargs["params"] == {
+        "symbol": "SOLUSDT",
+        "interval": "15m",
+        "limit": ml_filtro.CONTEXTO_MINIMO,
+    }
     assert kwargs["timeout"] == 8
     # URL de klines da Binance.
     url = get_mock.call_args.args[0]
