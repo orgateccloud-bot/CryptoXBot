@@ -30,7 +30,34 @@ from data.klines import obter_klines
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 
 # ── Configurações de risco ────────────────────────────────────
-MAX_RISCO_POR_TRADE = 0.02  # 2% do capital por operação
+# E-9: era 0.02 ("2% do capital por operação") — uma intenção que NUNCA
+# acontecia. Quem manda no tamanho é o teto de exposição de 20% do capital em
+# `calcular_tamanho` (:557), que domina para qualquer fator acima de
+# 0,20*stop_pct — 0,3% no BTC. Com o Kelly no teto de 2%, o caminho por risco
+# nunca chegava a bindar, então nem `kelly_do_banco()` nem este limite tinham
+# efeito algum sobre o tamanho.
+#
+# Medido em 2026-08-09 (capital 1.000, o teto mandando em todos):
+#
+#     par        notional        risco/trade     vs BTC
+#     BTCUSDT    20% do capital     0,30%         1,00x
+#     ETHUSDT    20% do capital     0,40%         1,33x
+#     SOLUSDT    20% do capital     0,60%         2,00x
+#
+# 0,009 é o MAIOR risco por trade realmente possível: 0,20 (teto) x 1,5
+# (VOL_TARGET_MULT_MAX, que escala o teto em baixa volatilidade) x 3,0%
+# (o stop mais largo, do SOL). Ou seja, a constante deixou de anunciar uma
+# política e passou a declarar o limite que de fato existe.
+#
+# O SIZING AO VIVO NÃO MUDA. Verificado sobre 3 capitais x 3 pares x 8 níveis
+# de volatilidade = 72 casos, todos idênticos ao comportamento anterior
+# (`tests/test_risco_sizing_e9.py`). 0,006 mudaria 9 casos e 0,003 mudaria 57 —
+# ambos seriam decisão de trading, não alinhamento de declaração.
+#
+# Igualar o risco entre pares continua sendo uma decisão em aberto: hoje o SOL
+# arrisca o dobro do BTC por trade, porque o teto iguala o NOTIONAL, não o
+# risco.
+MAX_RISCO_POR_TRADE = 0.009  # 0,9% — teto REAL: 0,20 x 1,5 x 3,0% (SOL)
 MAX_DRAWDOWN_DIARIO = 0.05  # 5% — trava o bot no dia
 MAX_DRAWDOWN_TOTAL = 0.15  # 15% — desliga o bot até revisão manual
 KELLY_FATOR = 0.25  # Kelly fracionado (25% do Kelly puro) — conservador

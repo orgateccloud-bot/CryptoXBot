@@ -151,6 +151,12 @@ class TestCalcularTamanho:
 
     def test_fator_none_usa_kelly_do_banco(self, monkeypatch):
         # Com fator None, usa kelly_do_banco() limitado a MAX_RISCO_POR_TRADE.
+        # E-9: o teste fixa a constante que ele proprio assume. Antes dependia
+        # do valor de producao, entao o alinhamento da declaracao (0,02 -> 0,009,
+        # que NAO muda o sizing dos pares reais) o quebrava — este caso usa um
+        # stop sintetico de 10%, muito mais largo que qualquer par configurado,
+        # e nessa faixa o caminho por risco passa a bindar.
+        monkeypatch.setattr(risco, "MAX_RISCO_POR_TRADE", 0.02)
         monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.50)
         # fator efetivo = min(0.50, 0.02) = 0.02
         # capital=1000 -> risco=20; preco=100, stop=90 -> dist=10
@@ -887,15 +893,19 @@ class TestFatorVolatilidade:
 class TestCalcularTamanhoVolTargeting:
 
     def test_atr_relativo_alto_reduz_tamanho_vs_sem_ele(self, monkeypatch):
-        # Kelly abaixo do teto (0.01 < 0.02) para o multiplicador ter efeito direto.
-        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.01)
+        # Kelly abaixo do teto (0.004 < 0.009, E-9) para o multiplicador ter
+        # efeito direto — acima do teto o re-cap o anula.
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.004)
         sem = risco.calcular_tamanho(1000, 100, 90)
         com = risco.calcular_tamanho(1000, 100, 90, atr_relativo=2.0)  # mult=0.5
         assert com < sem
         assert com == pytest.approx(sem * 0.5)
 
     def test_atr_relativo_baixo_aumenta_tamanho_quando_kelly_abaixo_do_teto(self, monkeypatch):
-        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.01)
+        # E-9: 0.004 (nao 0.01) porque o teto virou 0,009 — a premissa do teste
+        # e que o Kelly esteja ABAIXO dele, senao o re-cap zera o efeito do
+        # multiplicador e o teste mediria outra coisa.
+        monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.004)
         sem = risco.calcular_tamanho(1000, 100, 90)
         com = risco.calcular_tamanho(1000, 100, 90, atr_relativo=0.5)  # mult=1.5
         assert com > sem
@@ -922,6 +932,9 @@ class TestCalcularTamanhoVolTargeting:
         assert com == sem
 
     def test_backward_compat_sem_atr_relativo_identico_ao_anterior(self, monkeypatch):
+        # E-9: fixa MAX_RISCO_POR_TRADE porque o "anterior" a que este teste se
+        # refere e o comportamento do P0-3, medido com o teto de 2%.
+        monkeypatch.setattr(risco, "MAX_RISCO_POR_TRADE", 0.02)
         monkeypatch.setattr(risco, "kelly_do_banco", lambda: 0.50)
         assert risco.calcular_tamanho(1000, 100, 90) == 2.0  # mesmo resultado de antes do P0-3
 
