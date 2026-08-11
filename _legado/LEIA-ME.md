@@ -161,3 +161,69 @@ foi feita, e sem elas o módulo produz números errados em silêncio:
 3. Passar `fator` como **multiplicador de size**, não como booleano
    (`:304-306`, `:333`), e trocar o assert de paridade de contagem-de-trades
    por comparação de PnL.
+
+---
+
+## `ollama_client.py` (+ `test_melhorias_ollama.py`) — aposentado em 2026-08-11 (frente M-1)
+
+**O que era.** Cliente do Ollama para LLM local (gemma3:4b / llama3), com
+funções para analisar mercado, classificar notícia e explicar sinal.
+
+**Por que saiu.** 312 LOC com **zero importadores de produção**. Os únicos
+`from ai.ollama_client import` da árvore estavam em `tests/test_melhorias.py`
+— testes de um módulo que nada chama. O vault documentava o módulo como
+maturidade "Alta", o que inflava a percepção de completude do projeto: uma
+peça grande, testada, e inerte.
+
+Nenhum caminho de decisão consulta um LLM. O score é determinístico
+(`score.calcular`), o ML é XGBoost + MLP, e o ensemble não tem componente de
+linguagem. O cliente nunca foi ligado.
+
+**O que fazer no lugar.** Nada — não há função descoberta. Se um dia houver
+uso para LLM local (por exemplo, resumir eventos para o Telegram), o rollback
+abaixo traz o cliente de volta pronto.
+
+**Plano de rollback.**
+
+```bash
+git mv _legado/ollama_client.py ai/ollama_client.py
+git mv _legado/test_melhorias_ollama.py tests/test_melhorias_ollama.py
+```
+
+O pacote `ai/` continua existindo (com o `__init__.py`), então o import volta
+a resolver sem mais nada. Os testes extraídos precisam do `import unittest` que
+já está no topo do arquivo em `_legado/`.
+
+---
+
+## `monitor_fluxo.py` — aposentado em 2026-08-11 (frente M-1)
+
+**O que era.** Monitor de fluxo em tempo real: consumia o WebSocket de trades
+agregados e gravava o CVD em `cvd_historico`.
+
+**Por que saiu.** Alimentava uma tabela que **não tem um único leitor**.
+Varredura da árvore: `cvd_historico` aparece em `CREATE TABLE`, `CREATE INDEX`
+e `INSERT` — nenhum `SELECT`, em lugar nenhum, nem em produção nem em teste.
+O módulo também não é importado por nada; o único `monitor_fluxo` da árvore
+era a própria linha de uso no seu docstring.
+
+O CVD que o bot **usa** vem de outro caminho: o consumidor de `@aggTrade` do
+`main.py`, que mantém `historico_ticks` em memória e alimenta
+`score._score_cvd`. Esse componente, aliás, é matematicamente inerte — ver
+`tests/test_cvd_inerte.py` e `research/METODOLOGIA_MICROESTRUTURA.md`.
+
+**Nota sobre os 361 MB.** `cvd_historico` é uma das três tabelas sem leitor
+(com `trades` e `snapshots_mercado`) que somam esse volume. Aposentar o
+produtor para o crescimento; a purga do que já existe é item separado de I-13
+e não foi feita aqui.
+
+**Plano de rollback.**
+
+```bash
+git mv _legado/monitor_fluxo.py monitor_fluxo.py
+```
+
+Antes de reativar, resolver o que o relatório aponta em `:149`: trocar o laço
+manual por `run_forever(reconnect=True)`, o padrão já correto em
+`dashboard.py:494-497`. E dar um leitor a `cvd_historico`, senão o módulo
+volta a encher uma tabela que ninguém lê.
