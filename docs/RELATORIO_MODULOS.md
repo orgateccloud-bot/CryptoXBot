@@ -485,6 +485,26 @@ A logica de ordenacao e uma so: o que reduz mais probabilidade de perda por hora
 
 **Critério de saída.** `black --check . && isort --check . && flake8 && pytest tests/ -v` exit 0 no CI. `gh api repos/<owner>/<repo>/branches/main/protection` retorna uma regra ativa. relatorio_gate.py executado contra o banco atual imprime REPROVADO e sai com codigo != 0. `grep -rn 'import ai\.\|from ai' --include=*.py .` retorna 0 fora de _legado/ e tests/. purgar_fixtures_producao.py --confirmar em um banco de paper mantem as posicoes SIM- legitimas (teste automatizado).
 
+**Estado em 2026-08-11 (commits `b559a52` + `344f0bb`, mais os anteriores da frente).**
+
+| Critério | Estado |
+|---|---|
+| `testar_api.py` reprova chave read-only | ✅ rodado ao vivo: exit 1, "a chave NAO pode enviar ordens spot (read-only)" |
+| `relatorio_gate.py` REPROVADO + exit != 0 | ✅ rodado ao vivo contra o banco atual |
+| purga preserva posições `SIM-` de paper | ✅ `tests/test_purga_preserva_paper.py` (9 testes) |
+| timeouts em `analise_mercado.py` | ✅ 5 chamadas, `TIMEOUT_HTTP=10`, teste que conta `requests.get` vs `timeout=` |
+| zero importador de `ai/` fora de `_legado`/`tests` | ✅ módulo movido para `_legado/ollama_client.py` |
+| `monitor_fluxo.py` aposentado | ✅ `cvd_historico` não tem nenhum SELECT no repo |
+| `black --check .` | ✅ passa e **bloqueia** |
+| `isort --check .` | ✅ passa e **bloqueia** |
+| `pytest tests/` | ✅ 1626 passed, 5 skipped |
+| `flake8` exit 0 | ❌ **139 achados** (eram 2.170) — ainda com `\|\| true`, mas com teto de regressão que falha o CI se subir |
+| branch protection na `main` | ❌ **pendente — exige ação do dono do repo** |
+
+Sobre os 139: 1.966 dos 2.170 achados originais estavam em `.claude/worktrees/`, que são **cópias do próprio repositório** em estados antigos. O CI lintava o passado do projeto. Excluído esse diretório (mais `_legado/`, `.venv/`, `scratch_vbt/`), o débito real do código vivo é: 54 E501, 19 E402, 17 F401, 14 F541, 12 E741, 10 E231, 8 F841, 5 diversos. Nenhum é defeito de comportamento; todos são estilo/higiene. O teto `FLAKE8_TETO=139` em `ci.yml` garante que o número só desce.
+
+Branch protection continua aberto porque ativar exige permissão de admin em `orgateccloud-bot/CryptoXBot` e porque a regra **bloquearia o push direto na `main`**, que é o fluxo em uso hoje — é decisão do operador, não mudança a aplicar em silêncio.
+
 **Risco de não fazer.** As ferramentas que o operador usa para decidir sobre capital dao respostas erradas na direcao tranquilizadora, e o unico script destrutivo do repo apaga o estado de paper que a Etapa 2 esta acumulando.
 
 ## Critérios de saída globais
