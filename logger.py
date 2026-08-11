@@ -96,6 +96,24 @@ def _janela_do_dia(agora=None):
     return hoje, f"{hoje} 00:00:00", f"{amanha} 00:00:00"
 
 
+def _sqlite_robusto(caminho: str) -> sqlite3.Connection:
+    """I-13: as mesmas guardas que `database.conectar()` ja aplica.
+
+    O logger abre o MESMO arquivo que o worker escreve 24/7. Sem
+    `timeout`/`busy_timeout`, uma escrita concorrente levanta "database is
+    locked" imediatamente em vez de esperar; sem WAL, leitura e escrita se
+    bloqueiam mutuamente num arquivo de centenas de MB.
+    """
+    conn = sqlite3.connect(caminho, timeout=30)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+    except sqlite3.DatabaseError:
+        pass  # pragma pode falhar em DB somente-leitura; segue com defaults
+    return conn
+
+
 def _is_postgres() -> bool:
     return bool(DATABASE_URL) and DATABASE_BACKEND in ("postgres", "postgresql", "supabase")
 
@@ -146,7 +164,7 @@ class LoggerBot:
             import psycopg
 
             return psycopg.connect(DATABASE_URL, connect_timeout=10)
-        return sqlite3.connect(self.db_path)
+        return _sqlite_robusto(self.db_path)
 
     def _connect_rows(self):
         """Conexão com linhas indexáveis por nome de coluna (para exports)."""
@@ -155,12 +173,13 @@ class LoggerBot:
             from psycopg.rows import dict_row
 
             return psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=10)
-        conn = sqlite3.connect(self.db_path)
+        conn = _sqlite_robusto(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
     def _inicializar_tabelas(self):
         id_col = "BIGSERIAL PRIMARY KEY" if self._pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        ts_col = "TIMESTAMPTZ" if self._pg else "TEXT"
         conn = self._connect()
         try:
             cur = conn.cursor()
@@ -168,7 +187,7 @@ class LoggerBot:
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS log_avaliacoes (
                     id          {id_col},
-                    timestamp   TEXT NOT NULL,
+                    timestamp   {ts_col} NOT NULL,
                     symbol      TEXT DEFAULT 'BTCUSDT',
                     preco       REAL,
                     score       INTEGER,
@@ -198,8 +217,8 @@ class LoggerBot:
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS log_trades (
                     id          {id_col},
-                    timestamp_entrada TEXT NOT NULL,
-                    timestamp_saida   TEXT,
+                    timestamp_entrada {ts_col} NOT NULL,
+                    timestamp_saida   {ts_col},
                     symbol      TEXT DEFAULT 'BTCUSDT',
                     direcao     TEXT,
                     preco_entrada REAL,
