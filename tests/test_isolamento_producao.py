@@ -32,7 +32,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import executor as ex  # noqa: E402
 
-
 # ── Camada 1: isolamento do banco ──────────────────────────────
 
 
@@ -40,9 +39,9 @@ class TestIsolamentoDoBanco:
     def test_db_path_nao_aponta_para_producao(self):
         from config.runtime_settings import DB_PATH
 
-        assert "btc_data.db" not in os.path.basename(DB_PATH) or "test" in DB_PATH.lower(), (
-            f"DB_PATH da suíte aponta para o banco de produção: {DB_PATH}"
-        )
+        assert (
+            "btc_data.db" not in os.path.basename(DB_PATH) or "test" in DB_PATH.lower()
+        ), f"DB_PATH da suíte aponta para o banco de produção: {DB_PATH}"
 
     def test_abrir_o_banco_de_producao_falha_alto(self):
         """O modo de falha original era SILENCIOSO. Agora tem que gritar."""
@@ -68,10 +67,16 @@ def _exec_sim(monkeypatch, preco_mercado=64000.0):
 
 def _pos(**kw):
     base = {
-        "tipo": "LONG", "entrada": 64000.0, "tamanho_btc": 0.001,
-        "stop_atual": 63000.0, "target1": 65000.0, "target2": 66000.0,
-        "parcial_feita": False, "abertura": "2026-07-31T10:00:00",
-        "order_id": 12345, "stop_order_id": None,
+        "tipo": "LONG",
+        "entrada": 64000.0,
+        "tamanho_btc": 0.001,
+        "stop_atual": 63000.0,
+        "target1": 65000.0,
+        "target2": 66000.0,
+        "parcial_feita": False,
+        "abertura": "2026-07-31T10:00:00",
+        "order_id": 12345,
+        "stop_order_id": None,
     }
     base.update(kw)
     return base
@@ -81,8 +86,14 @@ class TestRecusaDePosicaoImplausivel:
     def test_recusa_a_posicao_exata_do_incidente(self, monkeypatch):
         """entrada 100.0 com BTC a 64.000 — o registro que existia no banco."""
         e = _exec_sim(monkeypatch)
-        fantasma = _pos(entrada=100.0, stop_atual=104.16, target1=105.0,
-                        target2=110.0, order_id="SIM-1", abertura="x")
+        fantasma = _pos(
+            entrada=100.0,
+            stop_atual=104.16,
+            target1=105.0,
+            target2=110.0,
+            order_id="SIM-1",
+            abertura="x",
+        )
         assert e.reidratar_posicao(fantasma) is False
         assert e.posicao is None, "não pode adotar"
         assert e._ativo is False, "não pode religar o monitor"
@@ -134,7 +145,10 @@ class TestRecusaDePosicaoImplausivel:
     def test_recusa_grava_bot_event_critical(self, monkeypatch):
         eventos = []
         e = _exec_sim(monkeypatch)
-        monkeypatch.setattr(ex.database, "salvar_bot_event",
-                            lambda t, m, **k: eventos.append((t, k.get("severity"))))
+        monkeypatch.setattr(
+            ex.database,
+            "salvar_bot_event",
+            lambda t, m, **k: eventos.append((t, k.get("severity"))),
+        )
         e.reidratar_posicao(_pos(entrada=100.0, order_id="SIM-1", abertura="x"))
         assert eventos and eventos[0] == ("reidratacao_recusada", "CRITICAL")

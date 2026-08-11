@@ -31,12 +31,12 @@ APOSENTADOS = ("motor_otimizado", "motor_vectorbt")
 class TestAposentadoria:
     def test_arquivos_estao_em_legado_e_nao_em_backtesting(self):
         for nome in APOSENTADOS:
-            assert os.path.exists(os.path.join(RAIZ, "_legado", f"{nome}.py")), (
-                f"{nome}.py sumiu de _legado/ — aposentar e MOVER, nunca deletar"
-            )
-            assert not os.path.exists(os.path.join(RAIZ, "backtesting", f"{nome}.py")), (
-                f"{nome}.py voltou para backtesting/ sem passar pelo LEIA-ME"
-            )
+            assert os.path.exists(
+                os.path.join(RAIZ, "_legado", f"{nome}.py")
+            ), f"{nome}.py sumiu de _legado/ — aposentar e MOVER, nunca deletar"
+            assert not os.path.exists(
+                os.path.join(RAIZ, "backtesting", f"{nome}.py")
+            ), f"{nome}.py voltou para backtesting/ sem passar pelo LEIA-ME"
         assert os.path.exists(os.path.join(RAIZ, "_legado", "test_motor_vectorbt.py"))
 
     def test_nenhum_codigo_vivo_importa_os_aposentados(self):
@@ -65,9 +65,7 @@ class TestAposentadoria:
                             if nome in limpa:
                                 rel = os.path.relpath(caminho, RAIZ)
                                 ofensores.append(f"{rel}:{n_linha}: {limpa.strip()}")
-        assert not ofensores, "codigo vivo importando modulo aposentado:\n" + "\n".join(
-            ofensores
-        )
+        assert not ofensores, "codigo vivo importando modulo aposentado:\n" + "\n".join(ofensores)
 
     def test_leia_me_documenta_os_dois_com_rollback(self):
         with open(os.path.join(RAIZ, "_legado", "LEIA-ME.md"), encoding="utf-8") as f:
@@ -75,9 +73,9 @@ class TestAposentadoria:
         for nome in APOSENTADOS:
             assert f"{nome}.py" in leia_me, f"{nome} aposentado sem entrada no LEIA-ME"
             # o rollback tem de ser executavel, nao uma promessa
-            assert f"git mv _legado/{nome}.py" in leia_me, (
-                f"{nome} sem comando de rollback no LEIA-ME"
-            )
+            assert (
+                f"git mv _legado/{nome}.py" in leia_me
+            ), f"{nome} sem comando de rollback no LEIA-ME"
 
 
 class TestPortaoDoMotorComMocks:
@@ -148,7 +146,11 @@ class TestPortaoNosEntrypoints:
         env["PYTHONIOENCODING"] = "utf-8"
         return subprocess.run(
             [sys.executable, *args],
-            cwd=RAIZ, env=env, capture_output=True, text=True, timeout=180,
+            cwd=RAIZ,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
         )
 
     def test_cli_do_motor_sai_com_codigo_2(self):

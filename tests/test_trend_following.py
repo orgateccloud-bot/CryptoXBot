@@ -64,7 +64,9 @@ class TestSimularTrend:
         # risco_frac 2%: notional = 0.02*capital / risco. Verifica que o PnL
         # escala com o notional esperado, não com o capital inteiro.
         c = np.array([10, 10, 10, 10, 12, 12, 12, 8, 8], dtype=float)
-        r = tf.simular_trend(c, N=3, M=2, taxa=0.0, slippage=0.0, risco_frac=0.02, capital_inicial=1000.0)
+        r = tf.simular_trend(
+            c, N=3, M=2, taxa=0.0, slippage=0.0, risco_frac=0.02, capital_inicial=1000.0
+        )
         # entrada=12, stop=min(c[1:4])=10 -> risco=(12-10)/12=0.1667; notional=0.02*1000/0.1667=120
         # bruto = 120 * (8-12)/12 = -40
         assert r["trades"][0]["pnl"] == pytest.approx(-40.0, abs=1e-3)
@@ -100,6 +102,12 @@ class TestSimularTrend:
     def test_payoff_e_metricas_presentes(self):
         c = np.array([10, 10, 10, 10, 12, 12, 12, 8, 8, 8, 10, 14, 14, 14, 9, 9], dtype=float)
         r = tf.simular_trend(c, N=3, M=2, taxa=0.001, slippage=0.0005)
-        for chave in ("win_rate", "profit_factor", "payoff_ratio", "expectancy_net_pct",
-                      "max_drawdown_pct", "bh_retorno_pct"):
+        for chave in (
+            "win_rate",
+            "profit_factor",
+            "payoff_ratio",
+            "expectancy_net_pct",
+            "max_drawdown_pct",
+            "bh_retorno_pct",
+        ):
             assert chave in r

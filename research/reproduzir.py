@@ -117,9 +117,7 @@ def derivar(symbol: str = "BTCUSDT", seed: int = 42, rotulo: str | None = None) 
             "p_permutacao": float(perm["p_valor"]),
             # ICs de TODA a família — é o que permite dizer "diferença 0.0 em
             # todos os IC", e não só no vencedor.
-            "ics": {
-                f"{FEATURE_NAMES[i]}|H{h}": float(v) for (i, h), v in perm["ics_obs"].items()
-            },
+            "ics": {f"{FEATURE_NAMES[i]}|H{h}": float(v) for (i, h), v in perm["ics_obs"].items()},
         },
         "veredito": veredito,
         "criterios": {
@@ -135,9 +133,7 @@ def caminho_registro(symbol: str, rotulo: str) -> str:
 
 def gravar(resultado: dict) -> str:
     os.makedirs(DIR_REGISTROS, exist_ok=True)
-    caminho = caminho_registro(
-        resultado["parametros"]["symbol"], resultado["snapshot"]["rotulo"]
-    )
+    caminho = caminho_registro(resultado["parametros"]["symbol"], resultado["snapshot"]["rotulo"])
     with open(caminho, "w", encoding="utf-8", newline="") as fp:
         json.dump(resultado, fp, indent=2, ensure_ascii=False, sort_keys=True)
         fp.write("\n")
@@ -201,8 +197,11 @@ def _cli() -> int:
     ap.add_argument("--symbol", default="BTCUSDT")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--rotulo", default=None, help="snapshot (default: mais recente)")
-    ap.add_argument("--comparar", action="store_true",
-                    help="compara com o registro anterior e exige diferença 0.0")
+    ap.add_argument(
+        "--comparar",
+        action="store_true",
+        help="compara com o registro anterior e exige diferença 0.0",
+    )
     args = ap.parse_args()
 
     resultado = derivar(args.symbol, args.seed, args.rotulo)

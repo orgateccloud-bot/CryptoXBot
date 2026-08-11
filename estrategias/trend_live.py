@@ -77,8 +77,13 @@ def sinal_trend(
     """
     closes = _closes_fechados(symbol, intervalo)
     if closes is None:
-        return {"sinal": "AGUARDAR", "preco_ref": None, "canal_alto": None,
-                "canal_baixo": None, "motivo": "dados insuficientes/indisponíveis"}
+        return {
+            "sinal": "AGUARDAR",
+            "preco_ref": None,
+            "canal_alto": None,
+            "canal_baixo": None,
+            "motivo": "dados insuficientes/indisponíveis",
+        }
 
     up_entrada, _ = donchian_niveis(closes, N)
     _, low_saida = donchian_niveis(closes, M)
@@ -89,22 +94,36 @@ def sinal_trend(
 
     if tem_posicao:
         if canal_baixo is not None and preco < canal_baixo:
-            return {"sinal": "FECHAR", "preco_ref": preco, "canal_alto": canal_alto,
-                    "canal_baixo": canal_baixo,
-                    "motivo": f"close {preco:,.2f} < Donchian-{M} {canal_baixo:,.2f}"}
-        return {"sinal": "AGUARDAR", "preco_ref": preco, "canal_alto": canal_alto,
+            return {
+                "sinal": "FECHAR",
+                "preco_ref": preco,
+                "canal_alto": canal_alto,
                 "canal_baixo": canal_baixo,
-                "motivo": f"em posição; trail em {canal_baixo:,.2f}"
-                if canal_baixo else "em posição"}
+                "motivo": f"close {preco:,.2f} < Donchian-{M} {canal_baixo:,.2f}",
+            }
+        return {
+            "sinal": "AGUARDAR",
+            "preco_ref": preco,
+            "canal_alto": canal_alto,
+            "canal_baixo": canal_baixo,
+            "motivo": f"em posição; trail em {canal_baixo:,.2f}" if canal_baixo else "em posição",
+        }
 
     if canal_alto is not None and preco > canal_alto:
-        return {"sinal": "COMPRA", "preco_ref": preco, "canal_alto": canal_alto,
-                "canal_baixo": canal_baixo,
-                "motivo": f"close {preco:,.2f} > Donchian-{N} {canal_alto:,.2f}"}
-    return {"sinal": "AGUARDAR", "preco_ref": preco, "canal_alto": canal_alto,
+        return {
+            "sinal": "COMPRA",
+            "preco_ref": preco,
+            "canal_alto": canal_alto,
             "canal_baixo": canal_baixo,
-            "motivo": f"sem rompimento (topo {canal_alto:,.2f})" if canal_alto
-            else "sem canal ainda"}
+            "motivo": f"close {preco:,.2f} > Donchian-{N} {canal_alto:,.2f}",
+        }
+    return {
+        "sinal": "AGUARDAR",
+        "preco_ref": preco,
+        "canal_alto": canal_alto,
+        "canal_baixo": canal_baixo,
+        "motivo": f"sem rompimento (topo {canal_alto:,.2f})" if canal_alto else "sem canal ainda",
+    }
 
 
 if __name__ == "__main__":

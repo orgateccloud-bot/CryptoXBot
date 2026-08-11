@@ -76,6 +76,7 @@ from backtesting.motor_ensemble import SLIPPAGE, _adx
 from backtesting.regua import score_unificado
 from config.params_pares import get_params
 from ml_filtro import extrair_features
+
 DB_PATH = "data/btc_data.db"
 FNG_PATH = "data/fng_historico.json"
 
@@ -869,9 +870,7 @@ def walk_forward(
         "target_pct": target_pct,
         # I-12h: como as posicoes efetivamente sairam. Se "STOP_MOVIDO"
         # domina, quem determina o resultado e o trailing — nao o alvo.
-        "saidas_por_tipo": dict(
-            sorted(Counter(o["tipo_saida"] for o in todas_ops).items())
-        ),
+        "saidas_por_tipo": dict(sorted(Counter(o["tipo_saida"] for o in todas_ops).items())),
         "trades_com_parcial": sum(1 for o in todas_ops if o.get("parcial_feita")),
         "fng_historico_usado": not fng_ausente,
         "fng_cobertura": cobertura,
@@ -915,15 +914,19 @@ def imprimir_relatorio(r):
     print(
         f"  Janelas:  {r['total_janelas']} (treino: {r['janela_treino']} / teste: {r['janela_teste']})"
     )
-    print(f"  Taxa/lado: {r['taxa']*100:.3f}%  |  F&G historico: "
-          f"{'SIM' if r.get('fng_historico_usado') else 'NAO (F&G neutro 50)'}")
+    print(
+        f"  Taxa/lado: {r['taxa']*100:.3f}%  |  F&G historico: "
+        f"{'SIM' if r.get('fng_historico_usado') else 'NAO (F&G neutro 50)'}"
+    )
     print(f"  Trades:   {r['total_trades']} ({r['trades_ganhos']}W / {r['trades_perdas']}L)")
 
     # I-12h: por onde as posicoes sairam de verdade.
     saidas = r.get("saidas_por_tipo") or {}
     if saidas:
-        print(f"  Politica de saida: {r.get('politica_saida', '?')}"
-              f"  (stop {r.get('stop_pct', 0)*100:.1f}% / alvo {r.get('target_pct', 0)*100:.1f}%)")
+        print(
+            f"  Politica de saida: {r.get('politica_saida', '?')}"
+            f"  (stop {r.get('stop_pct', 0)*100:.1f}% / alvo {r.get('target_pct', 0)*100:.1f}%)"
+        )
         detalhe = "  ".join(
             f"{tipo}={n} ({n / r['total_trades'] * 100:.0f}%)" for tipo, n in saidas.items()
         )
@@ -946,12 +949,16 @@ def imprimir_relatorio(r):
     if bh:
         print(f"\n  Buy-and-hold no periodo TESTADO ({bh['dt_inicio']} -> {bh['dt_fim']}):")
         print(f"    Retorno: {bh['retorno_%']:+.2f}%  |  Max DD (preco): {bh['max_dd_%']:.2f}%")
-        print(f"    vs estrategia: {r['retorno_total_%']:+.2f}%  |  Max DD: {r['max_drawdown_%']:.2f}%")
+        print(
+            f"    vs estrategia: {r['retorno_total_%']:+.2f}%  |  Max DD: {r['max_drawdown_%']:.2f}%"
+        )
 
     print()
 
     # Tabela de janelas
-    print(f"  {'Jan':>3} {'Periodo':>25} {'Treino':>6} {'AUC(is)':>7} {'Trades':>6} {'Capital':>10}")
+    print(
+        f"  {'Jan':>3} {'Periodo':>25} {'Treino':>6} {'AUC(is)':>7} {'Trades':>6} {'Capital':>10}"
+    )
     print(f"  {'-'*62}")
     for j in r["janelas"]:
         print(

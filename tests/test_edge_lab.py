@@ -24,7 +24,9 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "research"))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "research")
+)
 
 import edge_lab as el  # noqa: E402
 
@@ -108,7 +110,7 @@ class TestLabelTripleBarrier:
     def test_timeout_conta_zero(self):
         f = np.array([100.0, 100.5, 100.0])
         m = np.array([100.0, 101.0, 100.0])  # nunca toca +4%
-        n = np.array([100.0, 99.5, 100.0])   # nunca toca -2%
+        n = np.array([100.0, 99.5, 100.0])  # nunca toca -2%
         y, v = el.label_triple_barrier(f, m, n, alvo_pct=0.04, stop_pct=0.02, H=1)
         assert y[0] == 0.0
 
@@ -168,7 +170,7 @@ class TestPermutacao:
             rng = np.random.default_rng(500 + s)
             n = 1500
             X = np.column_stack([_ar1(n, 0.9, rng) for _ in range(4)])
-            fwd8 = _ar1(n, 0.9, rng)   # autocorrelacionado, independente de X
+            fwd8 = _ar1(n, 0.9, rng)  # autocorrelacionado, independente de X
             fwd24 = _ar1(n, 0.9, rng)
             labels, validos = _familia_de(X, {8: fwd8, 24: fwd24})
             r = el.teste_permutacao_max(X, labels, validos, n_perm=200, seed=s)

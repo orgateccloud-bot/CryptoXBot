@@ -256,6 +256,7 @@ def _exec_com_posicao(stop=STOP, t1=T1, t2=T2, parcial=False, fechamento_falha=F
         "order_id": "SIM-1",
     }
     ex._ativo = True
+
     # I-10f: o monitor deixou de dar `break` incondicional depois de
     # `fechar_posicao` — ele agora confere se a posicao REALMENTE fechou, para
     # nao morrer quando o SELL nao preenche (a posicao ficava viva e sem
@@ -267,9 +268,7 @@ def _exec_com_posicao(stop=STOP, t1=T1, t2=T2, parcial=False, fechamento_falha=F
         if not k.get("parcial"):
             ex.posicao = None
 
-    ex.fechar_posicao = MagicMock(
-        side_effect=None if fechamento_falha else _fechar_de_verdade
-    )
+    ex.fechar_posicao = MagicMock(side_effect=None if fechamento_falha else _fechar_de_verdade)
     return ex
 
 

@@ -39,7 +39,8 @@ def captura(monkeypatch):
     g, ev = {}, []
     monkeypatch.setattr(main.health, "set_gauge", lambda n, v: g.__setitem__(n, v))
     monkeypatch.setattr(
-        main.database, "salvar_bot_event",
+        main.database,
+        "salvar_bot_event",
         lambda tipo, msg, **kw: ev.append((tipo, msg, kw)),
     )
     return g, ev
@@ -52,26 +53,30 @@ class TestTelemetriaEntrada:
     def test_separa_desvio_de_decisao_e_desvio_total(self, captura):
         """ref=100, mercado=101 (decisão sobre dado 1% velho), fill=102."""
         g, _ = captura
-        main._registrar_execucao("BTCUSDT", "otimizada", 100.0, 101.0,
-                                 ExecFake(102.0), main.time.time(), 0.01)
+        main._registrar_execucao(
+            "BTCUSDT", "otimizada", 100.0, 101.0, ExecFake(102.0), main.time.time(), 0.01
+        )
         assert g["exec_desvio_ref_mercado_pct"] == pytest.approx(1.0)
         assert g["exec_desvio_ref_fill_pct"] == pytest.approx(2.0)
 
     def test_desvio_negativo_quando_preco_cai(self, captura):
         g, _ = captura
-        main._registrar_execucao("BTCUSDT", "trend", 100.0, 99.0,
-                                 ExecFake(98.5), main.time.time(), 0.01)
+        main._registrar_execucao(
+            "BTCUSDT", "trend", 100.0, 99.0, ExecFake(98.5), main.time.time(), 0.01
+        )
         assert g["exec_desvio_ref_mercado_pct"] == pytest.approx(-1.0)
         assert g["exec_desvio_ref_fill_pct"] == pytest.approx(-1.5)
 
     def test_discriminador_de_estrategia(self, captura):
         """Os gauges são genéricos; este é o único jeito de saber quem gerou."""
         g, _ = captura
-        main._registrar_execucao("BTCUSDT", "trend", 100.0, 100.0,
-                                 ExecFake(100.0), main.time.time(), 0.01)
+        main._registrar_execucao(
+            "BTCUSDT", "trend", 100.0, 100.0, ExecFake(100.0), main.time.time(), 0.01
+        )
         assert g["exec_estrategia_trend"] == 1.0
-        main._registrar_execucao("BTCUSDT", "otimizada", 100.0, 100.0,
-                                 ExecFake(100.0), main.time.time(), 0.01)
+        main._registrar_execucao(
+            "BTCUSDT", "otimizada", 100.0, 100.0, ExecFake(100.0), main.time.time(), 0.01
+        )
         assert g["exec_estrategia_trend"] == 0.0
 
     def test_latencia_conta_do_inicio_do_ciclo(self, captura):
@@ -79,14 +84,14 @@ class TestTelemetriaEntrada:
         ML + risco + ordem), não só o round-trip da ordem."""
         g, _ = captura
         t0 = main.time.time() - 2.5  # ciclo começou 2.5s atrás
-        main._registrar_execucao("BTCUSDT", "trend", 100.0, 100.0,
-                                 ExecFake(100.0), t0, 0.01)
+        main._registrar_execucao("BTCUSDT", "trend", 100.0, 100.0, ExecFake(100.0), t0, 0.01)
         assert g["exec_latencia_sinal_fill_ms"] >= 2500
 
     def test_registra_bot_event_com_estrategia_e_precos(self, captura):
         _, ev = captura
-        main._registrar_execucao("ETHUSDT", "otimizada", 100.0, 101.0,
-                                 ExecFake(102.0), main.time.time(), 0.5)
+        main._registrar_execucao(
+            "ETHUSDT", "otimizada", 100.0, 101.0, ExecFake(102.0), main.time.time(), 0.5
+        )
         assert len(ev) == 1
         tipo, msg, kw = ev[0]
         assert tipo == "execucao_entrada"
@@ -97,19 +102,22 @@ class TestTelemetriaEntrada:
         """Se a posição sumiu entre o fill e a leitura, degrada em vez de
         estourar TypeError no meio da telemetria."""
         g, _ = captura
-        main._registrar_execucao("BTCUSDT", "trend", 100.0, 101.0,
-                                 ExecFake(None), main.time.time(), 0.01)
+        main._registrar_execucao(
+            "BTCUSDT", "trend", 100.0, 101.0, ExecFake(None), main.time.time(), 0.01
+        )
         assert g["exec_desvio_ref_fill_pct"] == pytest.approx(1.0)
 
     def test_falha_de_health_nao_derruba_a_entrada(self, monkeypatch):
         """Telemetria NUNCA pode quebrar o caminho da ordem."""
+
         def explode(*a, **k):
             raise RuntimeError("gauge morreu")
 
         monkeypatch.setattr(main.health, "set_gauge", explode)
         monkeypatch.setattr(main.database, "salvar_bot_event", explode)
-        main._registrar_execucao("BTCUSDT", "trend", 100.0, 101.0,
-                                 ExecFake(102.0), main.time.time(), 0.01)
+        main._registrar_execucao(
+            "BTCUSDT", "trend", 100.0, 101.0, ExecFake(102.0), main.time.time(), 0.01
+        )
 
 
 # ── Saída ──────────────────────────────────────────────────────
@@ -121,20 +129,34 @@ class TestTelemetriaSaida:
 
         e = ex.Executor(simulacao=True, symbol="BTCUSDT")
         e.posicao = {
-            "tipo": "LONG", "entrada": 100.0, "tamanho_btc": 0.01,
-            "tamanho_btc_original": 0.01, "stop_inicial": 90.0,
-            "stop_atual": 90.0, "target1": 105.0, "target2": 105.0,
-            "parcial_feita": False, "abertura": "2026-01-01T00:00:00",
-            "order_id": 1, "stop_order_id": None, "oco_list_id": None,
-            "sinal_id": None, "pnl_usdt_parcial_acumulado": 0.0,
+            "tipo": "LONG",
+            "entrada": 100.0,
+            "tamanho_btc": 0.01,
+            "tamanho_btc_original": 0.01,
+            "stop_inicial": 90.0,
+            "stop_atual": 90.0,
+            "target1": 105.0,
+            "target2": 105.0,
+            "parcial_feita": False,
+            "abertura": "2026-01-01T00:00:00",
+            "order_id": 1,
+            "stop_order_id": None,
+            "oco_list_id": None,
+            "sinal_id": None,
+            "pnl_usdt_parcial_acumulado": 0.0,
         }
         # SELL MARKET "preenche" no preco_fill informado (fresco), nao no `preco`
         monkeypatch.setattr(
-            e, "_enviar_ordem",
+            e,
+            "_enviar_ordem",
             lambda *a, **k: {"status": "FILLED", "price": preco_fill, "executedQty": 0.01},
         )
-        for nome in ("salvar_sinal", "atualizar_sinal_fechamento", "remover_posicao_aberta",
-                     "salvar_posicao_aberta"):
+        for nome in (
+            "salvar_sinal",
+            "atualizar_sinal_fechamento",
+            "remover_posicao_aberta",
+            "salvar_posicao_aberta",
+        ):
             if hasattr(ex.database, nome):
                 monkeypatch.setattr(ex.database, nome, lambda *a, **k: None)
         monkeypatch.setattr(ex.gestao_risco, "registrar_resultado", lambda *a, **k: None)
@@ -148,7 +170,8 @@ class TestTelemetriaSaida:
         ex, e = self._exec_sim(monkeypatch, preco_fill=109.45)
         monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: g.__setitem__(n, v))
         monkeypatch.setattr(
-            ex.database, "salvar_bot_event",
+            ex.database,
+            "salvar_bot_event",
             lambda tipo, msg, **kw: ev.append((tipo, msg)),
         )
         e.fechar_posicao(110.0, "Take Profit Final")
@@ -163,7 +186,8 @@ class TestTelemetriaSaida:
         ex, e = self._exec_sim(monkeypatch, preco_fill=110.0)
         monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: g.__setitem__(n, v))
         monkeypatch.setattr(
-            ex.database, "salvar_bot_event",
+            ex.database,
+            "salvar_bot_event",
             lambda tipo, msg, **kw: ev.append((tipo, msg)),
         )
         e.fechar_posicao(110.0, "Take Profit Final")
@@ -181,7 +205,8 @@ class TestTelemetriaSaida:
         monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: None)
         monkeypatch.setattr(ex.database, "salvar_bot_event", lambda *a, **k: None)
         monkeypatch.setattr(
-            ex.gestao_risco, "registrar_resultado",
+            ex.gestao_risco,
+            "registrar_resultado",
             lambda pnl: registrado.__setitem__("pnl", pnl),
         )
         e.fechar_posicao(110.0, "Take Profit Final")
@@ -197,13 +222,14 @@ class TestTelemetriaSaida:
         monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: None)
         monkeypatch.setattr(ex.database, "salvar_bot_event", lambda *a, **k: None)
         monkeypatch.setattr(
-            ex.database, "salvar_sinal",
+            ex.database,
+            "salvar_sinal",
             lambda tipo, preco, motivo, **kw: gravado.__setitem__("sinal", (tipo, preco)),
         )
         monkeypatch.setattr(
-            ex.database, "atualizar_sinal_fechamento",
-            lambda sid, preco, pnl, pct, barreira: gravado.__setitem__(
-                "fechamento", (preco, pnl)),
+            ex.database,
+            "atualizar_sinal_fechamento",
+            lambda sid, preco, pnl, pct, barreira: gravado.__setitem__("fechamento", (preco, pnl)),
         )
         e.fechar_posicao(110.0, "Take Profit Final")
 
@@ -219,7 +245,8 @@ class TestTelemetriaSaida:
         monkeypatch.setattr(ex.health, "set_gauge", lambda n, v: None)
         monkeypatch.setattr(ex.database, "salvar_bot_event", lambda *a, **k: None)
         monkeypatch.setattr(
-            ex.gestao_risco, "registrar_resultado",
+            ex.gestao_risco,
+            "registrar_resultado",
             lambda pnl: registrado.__setitem__("pnl", pnl),
         )
         e.fechar_posicao(90.0, "Stop Loss")
@@ -239,8 +266,12 @@ class TestPrecoMedioFill:
     def test_market_real_ignora_price_zerado(self):
         from executor import preco_medio_fill
 
-        resp = {"status": "FILLED", "price": "0.00000000",
-                "executedQty": "0.01000000", "cummulativeQuoteQty": "1094.50000000"}
+        resp = {
+            "status": "FILLED",
+            "price": "0.00000000",
+            "executedQty": "0.01000000",
+            "cummulativeQuoteQty": "1094.50000000",
+        }
         assert preco_medio_fill(resp, 110.0) == pytest.approx(109450.0)
 
     def test_cqq_tem_prioridade_sobre_price(self):
@@ -253,8 +284,10 @@ class TestPrecoMedioFill:
     def test_media_ponderada_de_fills(self):
         from executor import preco_medio_fill
 
-        resp = {"price": "0.00000000", "fills": [
-            {"qty": "1.0", "price": "100.0"}, {"qty": "3.0", "price": "104.0"}]}
+        resp = {
+            "price": "0.00000000",
+            "fills": [{"qty": "1.0", "price": "100.0"}, {"qty": "3.0", "price": "104.0"}],
+        }
         assert preco_medio_fill(resp, 50.0) == pytest.approx(103.0)
 
     def test_simulacao_usa_price(self):

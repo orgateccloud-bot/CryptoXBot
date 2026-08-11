@@ -98,15 +98,25 @@ def _indicadores(k1h, k4h):
     # comparacao entre a re-derivacao e o legado deixaria de valer.
     bbu, bbm, bbl = ind.bollinger(f1h, 20, 2)
     return {
-        "f1h": f1h, "m1h": m1h, "n1h": n1h, "v1h": v1h, "ts1h": ts1h,
-        "ts4h": ts4h, "f4h": f4h, "m4h": m4h, "n4h": n4h,
-        "ema20": ind.ema(f1h, 20), "ema50": ind.ema(f1h, 50),
-        "rsi14": ind.rsi(f1h, 14), "atr14": ind.atr(m1h, n1h, f1h, 14),
+        "f1h": f1h,
+        "m1h": m1h,
+        "n1h": n1h,
+        "v1h": v1h,
+        "ts1h": ts1h,
+        "ts4h": ts4h,
+        "f4h": f4h,
+        "m4h": m4h,
+        "n4h": n4h,
+        "ema20": ind.ema(f1h, 20),
+        "ema50": ind.ema(f1h, 50),
+        "rsi14": ind.rsi(f1h, 14),
+        "atr14": ind.atr(m1h, n1h, f1h, 14),
         "volr": ind.volume_relativo(v1h, 20),
         "bw": ind.bandwidth(bbu, bbm, bbl),
         "vwap": ind.vwap_rolling(m1h, n1h, f1h, v1h, periodo=20),
         "adx_vals": _adx(m1h, n1h, f1h, 14),
-        "ema20_4h": ind.ema(f4h, 20), "ema50_4h": ind.ema(f4h, 50),
+        "ema20_4h": ind.ema(f4h, 20),
+        "ema50_4h": ind.ema(f4h, 50),
     }
 
 
@@ -134,8 +144,21 @@ def _fatiar(d: dict, ini_ms: int | None, fim_ms: int | None) -> dict:
     j1 = next((j for j, t in enumerate(ts4h) if t >= ts1h[i1 - 1]), len(ts4h)) if i1 else 0
     j1 = min(len(ts4h), j1 + 1)
 
-    corte_1h = ("f1h", "m1h", "n1h", "v1h", "ts1h", "ema20", "ema50", "rsi14",
-                "atr14", "volr", "bw", "vwap", "adx_vals")
+    corte_1h = (
+        "f1h",
+        "m1h",
+        "n1h",
+        "v1h",
+        "ts1h",
+        "ema20",
+        "ema50",
+        "rsi14",
+        "atr14",
+        "volr",
+        "bw",
+        "vwap",
+        "adx_vals",
+    )
     corte_4h = ("ts4h", "f4h", "m4h", "n4h", "ema20_4h", "ema50_4h")
     out = {k: d[k][i0_ind:i1] for k in corte_1h}
     out.update({k: d[k][j0:j1] for k in corte_4h})
@@ -144,21 +167,43 @@ def _fatiar(d: dict, ini_ms: int | None, fim_ms: int | None) -> dict:
 
 def _avaliar(fatia: dict, params: dict, fng: dict) -> dict | None:
     return _rodar_com_params(
-        fatia["f1h"], fatia["m1h"], fatia["n1h"], fatia["v1h"], fatia["ts1h"],
-        fatia["ts4h"], fatia["f4h"], fatia["m4h"], fatia["n4h"],
-        fatia["ema20"], fatia["ema50"], fatia["rsi14"], fatia["atr14"],
-        fatia["volr"], fatia["bw"], fatia["vwap"], fatia["adx_vals"],
-        fatia["ema20_4h"], fatia["ema50_4h"], params,
-        fng=fng, politica_saida="producao",
+        fatia["f1h"],
+        fatia["m1h"],
+        fatia["n1h"],
+        fatia["v1h"],
+        fatia["ts1h"],
+        fatia["ts4h"],
+        fatia["f4h"],
+        fatia["m4h"],
+        fatia["n4h"],
+        fatia["ema20"],
+        fatia["ema50"],
+        fatia["rsi14"],
+        fatia["atr14"],
+        fatia["volr"],
+        fatia["bw"],
+        fatia["vwap"],
+        fatia["adx_vals"],
+        fatia["ema20_4h"],
+        fatia["ema50_4h"],
+        params,
+        fng=fng,
+        politica_saida="producao",
     )
 
 
 def _commit_da_regua() -> str:
     try:
-        return subprocess.run(
-            ["git", "log", "-1", "--format=%h", "--", "backtesting/regua.py"],
-            capture_output=True, text=True, timeout=20, check=True,
-        ).stdout.strip() or "desconhecido"
+        return (
+            subprocess.run(
+                ["git", "log", "-1", "--format=%h", "--", "backtesting/regua.py"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=True,
+            ).stdout.strip()
+            or "desconhecido"
+        )
     except Exception:
         return "desconhecido"
 
@@ -232,25 +277,39 @@ def rodar(par: str, rapido: bool, usar_holdout: bool) -> dict:
             print(f"    {n}/{len(combos)}  sobreviventes={len(sobreviventes)}", flush=True)
 
     n_trials = len(combos)  # AVALIADAS, nao sobreviventes
-    print(f"  [TREINO] {len(sobreviventes)} de {n_trials} passaram do piso de "
-          f"{MIN_TRADES} trades")
+    print(
+        f"  [TREINO] {len(sobreviventes)} de {n_trials} passaram do piso de " f"{MIN_TRADES} trades"
+    )
     if not sobreviventes:
-        return {"par": par, "aprovado": False, "n_trials": n_trials,
-                "motivo": f"nenhuma combinacao alcancou {MIN_TRADES} trades no treino"}
+        return {
+            "par": par,
+            "aprovado": False,
+            "n_trials": n_trials,
+            "motivo": f"nenhuma combinacao alcancou {MIN_TRADES} trades no treino",
+        }
 
     sobreviventes.sort(key=lambda r: r["sharpe"], reverse=True)
     melhor = sobreviventes[0]
     print(f"  [TREINO] melhor: {melhor['params']}")
-    print(f"           {melhor['total']} trades, Sharpe {melhor['sharpe']:.2f}, "
-          f"Ret {melhor['retorno']:.2f}%, DD {melhor['max_dd']:.2f}%")
+    print(
+        f"           {melhor['total']} trades, Sharpe {melhor['sharpe']:.2f}, "
+        f"Ret {melhor['retorno']:.2f}%, DD {melhor['max_dd']:.2f}%"
+    )
 
     # ── 2. CONFIRMACAO no OOS (so o vencedor) ─────────────────────
     r_oos = _avaliar(oos, melhor["params"], fng)
     if not r_oos:
-        return {"par": par, "aprovado": False, "n_trials": n_trials,
-                "params": melhor["params"], "motivo": "vencedor nao operou no OOS"}
-    print(f"  [OOS]    {r_oos['total']} trades, Sharpe {r_oos['sharpe']:.2f}, "
-          f"Ret {r_oos['retorno']:.2f}%, DD {r_oos['max_dd']:.2f}%")
+        return {
+            "par": par,
+            "aprovado": False,
+            "n_trials": n_trials,
+            "params": melhor["params"],
+            "motivo": "vencedor nao operou no OOS",
+        }
+    print(
+        f"  [OOS]    {r_oos['total']} trades, Sharpe {r_oos['sharpe']:.2f}, "
+        f"Ret {r_oos['retorno']:.2f}%, DD {r_oos['max_dd']:.2f}%"
+    )
 
     reprovas = []
     if r_oos["total"] < MIN_TRADES:
@@ -269,7 +328,7 @@ def rodar(par: str, rapido: bool, usar_holdout: bool) -> dict:
         "commit_regua": _commit_da_regua(),
         "hash_snapshot": _sha_fng(),
         "janela": f"treino ..{CORTE_OOS} | oos {CORTE_OOS}..{CORTE_HOLDOUT} | "
-                  f"holdout {CORTE_HOLDOUT}..",
+        f"holdout {CORTE_HOLDOUT}..",
     }
 
     if reprovas:
@@ -279,11 +338,12 @@ def rodar(par: str, rapido: bool, usar_holdout: bool) -> dict:
         return resultado
 
     if not usar_holdout:
-        resultado.update({"aprovado": None,
-                          "motivo": "passou no OOS; hold-out ainda nao medido"})
+        resultado.update({"aprovado": None, "motivo": "passou no OOS; hold-out ainda nao medido"})
         print("  [VEREDITO] passou no OOS. Para o DSR final:")
-        print(f"    python research/rederivar_params.py --par {par} --holdout "
-              f"--confirmo-uso-unico")
+        print(
+            f"    python research/rederivar_params.py --par {par} --holdout "
+            f"--confirmo-uso-unico"
+        )
         return resultado
 
     # ── 3. HOLD-OUT (uso unico) ───────────────────────────────────
@@ -300,8 +360,10 @@ def rodar(par: str, rapido: bool, usar_holdout: bool) -> dict:
     resultado["dsr"] = round(dsr, 4)
     resultado["trades"] = r_hold["total"]
     resultado["aprovado"] = bool(dsr >= DSR_MINIMO)
-    print(f"  [HOLD-OUT] {r_hold['total']} trades, Sharpe {r_hold['sharpe']:.2f}, "
-          f"Ret {r_hold['retorno']:.2f}%")
+    print(
+        f"  [HOLD-OUT] {r_hold['total']} trades, Sharpe {r_hold['sharpe']:.2f}, "
+        f"Ret {r_hold['retorno']:.2f}%"
+    )
     print(f"  [DSR] {dsr:.4f}  (minimo pre-registrado: {DSR_MINIMO})")
     print(f"  [VEREDITO] {'APROVADO' if resultado['aprovado'] else 'REPROVADO'}")
     return resultado
@@ -311,22 +373,28 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Re-deriva os parametros com OOS (E-9)")
     ap.add_argument("--par", default="BTCUSDT")
     ap.add_argument("--rapido", action="store_true", help="grid menor")
-    ap.add_argument("--holdout", action="store_true",
-                    help="mede o HOLD-OUT (uso unico) e calcula o DSR final")
-    ap.add_argument("--confirmo-uso-unico", action="store_true",
-                    help="obrigatorio junto de --holdout")
+    ap.add_argument(
+        "--holdout", action="store_true", help="mede o HOLD-OUT (uso unico) e calcula o DSR final"
+    )
+    ap.add_argument(
+        "--confirmo-uso-unico", action="store_true", help="obrigatorio junto de --holdout"
+    )
     args = ap.parse_args()
 
     if args.holdout:
         if not args.confirmo_uso_unico:
-            print("[E-9] --holdout exige --confirmo-uso-unico. O hold-out e de USO\n"
-                  "      UNICO: quem ja viu o resultado nao decide mais o criterio.")
+            print(
+                "[E-9] --holdout exige --confirmo-uso-unico. O hold-out e de USO\n"
+                "      UNICO: quem ja viu o resultado nao decide mais o criterio."
+            )
             return 2
         anterior = holdout_ja_consumido(args.par)
         if anterior:
             print(f"[E-9] hold-out de {args.par} JA CONSUMIDO:\n      {anterior}")
-            print("      Rodar de novo nao produz evidencia nova — produz um numero\n"
-                  "      escolhido. Ver research/METODOLOGIA_PARAMS.md.")
+            print(
+                "      Rodar de novo nao produz evidencia nova — produz um numero\n"
+                "      escolhido. Ver research/METODOLOGIA_PARAMS.md."
+            )
             return 3
 
     print(f"\n[E-9] Re-derivacao de parametros — {args.par}")

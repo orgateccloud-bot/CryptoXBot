@@ -28,7 +28,6 @@ import pytest
 
 from research import snapshot
 
-
 # ══════════════════════════════════════════════════════════════════
 #  1. Snapshot: imutável e verificável
 # ══════════════════════════════════════════════════════════════════
@@ -68,7 +67,10 @@ class TestSnapshotImutavel:
     def test_cria_um_csv_por_serie_mais_manifest(self, snap):
         arquivos = sorted(os.listdir(snap))
         assert arquivos == [
-            "BTCUSDT_1h.csv", "ETHUSDT_1h.csv", "SOLUSDT_1h.csv", "manifest.json",
+            "BTCUSDT_1h.csv",
+            "ETHUSDT_1h.csv",
+            "SOLUSDT_1h.csv",
+            "manifest.json",
         ]
 
     def test_manifest_registra_contagem_e_bordas(self, snap):
@@ -172,9 +174,7 @@ class TestFronteiraDoHoldout:
     def test_acrescentar_dado_no_fim_nao_move_a_fronteira(self):
         import numpy as np
 
-        from research.edge_lab import indice_do_holdout
-
-        from research.edge_lab import HOLDOUT_INICIO_MS
+        from research.edge_lab import HOLDOUT_INICIO_MS, indice_do_holdout
 
         hora = 3_600_000
         base = [HOLDOUT_INICIO_MS - 1000 * hora + i * hora for i in range(2000)]
@@ -279,8 +279,11 @@ class TestTravaDeUsoUnico:
         from research import edge_lab
 
         fonte = inspect.getsource(edge_lab.avaliar_holdout)
-        trecho = fonte[fonte.index("with open(edge_lab.METODOLOGIA".replace("edge_lab.", "")):] \
-            if "with open(METODOLOGIA" in fonte else fonte
+        trecho = (
+            fonte[fonte.index("with open(edge_lab.METODOLOGIA".replace("edge_lab.", "")) :]
+            if "with open(METODOLOGIA" in fonte
+            else fonte
+        )
         assert "except Exception:\n        pass" not in trecho
 
     def test_carry_ganhou_trava(self):
@@ -324,11 +327,20 @@ def _veredito(ic=0.02, p=0.4, sha="abc", veredito="FAIL"):
     return {
         "gerado_em": "2026-08-08T00:00:00Z",
         "snapshot": {"rotulo": "t", "sha256_por_serie": {"BTCUSDT/1h": sha}},
-        "parametros": {"symbol": "BTCUSDT", "seed": 42,
-                       "holdout_inicio_ms": 1753142400000, "ic_piso_economico": 0.03},
-        "medicoes": {"n_amostras": 100, "melhor_feature": "rsi", "melhor_horizonte": 8,
-                     "ic_max_abs": ic, "p_permutacao": p,
-                     "ics": {"rsi|H8": ic, "atr_rel|H8": 0.01}},
+        "parametros": {
+            "symbol": "BTCUSDT",
+            "seed": 42,
+            "holdout_inicio_ms": 1753142400000,
+            "ic_piso_economico": 0.03,
+        },
+        "medicoes": {
+            "n_amostras": 100,
+            "melhor_feature": "rsi",
+            "melhor_horizonte": 8,
+            "ic_max_abs": ic,
+            "p_permutacao": p,
+            "ics": {"rsi|H8": ic, "atr_rel|H8": 0.01},
+        },
         "veredito": veredito,
         "criterios": {},
     }
@@ -373,7 +385,7 @@ class TestComparacao:
         assert any("holdout_inicio_ms" in d for d in comparar(a, b))
 
     def test_ic_de_qualquer_feature_da_familia_e_comparado(self):
-        """"diferença 0.0 em todos os IC" — não só no vencedor."""
+        """ "diferença 0.0 em todos os IC" — não só no vencedor."""
         from research.reproduzir import comparar
 
         a = _veredito()
@@ -618,9 +630,9 @@ class TestLabsLeemOSnapshot:
         except FileNotFoundError:
             pytest.skip("sem snapshot versionado neste checkout")
         for s in m["series"]:
-            assert s["primeiro_ts"] < HOLDOUT_INICIO_MS < s["ultimo_ts"], (
-                f"{s['symbol']} não cobre a fronteira pré-registrada"
-            )
+            assert (
+                s["primeiro_ts"] < HOLDOUT_INICIO_MS < s["ultimo_ts"]
+            ), f"{s['symbol']} não cobre a fronteira pré-registrada"
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -693,7 +705,9 @@ class TestContratoDoPerm:
 
         acessadas = set(re.findall(r'perm\["(\w+)"\]', inspect.getsource(reproduzir.derivar)))
         assert acessadas, "nenhum acesso encontrado — o regex deixou de casar"
-        assert acessadas <= set(self.CHAVES), f"chaves fora do contrato: {acessadas - set(self.CHAVES)}"
+        assert acessadas <= set(
+            self.CHAVES
+        ), f"chaves fora do contrato: {acessadas - set(self.CHAVES)}"
 
     def test_rodar_pesquisa_devolve_perm_e_n_amostras(self):
         import inspect

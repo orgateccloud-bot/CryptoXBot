@@ -138,7 +138,9 @@ def _montar_dados(n, preco_fn):
     k4h = []
     for j in range(n4):
         grupo = [preco_fn(i) for i in range(j * 4, j * 4 + 4)]
-        k4h.append((T0 + j * MS_4H, grupo[0], max(grupo) * 1.001, min(grupo) * 0.999, grupo[-1], 400.0))
+        k4h.append(
+            (T0 + j * MS_4H, grupo[0], max(grupo) * 1.001, min(grupo) * 0.999, grupo[-1], 400.0)
+        )
     return k1h, k4h
 
 
@@ -197,7 +199,11 @@ class TestContabilidade:
 
         pu = wf_sintetico(300, preco, entradas={160})
         r = wf.walk_forward(
-            "SINT", "1h", janela_treino=60, janela_teste=100, capital_inicial=1000.0,
+            "SINT",
+            "1h",
+            janela_treino=60,
+            janela_teste=100,
+            capital_inicial=1000.0,
             taxa=TAXA_TESTE,
             # I-12: estes testes medem ARITMETICA de PnL; o historico de F&G e
             # irrelevante para isso e esta mockado como {}. Sem a flag, o novo
@@ -212,6 +218,7 @@ class TestContabilidade:
         # `wf.STOP_PCT`, a constante de modulo que nao correspondia a par
         # nenhum — o teste passava porque media contra a mesma ficcao.
         from config.params_pares import get_params
+
         stop_pct = get_params("SINT")["stop_pct"]
         stop = entrada * (1 - stop_pct)
         ps = stop * (1 - SLIP)
@@ -236,8 +243,12 @@ class TestContabilidade:
 
         monkeypatch.setattr(wf, "carregar", lambda s, itv: k4h if itv == "4h" else k1h)
         r = wf.walk_forward(
-            "SINT", "1h", janela_treino=60, janela_teste=100,
-            capital_inicial=1000.0, taxa=TAXA_TESTE,
+            "SINT",
+            "1h",
+            janela_treino=60,
+            janela_teste=100,
+            capital_inicial=1000.0,
+            taxa=TAXA_TESTE,
             permitir_sem_fng=True,
         )
         assert r["operacoes"][0]["tipo_saida"] == "STOP"
@@ -250,7 +261,11 @@ class TestContabilidade:
 
         pu = wf_sintetico(300, preco, entradas={210})
         r = wf.walk_forward(
-            "SINT", "1h", janela_treino=60, janela_teste=100, capital_inicial=1000.0,
+            "SINT",
+            "1h",
+            janela_treino=60,
+            janela_teste=100,
+            capital_inicial=1000.0,
             taxa=TAXA_TESTE,
             # I-12: estes testes medem ARITMETICA de PnL; o historico de F&G e
             # irrelevante para isso e esta mockado como {}. Sem a flag, o novo
@@ -279,7 +294,11 @@ class TestContabilidade:
 
         wf_sintetico(300, preco, entradas={140})  # 1 entrada qualquer p/ ter ops
         r = wf.walk_forward(
-            "SINT", "1h", janela_treino=60, janela_teste=100, capital_inicial=1000.0,
+            "SINT",
+            "1h",
+            janela_treino=60,
+            janela_teste=100,
+            capital_inicial=1000.0,
             taxa=TAXA_TESTE,
             # I-12: estes testes medem ARITMETICA de PnL; o historico de F&G e
             # irrelevante para isso e esta mockado como {}. Sem a flag, o novo
@@ -300,9 +319,7 @@ class TestContabilidade:
         k1h, k4h = _montar_dados(300, pu)
         k1h_com_gap = k1h[:100] + k1h[101:]  # remove 1 candle do meio
 
-        monkeypatch.setattr(
-            wf, "carregar", lambda s, itv: k4h if itv == "4h" else k1h_com_gap
-        )
+        monkeypatch.setattr(wf, "carregar", lambda s, itv: k4h if itv == "4h" else k1h_com_gap)
         with pytest.raises(SystemExit):
             wf.walk_forward("SINT", "1h", janela_treino=60, janela_teste=100)
 
@@ -416,8 +433,13 @@ class TestGateFngNaMedicao:
 
         wf_sintetico(300, preco, entradas={160})
         r = wf.walk_forward(
-            "SINT", "1h", janela_treino=60, janela_teste=100,
-            capital_inicial=1000.0, taxa=TAXA_TESTE, permitir_sem_fng=True,
+            "SINT",
+            "1h",
+            janela_treino=60,
+            janela_teste=100,
+            capital_inicial=1000.0,
+            taxa=TAXA_TESTE,
+            permitir_sem_fng=True,
         )
         # Nao basta rodar: o resultado tem de carregar a ressalva, senao o
         # numero circula depois sem o aviso de que veio sem sentimento.
@@ -434,8 +456,12 @@ class TestGateFngNaMedicao:
         completo = {dia: 50 for dia in _dias_de(ts)}
         monkeypatch.setattr(wf, "_carregar_fng", lambda: completo)
         r = wf.walk_forward(
-            "SINT", "1h", janela_treino=60, janela_teste=100,
-            capital_inicial=1000.0, taxa=TAXA_TESTE,
+            "SINT",
+            "1h",
+            janela_treino=60,
+            janela_teste=100,
+            capital_inicial=1000.0,
+            taxa=TAXA_TESTE,
         )
         assert r["fng_historico_usado"] is True
         assert r["fng_cobertura"]["cobre"] is True
@@ -465,8 +491,13 @@ class TestParamsPorPar:
         saidas = {}
         for par in ("BTCUSDT", "ETHUSDT", "SOLUSDT"):
             r = wf.walk_forward(
-                par, "1h", janela_treino=60, janela_teste=100,
-                capital_inicial=1000.0, taxa=TAXA_TESTE, permitir_sem_fng=True,
+                par,
+                "1h",
+                janela_treino=60,
+                janela_teste=100,
+                capital_inicial=1000.0,
+                taxa=TAXA_TESTE,
+                permitir_sem_fng=True,
             )
             op = r["operacoes"][0]
             assert op["tipo_saida"] == "STOP"
@@ -535,19 +566,35 @@ class TestParidadeComProducao:
                 for parcial in (False, True):
                     for pico in (100.0, 103.0, 107.0):
                         for preco in (
-                            97.0, 98.5, 99.0, 100.0, 100.2, 101.0,
-                            104.0, 105.0, 106.0, 110.0,
+                            97.0,
+                            98.5,
+                            99.0,
+                            100.0,
+                            100.2,
+                            101.0,
+                            104.0,
+                            105.0,
+                            106.0,
+                            110.0,
                         ):
                             meu = wf.avaliar_tick_saida(
-                                entrada=entrada, stop_atual=stop_atual,
-                                target1=target1, target2=target2,
+                                entrada=entrada,
+                                stop_atual=stop_atual,
+                                target1=target1,
+                                target2=target2,
                                 parcial_feita=parcial,
-                                preco_alta=preco, preco_baixa=preco,
+                                preco_alta=preco,
+                                preco_baixa=preco,
                                 preco_pico=pico,
                             )
                             prod = ex.avaliar_tick_monitor(
-                                entrada, stop_atual, target1, target2,
-                                parcial, preco, pico,
+                                entrada,
+                                stop_atual,
+                                target1,
+                                target2,
+                                parcial,
+                                preco,
+                                pico,
                             )
                             ctx = (
                                 f"stop={stop_atual} t1={target1} t2={target2} "
@@ -564,8 +611,13 @@ class TestParidadeComProducao:
     def test_stop_e_avaliado_contra_a_minima_e_alvo_contra_a_maxima(self):
         # A unica divergencia proposital: um candle tem duas pontas.
         d = wf.avaliar_tick_saida(
-            entrada=100.0, stop_atual=98.5, target1=105.0, target2=105.0,
-            parcial_feita=False, preco_alta=106.0, preco_baixa=98.0,
+            entrada=100.0,
+            stop_atual=98.5,
+            target1=105.0,
+            target2=105.0,
+            parcial_feita=False,
+            preco_alta=106.0,
+            preco_baixa=98.0,
             preco_pico=100.0,
         )
         # tocou os dois -> stop vence (convencao conservadora)
@@ -579,8 +631,11 @@ class TestParidadeComProducao:
         d = wf.avaliar_tick_saida(
             entrada=100.0,
             stop_atual=104.16,  # ja trilhado (pico 105 * 0.992)
-            target1=105.0, target2=105.0, parcial_feita=False,
-            preco_alta=105.0, preco_baixa=104.5,
+            target1=105.0,
+            target2=105.0,
+            parcial_feita=False,
+            preco_alta=105.0,
+            preco_baixa=104.5,
             preco_pico=105.0,  # pico nao avancou -> trailing nao propoe nada
         )
         assert d["fechar_parcial"] is True
@@ -593,9 +648,14 @@ class TestPoliticaDeSaidaNoBacktest:
     def _rodar(self, wf_sintetico, preco_fn, entrada_em, politica="producao", n=300):
         pu = wf_sintetico(n, preco_fn, entradas={entrada_em})
         r = wf.walk_forward(
-            "BTCUSDT", "1h", janela_treino=60, janela_teste=100,
-            capital_inicial=1000.0, taxa=TAXA_TESTE,
-            permitir_sem_fng=True, politica_saida=politica,
+            "BTCUSDT",
+            "1h",
+            janela_treino=60,
+            janela_teste=100,
+            capital_inicial=1000.0,
+            taxa=TAXA_TESTE,
+            permitir_sem_fng=True,
+            politica_saida=politica,
         )
         return pu, r
 

@@ -43,9 +43,42 @@ jobs:
         run: isort --check-only --diff .
 
       - name: Run Flake8 (linter)
-        # || true: 132 achados pre-existentes (imports nao usados, var ambigua
-        # etc.) sao debito tecnico conhecido, nao bloqueiam o pipeline ainda.
+        # M-1: eram 2.170 achados. 1.966 deles estavam em `.claude/worktrees/`
+        # — CÓPIAS do próprio repo em estados antigos, criadas por sessões
+        # paralelas. O CI estava lintando o passado do projeto. Com esse
+        # diretório e `_legado/` excluídos (ver .flake8), sobraram 139 no
+        # código vivo.
+        #
+        # `|| true` fica ATÉ esses 139 chegarem a zero. Torná-lo bloqueante
+        # agora quebraria o pipeline em débito pré-existente, não em regressão.
+        # O gate real de estilo é o black + isort logo acima, que passam e
+        # BLOQUEIAM.
         run: flake8 . --count --statistics --show-source || true
+
+      - name: Flake8 nao pode PIORAR (teto de regressao)
+        # Trava de regressão enquanto o débito não zera: o número pode cair,
+        # nunca subir. Sem isto, `|| true` acima deixaria o débito crescer sem
+        # limite — que foi exatamente como ele chegou a 2.170.
+        #
+        # `|| true` dentro do $( ): o runner roda com `-eo pipefail`, e flake8
+        # sai 1 quando acha algo. Sem a guarda, o passo morreria aqui em vez de
+        # comparar o número.
+        run: |
+          N=$( (flake8 . --count -q || true) | tail -1 )
+          echo "flake8: $N achados no codigo vivo (teto atual: $FLAKE8_TETO)"
+          if [ "$N" -gt "$FLAKE8_TETO" ]; then
+            echo "::error::flake8 subiu de $FLAKE8_TETO para $N. Corrija os novos achados."
+            exit 1
+          fi
+          if [ "$N" -lt "$FLAKE8_TETO" ]; then
+            echo "::notice::flake8 caiu para $N — abaixe FLAKE8_TETO no ci.yml."
+          fi
+        env:
+          # Débito herdado, medido em 2026-08-11 (54 E501, 19 E402, 17 F401,
+          # 14 F541, 12 E741, 10 E231, 8 F841, 5 diversos). Este número só pode
+          # DESCER. Quando chegar a 0, remover o `|| true` do passo acima e
+          # apagar este.
+          FLAKE8_TETO: 139
 
       - name: Run MyPy (type checking)
         run: mypy . --ignore-missing-imports || true

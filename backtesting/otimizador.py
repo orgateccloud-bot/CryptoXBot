@@ -25,14 +25,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
 from backtesting import metricas
 from backtesting.alinhamento import mapear_idx_fechado
-from backtesting.regua import score_unificado
 from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, carregar
-from backtesting.walk_forward import (
-    FRACAO_PARCIAL,
-    TARGET2_MULT,
-    _fng_do_dia,
-    avaliar_tick_saida,
-)
+from backtesting.regua import score_unificado
+from backtesting.walk_forward import FRACAO_PARCIAL, TARGET2_MULT, _fng_do_dia, avaliar_tick_saida
 from ml_filtro import extrair_features
 
 DB_PATH = "data/btc_data.db"
@@ -41,7 +36,6 @@ DB_PATH = "data/btc_data.db"
 # grid escolhia o MAXIMO de milhares desses. Com piso de 5, a combinacao
 # vencedora tendia a ser a que teve poucos trades sortudos.
 MIN_TRADES = 50
-
 
 
 def _rodar_com_params(

@@ -23,7 +23,6 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
 from backtesting.alinhamento import mapear_idx_fechado
-from backtesting.regua import score_unificado
 from backtesting.metricas import (
     calmar_ratio,
     probabilistic_sharpe_ratio,
@@ -31,6 +30,7 @@ from backtesting.metricas import (
     sharpe_ratio,
     sortino_ratio,
 )
+from backtesting.regua import score_unificado
 from config.params_pares import get_params
 from ml_filtro import extrair_features
 

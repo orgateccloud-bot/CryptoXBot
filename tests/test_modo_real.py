@@ -49,12 +49,20 @@ def _estado_limpo(monkeypatch):
     monkeypatch.setattr(risco, "_carregar_estado_persistido", lambda: None)
     monkeypatch.setattr(risco.database, "salvar_bot_event", lambda *a, **k: None)
     monkeypatch.setattr(risco.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: None)
-    risco._estado_risco.update({
-        "travado": False, "motivo_travamento": "", "travado_em": None,
-        "bloqueado": False, "motivo_bloqueio": "", "pnl_dia": 0.0,
-        "capital_inicio_dia": 1000.0, "data_dia": str(date.today()),
-        "posicoes_abertas": 0, "circuit_breaker_ativo": False,
-    })
+    risco._estado_risco.update(
+        {
+            "travado": False,
+            "motivo_travamento": "",
+            "travado_em": None,
+            "bloqueado": False,
+            "motivo_bloqueio": "",
+            "pnl_dia": 0.0,
+            "capital_inicio_dia": 1000.0,
+            "data_dia": str(date.today()),
+            "posicoes_abertas": 0,
+            "circuit_breaker_ativo": False,
+        }
+    )
     yield
     risco._estado_risco.clear()
     risco._estado_risco.update(orig)
@@ -68,8 +76,9 @@ class TestDryRunFreia:
         """A contradição explícita tem que matar o boot, não ser resolvida em
         silêncio para um dos lados."""
         chamou = {"v": False}
-        monkeypatch.setattr(main, "_validar_trend_so_em_simulacao",
-                            lambda *a: chamou.__setitem__("v", True))
+        monkeypatch.setattr(
+            main, "_validar_trend_so_em_simulacao", lambda *a: chamou.__setitem__("v", True)
+        )
         with pytest.raises(SystemExit) as ex:
             main._decidir_modo(real=True, dry_run=True)
         assert ex.value.code == 1
@@ -131,8 +140,7 @@ class TestKillSwitchPermanente:
 
     def test_travar_e_idempotente(self, monkeypatch):
         ev = []
-        monkeypatch.setattr(risco.database, "salvar_bot_event",
-                            lambda t, m, **k: ev.append(t))
+        monkeypatch.setattr(risco.database, "salvar_bot_event", lambda t, m, **k: ev.append(t))
         risco.travar("primeiro")
         risco.travar("segundo")
         assert len(ev) == 1, "re-armar nao pode re-alertar"
@@ -191,29 +199,46 @@ class TestDrawdownAcumulado:
 class TestPosturaDaChave:
     def _mock(self, monkeypatch, restr, configurada=True):
         import binance_conta
+
         monkeypatch.setattr(binance_conta, "chave_configurada", lambda: configurada)
         monkeypatch.setattr(binance_conta, "restricoes_chave", lambda **k: restr)
 
     def test_chave_com_saque_aborta_mesmo_em_paper(self, monkeypatch):
         """Chave que pode sacar é risco desproporcional para um bot — abortar
         vale mesmo em simulação, porque a chave é a mesma."""
-        self._mock(monkeypatch, {"ok": True, "pode_sacar": True,
-                                 "pode_negociar_spot": True, "restrito_por_ip": True})
+        self._mock(
+            monkeypatch,
+            {"ok": True, "pode_sacar": True, "pode_negociar_spot": True, "restrito_por_ip": True},
+        )
         with pytest.raises(SystemExit):
             main._validar_postura_da_chave(simulacao=True)
 
     def test_real_com_chave_read_only_aborta(self, monkeypatch):
         """O caso desta conta: canTrade da CONTA era True e a chave não podia
         negociar. Toda ordem voltaria -2015, depois de o sinal ser consumido."""
-        self._mock(monkeypatch, {"ok": True, "pode_sacar": False,
-                                 "pode_negociar_spot": False, "restrito_por_ip": False})
+        self._mock(
+            monkeypatch,
+            {
+                "ok": True,
+                "pode_sacar": False,
+                "pode_negociar_spot": False,
+                "restrito_por_ip": False,
+            },
+        )
         with pytest.raises(SystemExit):
             main._validar_postura_da_chave(simulacao=False)
 
     def test_paper_com_chave_read_only_NAO_aborta(self, monkeypatch):
         """É a configuração de hoje e tem de continuar funcionando."""
-        self._mock(monkeypatch, {"ok": True, "pode_sacar": False,
-                                 "pode_negociar_spot": False, "restrito_por_ip": False})
+        self._mock(
+            monkeypatch,
+            {
+                "ok": True,
+                "pode_sacar": False,
+                "pode_negociar_spot": False,
+                "restrito_por_ip": False,
+            },
+        )
         main._validar_postura_da_chave(simulacao=True)
 
     def test_real_sem_conseguir_ler_a_chave_aborta(self, monkeypatch):
@@ -283,7 +308,10 @@ def test_nenhuma_chave_de_64_chars_versionada():
     try:
         saida = subprocess.run(
             ["git", "-C", raiz, "ls-files", "-z", "--", "*.py"],
-            capture_output=True, text=True, timeout=60, check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
         ).stdout
     except Exception as e:  # pragma: no cover - sem git no ambiente
         pytest.skip(f"git indisponivel para delimitar arquivos versionados: {e}")

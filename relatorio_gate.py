@@ -276,7 +276,9 @@ def main():
     por_barreira = {}
     for t in trades:
         por_barreira[t["barreira"]] = por_barreira.get(t["barreira"], 0) + 1
-    print("  Saídas por barreira: " + ", ".join(f"{k}={v}" for k, v in sorted(por_barreira.items())))
+    print(
+        "  Saídas por barreira: " + ", ".join(f"{k}={v}" for k, v in sorted(por_barreira.items()))
+    )
 
     # Benchmark buy-and-hold
     p_ini, p_fim = preco_btc_periodo(conn, ph, inicio, fim)
@@ -316,15 +318,33 @@ def main():
         m["pf"] is not None and m["pf"] > MIN_PROFIT_FACTOR,
     )
     aprovado &= _linha("PnL total > 0", f"{m['pnl_total']:+.2f}", "> 0", m["pnl_total"] > 0)
-    aprovado &= _linha("Max drawdown", f"{m['mdd_pct']:.2f}%", f"<= {MAX_DRAWDOWN_PCT}%", m["mdd_pct"] <= MAX_DRAWDOWN_PCT)
+    aprovado &= _linha(
+        "Max drawdown",
+        f"{m['mdd_pct']:.2f}%",
+        f"<= {MAX_DRAWDOWN_PCT}%",
+        m["mdd_pct"] <= MAX_DRAWDOWN_PCT,
+    )
     if bh is not None:
-        aprovado &= _linha("Retorno >= buy-and-hold BTC", f"{m['retorno_pct']:+.2f}%", f">= {bh:+.2f}%", m["retorno_pct"] >= bh)
+        aprovado &= _linha(
+            "Retorno >= buy-and-hold BTC",
+            f"{m['retorno_pct']:+.2f}%",
+            f">= {bh:+.2f}%",
+            m["retorno_pct"] >= bh,
+        )
     else:
-        print("  [??] Benchmark indisponível — critério buy-and-hold NÃO avaliado (não conta como aprovado).")
+        print(
+            "  [??] Benchmark indisponível — critério buy-and-hold NÃO avaliado (não conta como aprovado)."
+        )
         aprovado = False
 
-    print("\n" + ("GATE: APROVADO — prosseguir à Etapa 3 (capital piloto)." if aprovado
-                  else "GATE: REPROVADO — capital real continua PROIBIDO."))
+    print(
+        "\n"
+        + (
+            "GATE: APROVADO — prosseguir à Etapa 3 (capital piloto)."
+            if aprovado
+            else "GATE: REPROVADO — capital real continua PROIBIDO."
+        )
+    )
     if m["n"] < MIN_TRADES:
         print(f"Atenção: com n={m['n']} qualquer métrica acima é estatisticamente frágil.")
     conn.close()

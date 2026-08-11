@@ -1190,7 +1190,9 @@ class Executor:
             except Exception:
                 pass
             try:
-                telegram_bot.alerta_persistencia_falhou(self.symbol, "LONG", preco_exec, tamanho_btc)
+                telegram_bot.alerta_persistencia_falhou(
+                    self.symbol, "LONG", preco_exec, tamanho_btc
+                )
             except Exception:
                 pass
 
@@ -1236,7 +1238,9 @@ class Executor:
             f"Stop: ${stop_loss:,.2f} | Target: ${take_profit:,.2f}"
         )
         try:
-            telegram_bot.alerta_trade_aberto("LONG", preco_exec, tamanho_btc, stop_loss, take_profit)
+            telegram_bot.alerta_trade_aberto(
+                "LONG", preco_exec, tamanho_btc, stop_loss, take_profit
+            )
         except Exception:
             pass
 
@@ -1577,11 +1581,7 @@ class Executor:
                     # _aplicar_novo_stop, no ciclo diario). O trailing por
                     # percentual fixo daqui competiria com ele e sairia cedo,
                     # cortando a cauda direita que e o edge do sistema.
-                    **(
-                        {"trailing_ativacao": float("inf")}
-                        if self.modo_trend
-                        else {}
-                    ),
+                    **({"trailing_ativacao": float("inf")} if self.modo_trend else {}),
                 )
                 preco_pico = d["preco_pico"]
 

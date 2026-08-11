@@ -97,9 +97,9 @@ class TestTimeoutsEmAnaliseMercado:
         import analise_mercado
 
         fonte = inspect.getsource(analise_mercado)
-        assert fonte.count("requests.get(") == fonte.count("timeout=TIMEOUT_HTTP"), (
-            "alguma requisicao de analise_mercado ficou sem timeout"
-        )
+        assert fonte.count("requests.get(") == fonte.count(
+            "timeout=TIMEOUT_HTTP"
+        ), "alguma requisicao de analise_mercado ficou sem timeout"
 
     def test_timeout_e_finito_e_curto(self):
         import analise_mercado

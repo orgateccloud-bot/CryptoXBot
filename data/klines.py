@@ -57,9 +57,22 @@ _lock = threading.Lock()
 # ver _validar() abaixo.
 INTERVALOS_VALIDOS = frozenset(
     {
-        "1s", "1m", "3m", "5m", "15m", "30m",
-        "1h", "2h", "4h", "6h", "8h", "12h",
-        "1d", "3d", "1w", "1M",
+        "1s",
+        "1m",
+        "3m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "2h",
+        "4h",
+        "6h",
+        "8h",
+        "12h",
+        "1d",
+        "3d",
+        "1w",
+        "1M",
     }
 )
 
@@ -174,11 +187,16 @@ def obter_klines(
             _log.error(
                 "klines: cache de %s/%s tem %.0fs (teto %ss) — devolvendo None em vez de "
                 "dado velho. Consumidores de decisao (circuit breaker) nao podem receber stale.",
-                symbol, intervalo, idade, idade_maxima_s,
+                symbol,
+                intervalo,
+                idade,
+                idade_maxima_s,
             )
             return None
         _log.warning(
             "klines: servindo cache STALE de %s/%s (%.0fs) — fetch falhou.",
-            symbol, intervalo, idade,
+            symbol,
+            intervalo,
+            idade,
         )
         return entry["dados"]

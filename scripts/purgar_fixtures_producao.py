@@ -139,7 +139,9 @@ def _pnl_do_motivo(motivo: str) -> float | None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--confirmar", action="store_true", help="aplica de fato (padrao: dry-run)")
     ap.add_argument("--db", default=None, help="caminho do banco (padrao: DB_PATH do runtime)")
     args = ap.parse_args()
@@ -190,7 +192,9 @@ def main() -> int:
         if pnl is not None and abs(pnl) > LIMITE_PNL_ABSURDO_PCT:
             alvos_sig.append((sid, ts, tipo, preco, motivo, pnl))
 
-    print(f"\n  Sinais de fechamento fabricados (|PnL| > {LIMITE_PNL_ABSURDO_PCT:.0f}%): {len(alvos_sig)}")
+    print(
+        f"\n  Sinais de fechamento fabricados (|PnL| > {LIMITE_PNL_ABSURDO_PCT:.0f}%): {len(alvos_sig)}"
+    )
     for sid, ts, tipo, preco, motivo, pnl in alvos_sig:
         print(f"    - id={sid} {ts[:19]} {tipo} preco={preco} PnL={pnl:+,.2f}%")
         print(f"        motivo: {motivo}")
@@ -204,7 +208,9 @@ def main() -> int:
     esperado = total_pos - len(alvos_pos)
     atual = estado.get("posicoes_abertas")
     incoerente = atual != esperado
-    print(f"\n  posicoes_abertas em risk_state['default']: {atual} | esperado apos purga: {esperado}")
+    print(
+        f"\n  posicoes_abertas em risk_state['default']: {atual} | esperado apos purga: {esperado}"
+    )
     if incoerente:
         print("    -> sera reconciliado")
 
@@ -235,8 +241,12 @@ def main() -> int:
         cur.execute("UPDATE risk_state SET data=? WHERE name='default'", (json.dumps(estado),))
     con.commit()
 
-    pos_rest = cur.execute("SELECT COUNT(*) FROM risk_state WHERE name LIKE 'posicao:%'").fetchone()[0]
-    fech_rest = cur.execute("SELECT COUNT(*) FROM sinais WHERE tipo IN ('FECHAR_LONG','STOP')").fetchone()[0]
+    pos_rest = cur.execute(
+        "SELECT COUNT(*) FROM risk_state WHERE name LIKE 'posicao:%'"
+    ).fetchone()[0]
+    fech_rest = cur.execute(
+        "SELECT COUNT(*) FROM sinais WHERE tipo IN ('FECHAR_LONG','STOP')"
+    ).fetchone()[0]
     con.close()
 
     print(f"  Removidas   : {len(alvos_pos)} posicoes, {len(alvos_sig)} sinais")

@@ -183,11 +183,17 @@ class TestUmaDecisaoPorCandle:
 
         def fake_sinal(symbol, tem_posicao, intervalo="1d"):
             chamadas["n"] += 1
-            return {"sinal": "AGUARDAR", "preco_ref": 100.0, "canal_alto": 110.0,
-                    "canal_baixo": 90.0, "motivo": "x"}
+            return {
+                "sinal": "AGUARDAR",
+                "preco_ref": 100.0,
+                "canal_alto": 110.0,
+                "canal_baixo": 90.0,
+                "motivo": "x",
+            }
 
-        monkeypatch.setitem(sys.modules["estrategias.trend_live"].__dict__,
-                            "sinal_trend", fake_sinal)
+        monkeypatch.setitem(
+            sys.modules["estrategias.trend_live"].__dict__, "sinal_trend", fake_sinal
+        )
         monkeypatch.setattr(main, "_trend_ultimo_bucket", {})
 
         class ExecFake:
@@ -205,11 +211,17 @@ class TestUmaDecisaoPorCandle:
 
         def fake_sinal(symbol, tem_posicao, intervalo="1d"):
             chamadas["n"] += 1
-            return {"sinal": "AGUARDAR", "preco_ref": None, "canal_alto": None,
-                    "canal_baixo": None, "motivo": "indisponivel"}
+            return {
+                "sinal": "AGUARDAR",
+                "preco_ref": None,
+                "canal_alto": None,
+                "canal_baixo": None,
+                "motivo": "indisponivel",
+            }
 
-        monkeypatch.setitem(sys.modules["estrategias.trend_live"].__dict__,
-                            "sinal_trend", fake_sinal)
+        monkeypatch.setitem(
+            sys.modules["estrategias.trend_live"].__dict__, "sinal_trend", fake_sinal
+        )
         monkeypatch.setattr(main, "_trend_ultimo_bucket", {})
 
         class ExecFake:
@@ -231,7 +243,9 @@ class TestExecutorModoTrend:
         import executor as ex
 
         e = ex.Executor(simulacao=True, symbol="BTCUSDT", modo_trend=True)
-        monkeypatch.setattr(e, "_enviar_ordem", lambda *a, **k: {"status": "FILLED", "price": 100.0})
+        monkeypatch.setattr(
+            e, "_enviar_ordem", lambda *a, **k: {"status": "FILLED", "price": 100.0}
+        )
         monkeypatch.setattr(e, "_monitorar", lambda: None)
         monkeypatch.setattr(ex.database, "salvar_posicao_aberta", lambda *a, **k: None)
         monkeypatch.setattr(ex.database, "marcar_sinal_executado", lambda *a, **k: None)
@@ -248,7 +262,9 @@ class TestExecutorModoTrend:
 
         e = ex.Executor(simulacao=True, symbol="BTCUSDT")
         assert e.modo_trend is False
-        monkeypatch.setattr(e, "_enviar_ordem", lambda *a, **k: {"status": "FILLED", "price": 100.0})
+        monkeypatch.setattr(
+            e, "_enviar_ordem", lambda *a, **k: {"status": "FILLED", "price": 100.0}
+        )
         monkeypatch.setattr(e, "_monitorar", lambda: None)
         monkeypatch.setattr(ex.database, "salvar_posicao_aberta", lambda *a, **k: None)
         monkeypatch.setattr(ex.database, "marcar_sinal_executado", lambda *a, **k: None)
@@ -265,9 +281,14 @@ class TestExecutorModoTrend:
         from executor import avaliar_tick_monitor
 
         d = avaliar_tick_monitor(
-            entrada=100.0, stop_atual=90.0, target1=float("inf"),
-            target2=float("inf"), parcial_feita=False, preco=100_000.0,
-            preco_pico=100_000.0, trailing_ativacao=float("inf"),
+            entrada=100.0,
+            stop_atual=90.0,
+            target1=float("inf"),
+            target2=float("inf"),
+            parcial_feita=False,
+            preco=100_000.0,
+            preco_pico=100_000.0,
+            trailing_ativacao=float("inf"),
         )
         assert d["fechar_parcial"] is False
         assert d["fechar_total"] is None
@@ -277,8 +298,13 @@ class TestExecutorModoTrend:
         from executor import avaliar_tick_monitor
 
         d = avaliar_tick_monitor(
-            entrada=100.0, stop_atual=90.0, target1=float("inf"),
-            target2=float("inf"), parcial_feita=False, preco=89.0,
-            preco_pico=100.0, trailing_ativacao=float("inf"),
+            entrada=100.0,
+            stop_atual=90.0,
+            target1=float("inf"),
+            target2=float("inf"),
+            parcial_feita=False,
+            preco=89.0,
+            preco_pico=100.0,
+            trailing_ativacao=float("inf"),
         )
         assert d["fechar_total"] == "Stop Loss" and d["encerrar"] is True

@@ -60,6 +60,7 @@ from estrategias.otimizada import registrar_sinal as registrar_sinal_otimizada
 from executor import Executor
 from health import start_health_server
 from logger import logger
+
 # E-8: `from suporte import ScaleIn` removido — o scale-in saiu do caminho vivo
 # (as parcelas 2 e 3 eram inalcancaveis pelo gate `not exec_par.posicao`, e o
 # objeto nao resetado dimensionava o proximo trade sobre o tamanho do anterior).
@@ -951,9 +952,7 @@ def _ciclo_trend(par, exec_par):
         # Em posicao: o canal Donchian-M so sobe -> e o trailing do sistema.
         atual = (exec_par.posicao or {}).get("stop_atual", 0)
         if r["canal_baixo"] > atual:
-            exec_par._aplicar_novo_stop(
-                r["canal_baixo"], "Trailing Donchian-M: ${v:,.2f}"
-            )
+            exec_par._aplicar_novo_stop(r["canal_baixo"], "Trailing Donchian-M: ${v:,.2f}")
 
 
 def _trend_abrir(par, exec_par, r, t0=None):
@@ -972,13 +971,17 @@ def _trend_abrir(par, exec_par, r, t0=None):
     # contorne a trava de boot (import direto, chamada em teste, edicao futura
     # do argparse), uma estrategia reprovada nunca envia ordem real.
     if not exec_par.simulacao:
-        print(f"\033[91m[{par}][TREND] RECUSADO: estrategia reprovada, so opera em simulacao.\033[0m")
+        print(
+            f"\033[91m[{par}][TREND] RECUSADO: estrategia reprovada, so opera em simulacao.\033[0m"
+        )
         return
 
     preco = exec_par.get_preco()
     stop = r["canal_baixo"]
     if preco <= 0 or not stop or stop >= preco:
-        print(f"\033[91m[{par}][TREND] Entrada abortada: stop {stop} invalido vs preco {preco}\033[0m")
+        print(
+            f"\033[91m[{par}][TREND] Entrada abortada: stop {stop} invalido vs preco {preco}\033[0m"
+        )
         return
 
     saldo = gestao_risco.get_saldo_usdt()
@@ -986,9 +989,7 @@ def _trend_abrir(par, exec_par, r, t0=None):
     # E-8: o stop do trend e o canal Donchian-M, nao 1,5% — passa-lo faz
     # `risco_usdt` refletir o risco real deste sistema, que e o dado que este
     # experimento existe para produzir.
-    validacao = gestao_risco.validar_trade(
-        "COMPRA", preco, saldo, stop=stop, symbol=par
-    )
+    validacao = gestao_risco.validar_trade("COMPRA", preco, saldo, stop=stop, symbol=par)
     if not validacao["pode"]:
         print(f"\033[91m[{par}][TREND][RISCO] Bloqueado: {validacao['motivo']}\033[0m")
         return
@@ -1332,8 +1333,13 @@ def loop_par(par, intervalo_min, simulacao):
                         sinal_id=resultado.get("sinal_id"),
                     ):
                         _registrar_execucao(
-                            par, "otimizada", preco, preco_mercado,
-                            exec_par, t_inicio_ciclo, parcela,
+                            par,
+                            "otimizada",
+                            preco,
+                            preco_mercado,
+                            exec_par,
+                            t_inicio_ciclo,
+                            parcela,
                         )
                 else:
                     print(f"\033[91m[{par}][RISCO] Trade bloqueado: {validacao['motivo']}\033[0m")

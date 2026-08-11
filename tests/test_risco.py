@@ -53,7 +53,9 @@ def _isolar_estado_risco(monkeypatch):
     # telegram_bot.alerta_circuit_breaker -- mockados aqui (nao so no teste
     # especifico) para toda a suite continuar hermetica (sem rede/banco).
     monkeypatch.setattr(risco.database, "salvar_bot_event", lambda *a, **k: None, raising=True)
-    monkeypatch.setattr(risco.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: True, raising=True)
+    monkeypatch.setattr(
+        risco.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: True, raising=True
+    )
 
     yield
 

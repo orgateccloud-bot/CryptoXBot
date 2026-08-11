@@ -117,6 +117,7 @@ def _headers_seguranca(resp):
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return resp
 
+
 from config.runtime_settings import REST_BASE_URL
 
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config

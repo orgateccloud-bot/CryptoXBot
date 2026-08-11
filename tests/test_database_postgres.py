@@ -32,7 +32,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import database  # noqa: E402
 from scripts import migrate_sqlite_to_supabase as mig  # noqa: E402
 
-
 # ══════════════════════════════════════════════════════════════
 # 1. dict_row indexado por posição
 # ══════════════════════════════════════════════════════════════
@@ -274,9 +273,7 @@ class TestRelatorioGateUsaPsycopg3:
         import relatorio_gate
 
         fonte = inspect.getsource(relatorio_gate)
-        codigo = "\n".join(
-            ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#")
-        )
+        codigo = "\n".join(ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#"))
         assert "import psycopg2" not in codigo
         assert "psycopg2.connect" not in codigo
 
@@ -315,8 +312,13 @@ class TestContraPostgresReal:
     def test_crash_recovery_ida_e_volta(self, monkeypatch):
         monkeypatch.setattr(database, "DATABASE_URL", _URL_TESTE)
         database.inicializar()
-        pos = {"tipo": "LONG", "entrada": 60000.0, "tamanho_btc": 0.01,
-               "stop_atual": 59000.0, "target1": 63000.0}
+        pos = {
+            "tipo": "LONG",
+            "entrada": 60000.0,
+            "tamanho_btc": 0.01,
+            "stop_atual": 59000.0,
+            "target1": 63000.0,
+        }
         database.salvar_posicao_aberta("BTCUSDT", pos)
         assert "BTCUSDT" in database.carregar_posicoes_abertas()
         database.remover_posicao_aberta("BTCUSDT")

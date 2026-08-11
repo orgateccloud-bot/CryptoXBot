@@ -417,7 +417,7 @@ def test_model_path_constante_modulo_consistente():
     assert ml_filtro.MODEL_PATH == ml_filtro._model_path("BTCUSDT")
 
 
-def test_nao_ha_symbol_de_modulo(): 
+def test_nao_ha_symbol_de_modulo():
     """E-7: `ml_filtro.SYMBOL` foi REMOVIDO.
 
     O assert anterior era `ml_filtro.SYMBOL == "BTCUSDT"`, pinando uma constante

@@ -175,7 +175,8 @@ def caminho_do_snapshot(rotulo: str | None = None) -> str:
             f"Nenhum snapshot em {DIR_SNAPSHOTS}. Rode: python -m research.snapshot --criar"
         )
     candidatos = sorted(
-        d for d in os.listdir(DIR_SNAPSHOTS)
+        d
+        for d in os.listdir(DIR_SNAPSHOTS)
         if os.path.isfile(os.path.join(DIR_SNAPSHOTS, d, NOME_MANIFEST))
     )
     if not candidatos:
@@ -186,9 +187,7 @@ def caminho_do_snapshot(rotulo: str | None = None) -> str:
 
 
 def ler_manifest(rotulo: str | None = None) -> dict:
-    with open(
-        os.path.join(caminho_do_snapshot(rotulo), NOME_MANIFEST), encoding="utf-8"
-    ) as fp:
+    with open(os.path.join(caminho_do_snapshot(rotulo), NOME_MANIFEST), encoding="utf-8") as fp:
         return json.load(fp)
 
 

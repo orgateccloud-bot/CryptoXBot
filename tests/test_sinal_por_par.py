@@ -282,9 +282,9 @@ class TestAnalisarPorPar:
 
     def test_cada_par_le_apenas_os_proprios_klines(self, klines_por_par):
         otimizada.analisar("SOLUSDT", ensemble_result={"prob_ensemble": 0.7})
-        assert {s for s, _ in klines_por_par} == {"SOLUSDT"}, (
-            "algum modulo do caminho voltou a ler outro par"
-        )
+        assert {s for s, _ in klines_por_par} == {
+            "SOLUSDT"
+        }, "algum modulo do caminho voltou a ler outro par"
 
     def test_analisar_nao_escreve_no_banco(self, klines_por_par, monkeypatch):
         """E-7: leitura separada de escrita. dashboard.py chamava analisar() a

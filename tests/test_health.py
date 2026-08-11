@@ -132,8 +132,7 @@ class TestSetGauge:
 
     def test_thread_safe(self):
         threads = [
-            threading.Thread(target=lambda i=i: health.set_gauge("x", float(i)))
-            for i in range(20)
+            threading.Thread(target=lambda i=i: health.set_gauge("x", float(i))) for i in range(20)
         ]
         for t in threads:
             t.start()

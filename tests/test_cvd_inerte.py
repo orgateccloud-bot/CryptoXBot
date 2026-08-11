@@ -94,12 +94,8 @@ class TestVerificacaoEmpirica:
     def test_cvd_perfeitamente_linear_atinge_o_teto_e_para(self):
         # O melhor caso possível: todo tick é compra do mesmo tamanho, então o
         # CVD é uma reta e a correlação com x é 1. Nem assim passa.
-        r = calculate_cvd(
-            _ticks([1.0] * PERIODO_PRODUCAO), window_size=PERIODO_PRODUCAO
-        )
-        assert abs(r.divergence_score) == pytest.approx(
-            _teto_teorico(PERIODO_PRODUCAO), abs=1e-9
-        )
+        r = calculate_cvd(_ticks([1.0] * PERIODO_PRODUCAO), window_size=PERIODO_PRODUCAO)
+        assert abs(r.divergence_score) == pytest.approx(_teto_teorico(PERIODO_PRODUCAO), abs=1e-9)
         assert abs(r.divergence_score) < LIMIAR_SCORE
 
     def test_salto_gigante_tambem_nao_passa(self):

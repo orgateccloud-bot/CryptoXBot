@@ -295,7 +295,9 @@ class TestComissaoEmAtivoBase:
         )[1]
         monkeypatch.setattr(E.database, "salvar_posicao_aberta", lambda *a, **k: None)
         monkeypatch.setattr(E.database, "marcar_sinal_executado", lambda *a, **k: None)
-        monkeypatch.setattr(E.threading, "Thread", lambda **k: type("T", (), {"start": lambda s: None})())
+        monkeypatch.setattr(
+            E.threading, "Thread", lambda **k: type("T", (), {"start": lambda s: None})()
+        )
 
         assert ex_real.abrir_long(50000.0, 0.01, 49000.0, 52500.0) is True
         # 0,01 - 0,00001 = 0,00999, com floor no step do par
@@ -324,7 +326,12 @@ class TestProtecaoFailClosed:
 
         def _ordem(lado, qty, tipo=None, preco=None, **k):
             if lado == "BUY":
-                return {"status": "FILLED", "price": 50000.0, "orderId": "E-1", "executedQty": "0.01"}
+                return {
+                    "status": "FILLED",
+                    "price": 50000.0,
+                    "orderId": "E-1",
+                    "executedQty": "0.01",
+                }
             vendas.append((lado, qty))
             return {"status": "FILLED", "price": 49990.0, "orderId": "S-1"}
 
@@ -341,7 +348,12 @@ class TestProtecaoFailClosed:
 
         def _ordem(lado, qty, tipo=None, preco=None, **k):
             if lado == "BUY":
-                return {"status": "FILLED", "price": 50000.0, "orderId": "E-1", "executedQty": "0.01"}
+                return {
+                    "status": "FILLED",
+                    "price": 50000.0,
+                    "orderId": "E-1",
+                    "executedQty": "0.01",
+                }
             return {"erro": "-2010 insufficient balance"}  # SELL nao preenche
 
         ex_real._enviar_ordem = _ordem
@@ -371,7 +383,9 @@ class TestProtecaoFailClosed:
         ex.get_preco = lambda: 50000.0
         monkeypatch.setattr(E.database, "salvar_posicao_aberta", lambda *a, **k: None)
         monkeypatch.setattr(E.database, "marcar_sinal_executado", lambda *a, **k: None)
-        monkeypatch.setattr(E.threading, "Thread", lambda **k: type("T", (), {"start": lambda s: None})())
+        monkeypatch.setattr(
+            E.threading, "Thread", lambda **k: type("T", (), {"start": lambda s: None})()
+        )
         assert ex.abrir_long(50000.0, 0.01, 49000.0, 52500.0) is True
         assert ex.posicao is not None
 

@@ -86,29 +86,47 @@ class TestZeroNaoEhErro:
     def test_saldo_dust_devolve_valor_e_erro_none(self, monkeypatch):
         """O caso real da investigação: USDT = 0.00000075. É zero de verdade,
         não falha — e o chamador precisa saber disso."""
-        _mock_get(monkeypatch, {"/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-                                "/api/v3/account": RespostaFake(200, CONTA_OK)})
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(200, CONTA_OK),
+            },
+        )
         valor, erro = bc.saldo("USDT")
         assert valor == pytest.approx(7.5e-07)
         assert erro is None
 
     def test_ativo_ausente_e_zero_sem_erro(self, monkeypatch):
-        _mock_get(monkeypatch, {"/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-                                "/api/v3/account": RespostaFake(200, CONTA_OK)})
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(200, CONTA_OK),
+            },
+        )
         assert bc.saldo("DOGE") == (0.0, None)
 
     def test_falha_de_rede_devolve_zero_COM_erro(self, monkeypatch):
-        _mock_get(monkeypatch, {"/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-                                "/api/v3/account": ConnectionError("timeout")})
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": ConnectionError("timeout"),
+            },
+        )
         valor, erro = bc.saldo("USDT")
         assert valor == 0.0
         assert erro and "ConnectionError" in erro
 
     def test_chave_revogada_devolve_erro_da_binance(self, monkeypatch):
-        _mock_get(monkeypatch, {
-            "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-            "/api/v3/account": RespostaFake(401, {"code": -2015, "msg": "Invalid API-key"}),
-        })
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(401, {"code": -2015, "msg": "Invalid API-key"}),
+            },
+        )
         valor, erro = bc.saldo("USDT")
         assert valor == 0.0
         assert "-2015" in erro and "Invalid API-key" in erro
@@ -121,16 +139,25 @@ class TestZeroNaoEhErro:
         assert chamadas == []  # nem tentou
 
     def test_corpo_nao_json_nao_estoura(self, monkeypatch):
-        _mock_get(monkeypatch, {"/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-                                "/api/v3/account": RespostaFake(502, ValueError("nao e json"))})
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(502, ValueError("nao e json")),
+            },
+        )
         valor, erro = bc.saldo("USDT")
         assert valor == 0.0 and "502" in erro
 
     def test_saldo_corrompido_e_ignorado_sem_derrubar_o_resto(self, monkeypatch):
-        corpo = {"balances": [{"asset": "BTC", "free": "abc"},
-                              {"asset": "USDT", "free": "5.0"}]}
-        _mock_get(monkeypatch, {"/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-                                "/api/v3/account": RespostaFake(200, corpo)})
+        corpo = {"balances": [{"asset": "BTC", "free": "abc"}, {"asset": "USDT", "free": "5.0"}]}
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(200, corpo),
+            },
+        )
         r = bc.ler_conta()
         assert r["ok"] and r["saldos"] == {"USDT": 5.0}
 
@@ -152,20 +179,33 @@ class TestOffsetDeRelogio:
         cru enquanto executor.py compensava."""
         agora_ms = 1_700_000_000_000
         monkeypatch.setattr(bc.time, "time", lambda: agora_ms / 1000)
-        ch = _mock_get(monkeypatch, {
-            "/api/v3/time": RespostaFake(200, {"serverTime": agora_ms - 3000}),
-            "/api/v3/account": RespostaFake(200, CONTA_OK),
-        })
+        ch = _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": agora_ms - 3000}),
+                "/api/v3/account": RespostaFake(200, CONTA_OK),
+            },
+        )
         bc.ler_conta()
         conta = [c for c in ch if "account" in c["url"]][0]
         assert conta["params"]["timestamp"] == agora_ms - 3000
 
     def test_ttl_evita_resync_a_cada_chamada(self, monkeypatch):
-        _mock_get(monkeypatch, {"/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-                                "/api/v3/account": RespostaFake(200, CONTA_OK)})
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(200, CONTA_OK),
+            },
+        )
         bc.sincronizar_relogio(forcar=True)
-        ch = _mock_get(monkeypatch, {"/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-                                     "/api/v3/account": RespostaFake(200, CONTA_OK)})
+        ch = _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(200, CONTA_OK),
+            },
+        )
         for _ in range(5):
             bc.ler_conta()
         assert len([c for c in ch if "/time" in c["url"]]) == 0  # TTL segurou
@@ -179,10 +219,15 @@ class TestOffsetDeRelogio:
 
     def test_erro_1021_forca_resync_para_a_proxima(self, monkeypatch):
         """Timestamp fora da janela: re-sincroniza em vez de repetir o erro."""
-        ch = _mock_get(monkeypatch, {
-            "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-            "/api/v3/account": RespostaFake(400, {"code": -1021, "msg": "Timestamp out of window"}),
-        })
+        ch = _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(
+                    400, {"code": -1021, "msg": "Timestamp out of window"}
+                ),
+            },
+        )
         bc.ler_conta()
         assert len([c for c in ch if "/time" in c["url"]]) == 2  # inicial + forçado
 
@@ -194,17 +239,23 @@ class TestRestricoesDaChave:
     def test_chave_read_only_apesar_de_canTrade_da_conta(self, monkeypatch):
         """O caso real: /api/v3/account diz canTrade=True, mas a CHAVE não pode
         negociar. Confundir os dois leva a achar que o bot está liberado."""
-        _mock_get(monkeypatch, {
-            "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-            "/api/v3/account": RespostaFake(200, CONTA_OK),
-            "apiRestrictions": RespostaFake(200, {
-                "enableReading": True,
-                "enableSpotAndMarginTrading": False,
-                "enableWithdrawals": False,
-                "enableFutures": False,
-                "ipRestrict": False,
-            }),
-        })
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "/api/v3/account": RespostaFake(200, CONTA_OK),
+                "apiRestrictions": RespostaFake(
+                    200,
+                    {
+                        "enableReading": True,
+                        "enableSpotAndMarginTrading": False,
+                        "enableWithdrawals": False,
+                        "enableFutures": False,
+                        "ipRestrict": False,
+                    },
+                ),
+            },
+        )
         assert bc.ler_conta()["pode_operar"] is True  # da CONTA
         p = bc.restricoes_chave()
         assert p["ok"] and p["pode_negociar_spot"] is False  # da CHAVE
@@ -212,13 +263,21 @@ class TestRestricoesDaChave:
         assert p["pode_sacar"] is False
 
     def test_chave_de_trading_completa(self, monkeypatch):
-        _mock_get(monkeypatch, {
-            "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
-            "apiRestrictions": RespostaFake(200, {
-                "enableReading": True, "enableSpotAndMarginTrading": True,
-                "enableWithdrawals": False, "ipRestrict": True,
-            }),
-        })
+        _mock_get(
+            monkeypatch,
+            {
+                "/api/v3/time": RespostaFake(200, {"serverTime": 1}),
+                "apiRestrictions": RespostaFake(
+                    200,
+                    {
+                        "enableReading": True,
+                        "enableSpotAndMarginTrading": True,
+                        "enableWithdrawals": False,
+                        "ipRestrict": True,
+                    },
+                ),
+            },
+        )
         p = bc.restricoes_chave()
         assert p["pode_negociar_spot"] and p["restrito_por_ip"]
         assert p["somente_leitura"] is False
@@ -232,10 +291,12 @@ class TestEscaladaEmRisco:
         """get_saldo_* roda por ciclo por par: sem debounce, uma API fora do ar
         enche bot_events."""
         eventos = []
-        monkeypatch.setattr(risco.database, "salvar_bot_event",
-                            lambda t, m, **k: eventos.append((t, m)))
-        monkeypatch.setattr(risco.binance_conta, "saldo",
-                            lambda ativo, **k: (0.0, "[-2015] Invalid API-key"))
+        monkeypatch.setattr(
+            risco.database, "salvar_bot_event", lambda t, m, **k: eventos.append((t, m))
+        )
+        monkeypatch.setattr(
+            risco.binance_conta, "saldo", lambda ativo, **k: (0.0, "[-2015] Invalid API-key")
+        )
 
         for _ in range(10):
             assert risco.get_saldo_usdt() == 0.0
@@ -247,8 +308,7 @@ class TestEscaladaEmRisco:
     def test_zero_legitimo_nao_gera_evento(self, monkeypatch):
         """Conta vazia é estado normal, não incidente."""
         eventos = []
-        monkeypatch.setattr(risco.database, "salvar_bot_event",
-                            lambda t, m, **k: eventos.append(t))
+        monkeypatch.setattr(risco.database, "salvar_bot_event", lambda t, m, **k: eventos.append(t))
         monkeypatch.setattr(risco.binance_conta, "saldo", lambda ativo, **k: (0.0, None))
         assert risco.get_saldo_usdt() == 0.0
         assert eventos == []
@@ -257,17 +317,19 @@ class TestEscaladaEmRisco:
         """Depois de voltar, uma nova falha tem que alertar de novo -- senão o
         segundo incidente passa silencioso."""
         eventos = []
-        monkeypatch.setattr(risco.database, "salvar_bot_event",
-                            lambda t, m, **k: eventos.append(t))
+        monkeypatch.setattr(risco.database, "salvar_bot_event", lambda t, m, **k: eventos.append(t))
         estado = {"erro": "[-2015] revogada"}
-        monkeypatch.setattr(risco.binance_conta, "saldo",
-                            lambda ativo, **k: (0.0, estado["erro"]) if estado["erro"] else (9.0, None))
+        monkeypatch.setattr(
+            risco.binance_conta,
+            "saldo",
+            lambda ativo, **k: (0.0, estado["erro"]) if estado["erro"] else (9.0, None),
+        )
 
-        risco.get_saldo_usdt()          # falha -> 1 evento
+        risco.get_saldo_usdt()  # falha -> 1 evento
         estado["erro"] = None
         assert risco.get_saldo_usdt() == 9.0  # recupera
         estado["erro"] = "[-1021] drift"
-        risco.get_saldo_usdt()          # falha de novo -> 2o evento
+        risco.get_saldo_usdt()  # falha de novo -> 2o evento
 
         assert len(eventos) == 2
 
@@ -278,6 +340,7 @@ class TestEscaladaEmRisco:
 
     def test_evento_falhando_nao_derruba_o_sizing(self, monkeypatch):
         """Telemetria nunca pode quebrar o caminho de decisão."""
+
         def explode(*a, **k):
             raise RuntimeError("db fora")
 

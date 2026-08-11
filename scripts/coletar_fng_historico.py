@@ -156,8 +156,10 @@ def main() -> int:
     if antes is not None:
         novos = sorted(set(hist) - set(antes))
         mudados = sorted(d for d in set(hist) & set(antes) if hist[d] != antes[d])
-        print(f"[FNG] local tinha {len(antes)} dias — {len(novos)} novos, "
-              f"{len(mudados)} alterados")
+        print(
+            f"[FNG] local tinha {len(antes)} dias — {len(novos)} novos, "
+            f"{len(mudados)} alterados"
+        )
         if mudados:
             # O passado nao deveria mudar. Se mudou, o dado nao e imutavel e a
             # reproducao de qualquer medicao antiga fica em questao.

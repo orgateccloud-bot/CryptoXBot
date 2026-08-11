@@ -78,9 +78,7 @@ class TestConfiabilidade:
             parcial = dict(completo)
             parcial[campo] = None
             monkeypatch.setitem(P.PROCEDENCIA, "BTCUSDT", parcial)
-            assert P.params_confiaveis("BTCUSDT") is False, (
-                f"{campo}=None deveria reprovar"
-            )
+            assert P.params_confiaveis("BTCUSDT") is False, f"{campo}=None deveria reprovar"
 
     def test_dsr_abaixo_do_minimo_reprova(self, monkeypatch):
         # O gate nao e "tem os campos", e "tem os campos E passou". Um DSR de
@@ -175,9 +173,9 @@ class TestTravaDeCapitalReal:
         sem_comentarios = "\n".join(
             linha for linha in fonte.splitlines() if not linha.lstrip().startswith("#")
         )
-        assert re.search(r"exigir_params_auditados\(", sem_comentarios), (
-            "main.py nao chama exigir_params_auditados — a trava de E-9 esta solta"
-        )
+        assert re.search(
+            r"exigir_params_auditados\(", sem_comentarios
+        ), "main.py nao chama exigir_params_auditados — a trava de E-9 esta solta"
 
 
 class TestParametrosSeguemLegiveis:
@@ -208,6 +206,4 @@ class TestParametrosSeguemLegiveis:
         fonte = inspect.getsource(P)
         bloco = fonte.split("PARAMS_PARES = {", 1)[1].split("\nPROCEDENCIA", 1)[0]
         for proibido in ("Sharpe", "WR ", "Ret +", "DD "):
-            assert proibido not in bloco, (
-                f"{proibido!r} voltou para o bloco de parametros"
-            )
+            assert proibido not in bloco, f"{proibido!r} voltou para o bloco de parametros"

@@ -72,9 +72,7 @@ class TestDeclaracaoBateComARealidade:
         preco = PRECOS[par]
         stop = preco * (1 - PARAMS_PARES[par]["stop_pct"])
         qty = risco.calcular_tamanho(1000.0, preco, stop, atr_relativo=0.1)
-        assert qty * (preco - stop) / 1000.0 == pytest.approx(
-            risco.MAX_RISCO_POR_TRADE, rel=1e-6
-        )
+        assert qty * (preco - stop) / 1000.0 == pytest.approx(risco.MAX_RISCO_POR_TRADE, rel=1e-6)
 
 
 class TestQuemMandaNoTamanho:
@@ -111,9 +109,9 @@ class TestQuemMandaNoTamanho:
         preco, stop = 60000.0, 60000.0 * (1 - 0.015)
         base = risco.calcular_tamanho(1000.0, preco, stop, atr_relativo=1.0)
         for kelly in (0.004, 0.006, 0.009):
-            assert risco.calcular_tamanho(
-                1000.0, preco, stop, fator_risco=kelly
-            ) == pytest.approx(base, rel=1e-9), f"kelly={kelly} mudou o tamanho"
+            assert risco.calcular_tamanho(1000.0, preco, stop, fator_risco=kelly) == pytest.approx(
+                base, rel=1e-9
+            ), f"kelly={kelly} mudou o tamanho"
 
     def test_vol_targeting_continua_funcionando_atraves_do_teto(self):
         # O teto escala com mult_vol, entao o vol targeting NAO ficou inerte —
@@ -137,9 +135,7 @@ class TestAlinhamentoNaoMudouSizing:
         atual = {}
         for cap, par, preco, stop, _ in _casos():
             for atr in ATRS:
-                atual[(cap, par, atr)] = risco.calcular_tamanho(
-                    cap, preco, stop, atr_relativo=atr
-                )
+                atual[(cap, par, atr)] = risco.calcular_tamanho(cap, preco, stop, atr_relativo=atr)
 
         monkeypatch.setattr(risco, "MAX_RISCO_POR_TRADE", 0.02)  # valor antigo
         for cap, par, preco, stop, _ in _casos():
@@ -157,9 +153,7 @@ class TestAlinhamentoNaoMudouSizing:
         atual = {}
         for cap, par, preco, stop, _ in _casos():
             for atr in ATRS:
-                atual[(cap, par, atr)] = risco.calcular_tamanho(
-                    cap, preco, stop, atr_relativo=atr
-                )
+                atual[(cap, par, atr)] = risco.calcular_tamanho(cap, preco, stop, atr_relativo=atr)
 
         monkeypatch.setattr(risco, "MAX_RISCO_POR_TRADE", valor_menor)
         difs = 0

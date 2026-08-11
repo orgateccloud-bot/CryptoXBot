@@ -29,7 +29,6 @@ import database
 import health
 import telegram_bot
 
-
 # ══════════════════════════════════════════════════════════════════
 #  1. Guarda de placeholder — o bug central de I-9
 # ══════════════════════════════════════════════════════════════════
@@ -201,7 +200,9 @@ class TestFalhaDeEntregaNaoESilenciosa:
             telegram_bot.requests,
             "post",
             lambda *a, **k: _RespostaFake(
-                estado["status"], "x", {"result": {"message_id": 7}} if estado["status"] == 200 else None
+                estado["status"],
+                "x",
+                {"result": {"message_id": 7}} if estado["status"] == 200 else None,
             ),
         )
         monkeypatch.setattr(database, "salvar_bot_event", lambda t, m, **k: eventos.append(t))
@@ -260,12 +261,10 @@ def db_eventos(tmp_path, monkeypatch):
     """Banco temporario com a tabela bot_events e 5 eventos conhecidos."""
     caminho = tmp_path / "eventos.db"
     conn = sqlite3.connect(caminho)
-    conn.execute(
-        """CREATE TABLE bot_events (
+    conn.execute("""CREATE TABLE bot_events (
                id INTEGER PRIMARY KEY AUTOINCREMENT,
                timestamp TEXT, service TEXT, symbol TEXT,
-               event_type TEXT, severity TEXT, message TEXT)"""
-    )
+               event_type TEXT, severity TEXT, message TEXT)""")
     linhas = [
         ("2026-08-07T10:00:00", "worker", "BTCUSDT", "thread_crash", "CRITICAL", "loop morreu"),
         ("2026-08-07T10:01:00", "worker", None, "boot", "INFO", "subiu"),

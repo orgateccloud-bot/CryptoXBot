@@ -195,7 +195,11 @@ def test_protecao_aberta_ignora_oco_de_outro_symbol(ex, monkeypatch):
         {
             "/api/v3/openOrders": [],
             "/api/v3/openOrderList": [
-                {"orderListId": 1, "symbol": "ETHUSDT", "orders": [{"symbol": "ETHUSDT", "orderId": 99}]}
+                {
+                    "orderListId": 1,
+                    "symbol": "ETHUSDT",
+                    "orders": [{"symbol": "ETHUSDT", "orderId": 99}],
+                }
             ],
         },
     )
@@ -248,8 +252,15 @@ def test_ultimo_preco_entrada_resposta_invalida_retorna_none(ex, monkeypatch):
 
 def test_reidratar_posicao_liga_monitor(ex, monkeypatch):
     monkeypatch.setattr(ex, "get_preco", lambda: 0.0)  # monitor dorme sem decidir nada
-    pos = {"tipo": "LONG", "entrada": 50000.0, "stop_atual": 49000.0, "target1": 51000.0,
-           "target2": 52000.0, "parcial_feita": False, "tamanho_btc": 0.01}
+    pos = {
+        "tipo": "LONG",
+        "entrada": 50000.0,
+        "stop_atual": 49000.0,
+        "target1": 51000.0,
+        "target2": 52000.0,
+        "parcial_feita": False,
+        "tamanho_btc": 0.01,
+    }
     ex.reidratar_posicao(pos)
     assert ex.posicao == pos
     assert ex._ativo is True
@@ -264,8 +275,15 @@ def test_reidratar_posicao_liga_monitor(ex, monkeypatch):
 def test_reconciliar_boot_simulacao_com_posicao_religa(monkeypatch, database_mock):
     ex_sim = Executor(simulacao=True, symbol="BTCUSDT")
     monkeypatch.setattr(ex_sim, "get_preco", lambda: 0.0)
-    pos = {"tipo": "LONG", "entrada": 1.0, "stop_atual": 1.0, "target1": 1.0,
-           "target2": 1.0, "parcial_feita": True, "tamanho_btc": 0.01}
+    pos = {
+        "tipo": "LONG",
+        "entrada": 1.0,
+        "stop_atual": 1.0,
+        "target1": 1.0,
+        "target2": 1.0,
+        "parcial_feita": True,
+        "tamanho_btc": 0.01,
+    }
     database_mock.posicoes["BTCUSDT"] = pos
     resultado = ex_sim.reconciliar_boot()
     assert resultado["acao"] == "religou"
@@ -287,8 +305,15 @@ def test_reconciliar_boot_simulacao_sem_posicao_nao_faz_nada(monkeypatch, databa
 
 def test_reconciliar_boot_db_e_exchange_concordam(ex, monkeypatch, database_mock):
     monkeypatch.setattr(ex, "get_preco", lambda: 0.0)
-    pos = {"tipo": "LONG", "entrada": 50000.0, "stop_atual": 49000.0, "target1": 51000.0,
-           "target2": 52000.0, "parcial_feita": False, "tamanho_btc": 0.01}
+    pos = {
+        "tipo": "LONG",
+        "entrada": 50000.0,
+        "stop_atual": 49000.0,
+        "target1": 51000.0,
+        "target2": 52000.0,
+        "parcial_feita": False,
+        "tamanho_btc": 0.01,
+    }
     database_mock.posicoes["BTCUSDT"] = pos
     monkeypatch.setattr(ex, "_protecao_aberta_na_exchange", lambda: (True, 0.01, 49000.0, 52000.0))
     monkeypatch.setattr(ex, "_saldo_ativo_base", lambda: 0.01)
@@ -331,8 +356,15 @@ def test_reconciliar_boot_orfa_nao_reconstruida_sem_entrada(ex, monkeypatch, dat
 
 
 def test_reconciliar_boot_fechada_fora_do_bot_remove_do_db(ex, monkeypatch, database_mock):
-    pos = {"tipo": "LONG", "entrada": 50000.0, "stop_atual": 49000.0, "target1": 51000.0,
-           "target2": 52000.0, "parcial_feita": False, "tamanho_btc": 0.01}
+    pos = {
+        "tipo": "LONG",
+        "entrada": 50000.0,
+        "stop_atual": 49000.0,
+        "target1": 51000.0,
+        "target2": 52000.0,
+        "parcial_feita": False,
+        "tamanho_btc": 0.01,
+    }
     database_mock.posicoes["BTCUSDT"] = pos
     monkeypatch.setattr(ex, "_protecao_aberta_na_exchange", lambda: (False, None, None, None))
     monkeypatch.setattr(ex, "_saldo_ativo_base", lambda: 0.0)  # saldo zerado -- ja vendeu fora
@@ -347,8 +379,15 @@ def test_reconciliar_boot_fechada_fora_do_bot_remove_do_db(ex, monkeypatch, data
 
 def test_reconciliar_boot_saldo_existe_sem_protecao_religa_e_alerta(ex, monkeypatch, database_mock):
     monkeypatch.setattr(ex, "get_preco", lambda: 0.0)
-    pos = {"tipo": "LONG", "entrada": 50000.0, "stop_atual": 49000.0, "target1": 51000.0,
-           "target2": 52000.0, "parcial_feita": False, "tamanho_btc": 0.01}
+    pos = {
+        "tipo": "LONG",
+        "entrada": 50000.0,
+        "stop_atual": 49000.0,
+        "target1": 51000.0,
+        "target2": 52000.0,
+        "parcial_feita": False,
+        "tamanho_btc": 0.01,
+    }
     database_mock.posicoes["BTCUSDT"] = pos
     monkeypatch.setattr(ex, "_protecao_aberta_na_exchange", lambda: (False, None, None, None))
     monkeypatch.setattr(ex, "_saldo_ativo_base", lambda: 0.01)  # saldo ainda existe
@@ -376,8 +415,15 @@ def test_reconciliar_boot_falha_de_rede_cai_no_db(ex, monkeypatch, database_mock
     """Reconciliacao indisponivel (rede fora) NUNCA derruba loop_par -- cai no
     comportamento legado (confia no DB) quando ha posicao salva."""
     monkeypatch.setattr(ex, "get_preco", lambda: 0.0)
-    pos = {"tipo": "LONG", "entrada": 50000.0, "stop_atual": 49000.0, "target1": 51000.0,
-           "target2": 52000.0, "parcial_feita": False, "tamanho_btc": 0.01}
+    pos = {
+        "tipo": "LONG",
+        "entrada": 50000.0,
+        "stop_atual": 49000.0,
+        "target1": 51000.0,
+        "target2": 52000.0,
+        "parcial_feita": False,
+        "tamanho_btc": 0.01,
+    }
     database_mock.posicoes["BTCUSDT"] = pos
 
     def _explode():

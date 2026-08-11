@@ -142,9 +142,7 @@ def exigir_params_auditados(symbols) -> None:
     if not faltando:
         return
     detalhe = "\n".join(
-        f"    {s}: " + ", ".join(
-            f"{c}={procedencia(s).get(c)!r}" for c in CAMPOS_PROCEDENCIA
-        )
+        f"    {s}: " + ", ".join(f"{c}={procedencia(s).get(c)!r}" for c in CAMPOS_PROCEDENCIA)
         for s in faltando
     )
     raise ParametrosNaoAuditados(

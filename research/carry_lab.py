@@ -41,18 +41,18 @@ _MARCA_HOLDOUT = "HOLD-OUT CONSUMIDO"
 from research.edge_lab import HOLDOUT_INICIO_MS  # noqa: E402
 
 PARES = ("BTCUSDT", "ETHUSDT")
-CUSTO_ROUND_TRIP = 0.003   # 0.30% do notional (taker nas 2 pernas, ida e volta)
-CAPITAL_MULT = 1.25        # 1.00 spot + 0.25 margem (short perp 4x)
+CUSTO_ROUND_TRIP = 0.003  # 0.30% do notional (taker nas 2 pernas, ida e volta)
+CAPITAL_MULT = 1.25  # 1.00 spot + 0.25 margem (short perp 4x)
 # Mantida so como documentacao da origem da data em edge_lab; nao decide mais
 # fronteira nenhuma (I-11).
 HOLDOUT_FRAC = 0.35
 MS_ANO = 365.25 * 86400 * 1000
 
 # Pisos pré-registrados (METODOLOGIA_CARRY.md)
-MIN_ANUALIZADO = 0.10      # 10% a.a. sobre capital
-MIN_MESES_POS = 0.70       # 70% dos meses positivos
-PIOR_MES_LIMITE = -0.03    # pior mês > -3%
-PIOR_ANO_LIMITE = -0.05    # pior ano (regime de funding adverso) > -5% a.a.
+MIN_ANUALIZADO = 0.10  # 10% a.a. sobre capital
+MIN_MESES_POS = 0.70  # 70% dos meses positivos
+PIOR_MES_LIMITE = -0.03  # pior mês > -3%
+PIOR_ANO_LIMITE = -0.05  # pior ano (regime de funding adverso) > -5% a.a.
 MIN_MESES = 24
 
 
@@ -98,8 +98,8 @@ def variante_A(ts, rate) -> dict:
     if len(rate) < 2:
         return {"n": 0}
     anos = (ts[-1] - ts[0]) / MS_ANO
-    ret_notional = float(rate.sum())                      # Σ funding
-    ret_liq_notional = ret_notional - CUSTO_ROUND_TRIP    # custo 1x
+    ret_notional = float(rate.sum())  # Σ funding
+    ret_liq_notional = ret_notional - CUSTO_ROUND_TRIP  # custo 1x
     ret_capital = ret_liq_notional / CAPITAL_MULT
     anualizado = ret_capital / anos if anos > 0 else 0.0
 
@@ -136,12 +136,17 @@ def variante_A(ts, rate) -> dict:
             "n": n,
         }
     return {
-        "n": len(rate), "anos": anos,
-        "ret_notional": ret_notional, "ret_capital": ret_capital,
+        "n": len(rate),
+        "anos": anos,
+        "ret_notional": ret_notional,
+        "ret_capital": ret_capital,
         "anualizado": anualizado,
-        "frac_meses_pos": frac_pos, "n_meses": len(meses),
-        "pior_mes": pior_mes, "pior_mes_nome": pior_mes_nome,
-        "mensais": mensais, "anuais": anuais,
+        "frac_meses_pos": frac_pos,
+        "n_meses": len(meses),
+        "pior_mes": pior_mes,
+        "pior_mes_nome": pior_mes_nome,
+        "mensais": mensais,
+        "anuais": anuais,
         "frac_pagamentos_neg": float((rate < 0).mean()),
         "funding_medio": float(rate.mean()),
     }
@@ -168,9 +173,13 @@ def variante_B(ts, rate, janela_dias=7) -> dict:
             ret += rate[i]
     anos = (ts[-1] - ts[0]) / MS_ANO
     ret_cap = ret / CAPITAL_MULT
-    return {"n": len(rate), "anos": anos, "ret_capital": ret_cap,
-            "anualizado": ret_cap / anos if anos > 0 else 0.0,
-            "alternancias": alternancias}
+    return {
+        "n": len(rate),
+        "anos": anos,
+        "ret_capital": ret_cap,
+        "anualizado": ret_cap / anos if anos > 0 else 0.0,
+        "alternancias": alternancias,
+    }
 
 
 def avaliar(holdout=False, variante="A") -> dict:
@@ -195,30 +204,39 @@ def imprimir(res, variante="A", holdout=False):
         for sym, r in res.items():
             if not r.get("n"):
                 continue
-            print(f"  {sym}: {r['anualizado']*100:+.2f}% a.a. sobre capital "
-                  f"({r['alternancias']} alternâncias em {r['anos']:.1f} anos)")
+            print(
+                f"  {sym}: {r['anualizado']*100:+.2f}% a.a. sobre capital "
+                f"({r['alternancias']} alternâncias em {r['anos']:.1f} anos)"
+            )
         print("\n  (variante B é robustez — NÃO decide o veredito)")
         return None
 
     for sym, r in res.items():
         if not r.get("n"):
             continue
-        print(f"\n  {sym} — {r['n']} pagamentos, {r['anos']:.1f} anos, "
-              f"{r['n_meses']} meses")
-        print(f"    funding médio/8h: {r['funding_medio']:+.6f} | "
-              f"pagamentos negativos: {r['frac_pagamentos_neg']*100:.1f}%")
-        print(f"    retorno s/ notional: {r['ret_notional']*100:+.2f}%  ->  "
-              f"s/ capital: {r['ret_capital']*100:+.2f}%")
+        print(f"\n  {sym} — {r['n']} pagamentos, {r['anos']:.1f} anos, " f"{r['n_meses']} meses")
+        print(
+            f"    funding médio/8h: {r['funding_medio']:+.6f} | "
+            f"pagamentos negativos: {r['frac_pagamentos_neg']*100:.1f}%"
+        )
+        print(
+            f"    retorno s/ notional: {r['ret_notional']*100:+.2f}%  ->  "
+            f"s/ capital: {r['ret_capital']*100:+.2f}%"
+        )
         print(f"    ANUALIZADO s/ capital: {r['anualizado']*100:+.2f}% a.a.")
-        print(f"    meses positivos: {r['frac_meses_pos']*100:.1f}% | "
-              f"pior mês: {r['pior_mes']*100:+.2f}% ({r['pior_mes_nome']})")
+        print(
+            f"    meses positivos: {r['frac_meses_pos']*100:.1f}% | "
+            f"pior mês: {r['pior_mes']*100:+.2f}% ({r['pior_mes_nome']})"
+        )
         if r["anuais"]:
             pior_a = min(r["anuais"], key=lambda a: r["anuais"][a]["anualizado"])
             print(f"    por ano (anualizado s/ capital):")
             for a, d in r["anuais"].items():
                 marca = "  <-- pior" if a == pior_a else ""
-                print(f"      {a}: {d['anualizado']*100:+7.2f}% a.a. "
-                      f"(funding médio {d['funding_medio']:+.6f}){marca}")
+                print(
+                    f"      {a}: {d['anualizado']*100:+7.2f}% a.a. "
+                    f"(funding médio {d['funding_medio']:+.6f}){marca}"
+                )
 
     # ── veredito: média equal-weighted dos pares (primária) ──
     validos = [r for r in res.values() if r.get("n")]
@@ -253,8 +271,14 @@ def imprimir(res, variante="A", holdout=False):
     else:
         print("\n  >> FAIL — pré-registrado: não construir, sem re-registro de critério.")
     print("=" * 74)
-    return {"anualizado": anual, "frac_meses_pos": frac_pos, "pior_mes": pior_mes,
-            "pior_ano": pior_ano, "n_meses": n_meses, "aprovado": ok}
+    return {
+        "anualizado": anual,
+        "frac_meses_pos": frac_pos,
+        "pior_mes": pior_mes,
+        "pior_ano": pior_ano,
+        "n_meses": n_meses,
+        "aprovado": ok,
+    }
 
 
 def holdout_ja_consumido(variante: str) -> str | None:
@@ -292,12 +316,15 @@ def registrar_consumo_holdout(variante: str, resultado: dict) -> None:
 def main():
     ap = argparse.ArgumentParser(description="Carry lab — funding delta-neutro")
     ap.add_argument("--variante", default="A", choices=["A", "B"])
-    ap.add_argument("--holdout", action="store_true",
-                    help="USO ÚNICO — só após a pesquisa aprovar")
-    ap.add_argument("--confirmo-uso-unico", action="store_true",
-                    help="obrigatório junto de --holdout (I-11)")
-    ap.add_argument("--permitir-reuso", action="store_true",
-                    help="só para testar a própria trava; invalida o veredito")
+    ap.add_argument("--holdout", action="store_true", help="USO ÚNICO — só após a pesquisa aprovar")
+    ap.add_argument(
+        "--confirmo-uso-unico", action="store_true", help="obrigatório junto de --holdout (I-11)"
+    )
+    ap.add_argument(
+        "--permitir-reuso",
+        action="store_true",
+        help="só para testar a própria trava; invalida o veredito",
+    )
     args = ap.parse_args()
 
     if args.holdout:

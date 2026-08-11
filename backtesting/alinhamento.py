@@ -92,8 +92,11 @@ def mapear_por_intervalo(
 
 
 def violacoes_de_causalidade(
-    ts_rapido: list[int], ts_lento: list[int], idxs: list[int],
-    ms_rapido: int = MS_1H, ms_lento: int = MS_4H,
+    ts_rapido: list[int],
+    ts_lento: list[int],
+    idxs: list[int],
+    ms_rapido: int = MS_1H,
+    ms_lento: int = MS_4H,
 ) -> list[tuple[int, int]]:
     """(i, idx4) das barras em que o candle lento escolhido NÃO havia fechado.
 

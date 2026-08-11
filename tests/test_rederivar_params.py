@@ -39,13 +39,25 @@ def _dados_sinteticos(n1h=2000):
     ts4h = [T0 + 46 * MS_1H + j * MS_4H for j in range(n1h // 4)]
     serie = lambda ts: [100.0 + (i % 17) for i in range(len(ts))]  # noqa: E731
     return {
-        "ts1h": ts1h, "ts4h": ts4h,
-        "f1h": serie(ts1h), "m1h": serie(ts1h), "n1h": serie(ts1h), "v1h": serie(ts1h),
-        "ema20": serie(ts1h), "ema50": serie(ts1h), "rsi14": serie(ts1h),
-        "atr14": serie(ts1h), "volr": serie(ts1h), "bw": serie(ts1h),
-        "vwap": serie(ts1h), "adx_vals": serie(ts1h),
-        "f4h": serie(ts4h), "m4h": serie(ts4h), "n4h": serie(ts4h),
-        "ema20_4h": serie(ts4h), "ema50_4h": serie(ts4h),
+        "ts1h": ts1h,
+        "ts4h": ts4h,
+        "f1h": serie(ts1h),
+        "m1h": serie(ts1h),
+        "n1h": serie(ts1h),
+        "v1h": serie(ts1h),
+        "ema20": serie(ts1h),
+        "ema50": serie(ts1h),
+        "rsi14": serie(ts1h),
+        "atr14": serie(ts1h),
+        "volr": serie(ts1h),
+        "bw": serie(ts1h),
+        "vwap": serie(ts1h),
+        "adx_vals": serie(ts1h),
+        "f4h": serie(ts4h),
+        "m4h": serie(ts4h),
+        "n4h": serie(ts4h),
+        "ema20_4h": serie(ts4h),
+        "ema50_4h": serie(ts4h),
     }
 
 
@@ -99,9 +111,9 @@ class TestFatiamentoPorData:
             if not f["ts1h"] or not f["ts4h"]:
                 continue
             if ini is not None:
-                assert f["ts4h"][0] <= f["ts1h"][0] + MS_4H, (
-                    "fatia do meio da serie comecou sem 4h utilizavel"
-                )
+                assert (
+                    f["ts4h"][0] <= f["ts1h"][0] + MS_4H
+                ), "fatia do meio da serie comecou sem 4h utilizavel"
             assert f["ts4h"][-1] >= f["ts1h"][-1] - MS_4H
 
     def test_fatia_do_inicio_aceita_ausencia_de_4h(self):
@@ -109,9 +121,9 @@ class TestFatiamentoPorData:
         # 1h, e o fatiador nao inventa dado para tapar isso.
         d = _dados_sinteticos()
         treino = R._fatiar(d, None, R._ms(R.CORTE_OOS))
-        assert treino["ts4h"][0] > treino["ts1h"][0], (
-            "o teste sintetico deixou de reproduzir origens diferentes"
-        )
+        assert (
+            treino["ts4h"][0] > treino["ts1h"][0]
+        ), "o teste sintetico deixou de reproduzir origens diferentes"
 
     def test_todas_as_listas_1h_tem_o_mesmo_tamanho(self):
         # Um desalinhamento aqui daria indicador de um candle aplicado a outro
@@ -120,8 +132,21 @@ class TestFatiamentoPorData:
         f = R._fatiar(d, R._ms(R.CORTE_OOS), R._ms(R.CORTE_HOLDOUT))
         tamanhos = {
             k: len(f[k])
-            for k in ("f1h", "m1h", "n1h", "v1h", "ts1h", "ema20", "ema50",
-                      "rsi14", "atr14", "volr", "bw", "vwap", "adx_vals")
+            for k in (
+                "f1h",
+                "m1h",
+                "n1h",
+                "v1h",
+                "ts1h",
+                "ema20",
+                "ema50",
+                "rsi14",
+                "atr14",
+                "volr",
+                "bw",
+                "vwap",
+                "adx_vals",
+            )
         }
         assert len(set(tamanhos.values())) == 1, tamanhos
 
@@ -131,9 +156,9 @@ class TestFatiamentoPorData:
         curta = _dados_sinteticos(1500)
         longa = _dados_sinteticos(4000)
         assert R._fatiar(curta, None, R._ms(R.CORTE_OOS))["ts1h"] == pytest.approx(
-            R._fatiar(longa, None, R._ms(R.CORTE_OOS))["ts1h"][: len(
-                R._fatiar(curta, None, R._ms(R.CORTE_OOS))["ts1h"]
-            )]
+            R._fatiar(longa, None, R._ms(R.CORTE_OOS))["ts1h"][
+                : len(R._fatiar(curta, None, R._ms(R.CORTE_OOS))["ts1h"])
+            ]
         )
 
 
@@ -157,9 +182,9 @@ class TestFngObrigatorio:
 
 class TestTravaDoHoldout:
     def test_arquivo_de_metodologia_existe(self):
-        assert os.path.exists(R.METODOLOGIA), (
-            "sem o pre-registro nao ha contrato — e a trava grava nele"
-        )
+        assert os.path.exists(
+            R.METODOLOGIA
+        ), "sem o pre-registro nao ha contrato — e a trava grava nele"
 
     def test_holdout_virgem_devolve_none(self, monkeypatch, tmp_path):
         vazio = tmp_path / "m.md"
@@ -171,8 +196,9 @@ class TestTravaDoHoldout:
         arq = tmp_path / "m.md"
         arq.write_text("# pre-registro\n", encoding="utf-8")
         monkeypatch.setattr(R, "METODOLOGIA", str(arq))
-        R.registrar_consumo("BTCUSDT", {"dsr": 0.3, "n_trials": 900,
-                                        "trades": 60, "aprovado": False})
+        R.registrar_consumo(
+            "BTCUSDT", {"dsr": 0.3, "n_trials": 900, "trades": 60, "aprovado": False}
+        )
         anterior = R.holdout_ja_consumido("BTCUSDT")
         assert anterior is not None
         assert "BTCUSDT" in anterior and "dsr=0.3" in anterior
@@ -206,7 +232,8 @@ class TestTravaDoHoldout:
         monkeypatch.setattr(R, "METODOLOGIA", str(arq))
         R.registrar_consumo("BTCUSDT", {"dsr": 0.1, "aprovado": False})
         monkeypatch.setattr(
-            sys, "argv",
+            sys,
+            "argv",
             ["x", "--par", "BTCUSDT", "--holdout", "--confirmo-uso-unico"],
         )
         assert R.main() == 3
@@ -222,9 +249,9 @@ class TestContratoDoGrid:
         sem_comentarios = "\n".join(
             ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#")
         )
-        assert "n_trials = len(combos)" in sem_comentarios, (
-            "n_trials deixou de contar as combinacoes AVALIADAS"
-        )
+        assert (
+            "n_trials = len(combos)" in sem_comentarios
+        ), "n_trials deixou de contar as combinacoes AVALIADAS"
 
     def test_piso_de_trades_e_o_do_otimizador(self):
         # Um Sharpe sobre 5 trades e ruido; o piso antigo era 5.

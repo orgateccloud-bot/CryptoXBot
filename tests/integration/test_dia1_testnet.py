@@ -174,9 +174,9 @@ def test_fill_com_comissao_em_base_o_stop_e_aceito(ex):
     assert ex.abrir_long(preco, qty, stop, alvo) is True, "abrir_long recusou (ver log acima)"
     assert ex.posicao is not None
     # A prova: existe protecao viva na exchange, com id.
-    assert ex.posicao["stop_order_id"] or ex.posicao["oco_list_id"], (
-        "posicao aberta SEM protecao — o fail-closed deveria ter impedido isto"
-    )
+    assert (
+        ex.posicao["stop_order_id"] or ex.posicao["oco_list_id"]
+    ), "posicao aberta SEM protecao — o fail-closed deveria ter impedido isto"
     # E o tamanho protegido nao excede o saldo livre do ativo base.
     conta = ex._request_assinado("GET", "/api/v3/account", {})
     saldo = 0.0
@@ -184,9 +184,9 @@ def test_fill_com_comissao_em_base_o_stop_e_aceito(ex):
         if b.get("asset") == ex._base_asset:
             saldo = float(b.get("free", 0)) + float(b.get("locked", 0))
             break
-    assert saldo >= ex.posicao["tamanho_btc"] - 1e-12, (
-        f"posicao ({ex.posicao['tamanho_btc']}) maior que o saldo real ({saldo})"
-    )
+    assert (
+        saldo >= ex.posicao["tamanho_btc"] - 1e-12
+    ), f"posicao ({ex.posicao['tamanho_btc']}) maior que o saldo real ({saldo})"
 
 
 # ══════════════════════════════════════════════════════════════

@@ -885,9 +885,7 @@ class TestExecutorConcorrencia:
 
         monkeypatch.setattr(ex_sim, "_enviar_ordem", _enviar_ordem_lento)
 
-        t = threading.Thread(
-            target=lambda: ex_sim.fechar_posicao(51000.0, "Take Profit Final")
-        )
+        t = threading.Thread(target=lambda: ex_sim.fechar_posicao(51000.0, "Take Profit Final"))
         t.start()
         time.sleep(0.05)  # garante que fechar_posicao ja esta dentro do sleep lento
 

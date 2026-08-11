@@ -68,9 +68,7 @@ class TestOBugQueIssoCorrige:
 
     def test_sobe_antes_de_cair_e_POSITIVO(self):
         # A ordem importa: o mesmo par de velas, invertido, e um trade ganho.
-        label, barreira, velas = _rotular(
-            [(0.020, 0.010), (0.000, -0.030)]
-        )
+        label, barreira, velas = _rotular([(0.020, 0.010), (0.000, -0.030)])
         assert label == 1
         assert barreira == "ALVO"
         assert velas == 1
@@ -139,9 +137,7 @@ class TestBarreirasAssimetricas:
         import ml_filtro
 
         fonte = inspect.getsource(ml_filtro.preparar_dataset)
-        codigo = "\n".join(
-            ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#")
-        )
+        codigo = "\n".join(ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#"))
         assert "get_params(symbol)" in codigo
         assert 'stop_pct = get_params(symbol)["stop_pct"]' in codigo
 
@@ -161,9 +157,7 @@ class TestContrato:
         import ml_filtro
 
         fonte = inspect.getsource(ml_filtro.preparar_dataset)
-        codigo = "\n".join(
-            ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#")
-        )
+        codigo = "\n".join(ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#"))
         assert "rotular_barreira_tripla(" in codigo
         # e o rotulo antigo nao pode ter sobrado em lugar nenhum
         assert "max(fechamentos[i + 1" not in codigo

@@ -75,8 +75,9 @@ class TestBackoff:
 class TestEscalada:
     def _captura(self, monkeypatch):
         ev = []
-        monkeypatch.setattr(main.database, "salvar_bot_event",
-                            lambda t, m, **k: ev.append((t, k.get("severity"))))
+        monkeypatch.setattr(
+            main.database, "salvar_bot_event", lambda t, m, **k: ev.append((t, k.get("severity")))
+        )
         monkeypatch.setattr(main.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: None)
         monkeypatch.setattr(main.logger, "critical", lambda *a, **k: None)
         return ev
@@ -193,8 +194,7 @@ class TestResetNaReconexao:
         """A correção central. Antes, falhas intercaladas com sucessos somavam
         até 10 e encerravam o WebSocket para sempre."""
         recuperacoes = []
-        monkeypatch.setattr(main, "_ws_marcar_recuperado",
-                            lambda rot, f: recuperacoes.append(f))
+        monkeypatch.setattr(main, "_ws_marcar_recuperado", lambda rot, f: recuperacoes.append(f))
         monkeypatch.setattr(main.asyncio, "sleep", _sem_espera)
         monkeypatch.setattr(main.database, "salvar_bot_event", lambda *a, **k: None)
         monkeypatch.setattr(main.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: None)
@@ -249,7 +249,9 @@ class TestReadyCoerente:
 
         import health
 
-        degradado = json.loads(health._payload("degraded", "worker", False, {"error": " ws_stale=9s"}))
+        degradado = json.loads(
+            health._payload("degraded", "worker", False, {"error": " ws_stale=9s"})
+        )
         assert degradado["ready"] is False
         assert degradado["status"] == "degraded"
 
@@ -263,6 +265,6 @@ class TestReadyCoerente:
         import health
 
         src = inspect.getsource(health.HealthHandler)
-        assert "_payload(\"ok\" if pronto else \"degraded\", self.role, pronto" in src, (
-            "o 3o argumento posicional de _payload tem que ser `pronto`, não `db_ok`"
-        )
+        assert (
+            '_payload("ok" if pronto else "degraded", self.role, pronto' in src
+        ), "o 3o argumento posicional de _payload tem que ser `pronto`, não `db_ok`"

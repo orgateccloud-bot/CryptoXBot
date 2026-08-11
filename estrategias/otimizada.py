@@ -137,8 +137,11 @@ def analisar(
             # do score vem de um numero que nao existe.
             print(f"[OTIMIZADA] {symbol}: ensemble indisponivel ({e}) — AGUARDAR")
             ensemble_indisponivel = True
-            ensemble_result = {"prob_ensemble": None, "pode_operar": False,
-                               "confianca": "INDISPONIVEL"}
+            ensemble_result = {
+                "prob_ensemble": None,
+                "pode_operar": False,
+                "confianca": "INDISPONIVEL",
+            }
 
     ml_ensemble_prob = ensemble_result.get("prob_ensemble", ml_prob or 0.5)
     ml_pode = ensemble_result.get("pode_operar", True)

@@ -28,7 +28,6 @@ from backtesting.alinhamento import (
     violacoes_de_causalidade,
 )
 
-
 # ══════════════════════════════════════════════════════════════════
 #  1. Causalidade: nenhum candle lento aberto entra na decisão
 # ══════════════════════════════════════════════════════════════════
@@ -81,7 +80,7 @@ class TestAlinhamentoCausal:
         Minha primeira versão deste teste supôs que bastava deslocar a fase em
         2h; não basta (dá 25%). A causa é a origem diferente, não a fase.
         """
-        ts1h = _serie(400)                       # começa em t=0
+        ts1h = _serie(400)  # começa em t=0
         ts4h = _serie(100, inicio=46 * MS_1H, passo=MS_4H)  # começa 46h depois
         antigos = [min(i // 4, len(ts4h) - 1) for i in range(len(ts1h))]
         assert len(violacoes_de_causalidade(ts1h, ts4h, antigos)) == len(ts1h)
@@ -178,9 +177,9 @@ class TestCausalidadeNasSeriesDoSnapshot:
 
         # E a fórmula antiga violaria — a comparação é o que dá sentido ao teste.
         antigos = [min(i // 4, len(ts4h) - 1) for i in range(len(ts1h))]
-        assert violacoes_de_causalidade(ts1h, ts4h, antigos), (
-            "a formula antiga deixou de violar — o cenario mudou, revise o teste"
-        )
+        assert violacoes_de_causalidade(
+            ts1h, ts4h, antigos
+        ), "a formula antiga deixou de violar — o cenario mudou, revise o teste"
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -189,9 +188,7 @@ class TestCausalidadeNasSeriesDoSnapshot:
 
 
 class TestMotoresUsamOMapeamentoCausal:
-    @pytest.mark.parametrize(
-        "modulo", ["backtesting.motor_ensemble", "backtesting.otimizador"]
-    )
+    @pytest.mark.parametrize("modulo", ["backtesting.motor_ensemble", "backtesting.otimizador"])
     def test_nao_ha_mais_divisao_por_quatro(self, modulo):
         """Guarda contra reintrodução. Compara só linhas de CÓDIGO: os
         comentários citam a fórmula antiga de propósito, para quem ler saber o
@@ -369,8 +366,18 @@ class TestReguaUnica:
     """
 
     BASE = dict(
-        preco=100.0, ema20=98.0, ema50=95.0, rsi=55, atr_atual=1.0, atr_media=1.0,
-        vol_rel=1.5, vwap_val=99.0, tend_4h="ALTA", adx=35, atr_ratio=1.0, ml_prob=0.7,
+        preco=100.0,
+        ema20=98.0,
+        ema50=95.0,
+        rsi=55,
+        atr_atual=1.0,
+        atr_media=1.0,
+        vol_rel=1.5,
+        vwap_val=99.0,
+        tend_4h="ALTA",
+        adx=35,
+        atr_ratio=1.0,
+        ml_prob=0.7,
     )
 
     def test_score_bate_com_a_funcao_de_producao(self):
@@ -384,12 +391,23 @@ class TestReguaUnica:
                 "score": forca_do_regime(35),
             },
             fear_info={"valor": 50},
-            tend_4h="ALTA", ml_prob=0.7, preco=100.0, ema20=98.0, ema50=95.0,
-            rsi=55, vwap_val=99.0, vol_rel=1.5, atr_atual=1.0, atr_media=1.0,
-            historico_ticks=None, obi=None,
+            tend_4h="ALTA",
+            ml_prob=0.7,
+            preco=100.0,
+            ema20=98.0,
+            ema50=95.0,
+            rsi=55,
+            vwap_val=99.0,
+            vol_rel=1.5,
+            atr_atual=1.0,
+            atr_media=1.0,
+            historico_ticks=None,
+            obi=None,
         )
         assert (s, d, f) == (
-            esperado["score_total"], esperado["decisao"], esperado["tamanho_fator"]
+            esperado["score_total"],
+            esperado["decisao"],
+            esperado["tamanho_fator"],
         )
         assert comp == esperado["scores"]
 

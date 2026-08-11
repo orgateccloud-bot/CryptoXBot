@@ -36,13 +36,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ml_filtro import extrair_features  # noqa: E402
 from validacao import purged_cv_auc, purged_kfold_indices  # noqa: E402
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "btc_data.db")
+DB_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "btc_data.db"
+)
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
 
 WARMUP = 55  # extrair_features retorna None antes disso
 FEATURE_NAMES = [
-    "dist_ema20", "dist_ema50", "rsi", "atr_rel", "vol_rel_norm",
-    "boll_rel", "dist_vwap", "var_1", "var_4", "var_24", "bb_pos",
+    "dist_ema20",
+    "dist_ema50",
+    "rsi",
+    "atr_rel",
+    "vol_rel_norm",
+    "boll_rel",
+    "dist_vwap",
+    "var_1",
+    "var_4",
+    "var_24",
+    "bb_pos",
 ]
 HORIZONTES = (8, 24)
 N_PERM = 1000
@@ -107,8 +118,12 @@ def label_forward_return(fechamentos: np.ndarray, H: int) -> tuple[np.ndarray, n
 
 
 def label_triple_barrier(
-    fechamentos: np.ndarray, maximas: np.ndarray, minimas: np.ndarray,
-    alvo_pct: float, stop_pct: float, H: int,
+    fechamentos: np.ndarray,
+    maximas: np.ndarray,
+    minimas: np.ndarray,
+    alvo_pct: float,
+    stop_pct: float,
+    H: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """1 se o ALVO (+alvo_pct) é tocado ANTES do stop (-stop_pct) dentro de H
     candles; 0 se stop primeiro OU timeout (nenhum tocado). Ordem intra-candle:
@@ -137,7 +152,9 @@ def label_triple_barrier(
 
 
 def ic_familia(
-    X: np.ndarray, labels_por_h: dict[int, np.ndarray], validos_por_h: dict[int, np.ndarray],
+    X: np.ndarray,
+    labels_por_h: dict[int, np.ndarray],
+    validos_por_h: dict[int, np.ndarray],
 ) -> dict[tuple[int, int], float]:
     """IC de cada (feature, horizonte) sobre as amostras válidas. Retorna
     {(idx_feature, H): IC}. Pares não-finitos (NaN de feature ou label) são
@@ -159,8 +176,11 @@ def _rotacao(x: np.ndarray, offset: int) -> np.ndarray:
 
 
 def teste_permutacao_max(
-    X: np.ndarray, labels_por_h: dict[int, np.ndarray], validos_por_h: dict[int, np.ndarray],
-    n_perm: int = N_PERM, seed: int = 42,
+    X: np.ndarray,
+    labels_por_h: dict[int, np.ndarray],
+    validos_por_h: dict[int, np.ndarray],
+    n_perm: int = N_PERM,
+    seed: int = 42,
 ) -> dict:
     """Teste de permutação por rotação circular com max-statistic.
     Rotaciona cada label por um offset aleatório grande (preserva
@@ -373,15 +393,24 @@ def _auc_xgb_combinado(X, f, m, n, ini, fim) -> dict | None:
 
     def build():
         return XGBClassifier(
-            n_estimators=200, max_depth=4, learning_rate=0.03, subsample=0.8,
-            colsample_bytree=0.8, eval_metric="logloss", verbosity=0,
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.03,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            eval_metric="logloss",
+            verbosity=0,
         )
 
     aucs = purged_cv_auc(build, Xf, yf, n_splits=5, horizonte=H, embargo=H)
     if not aucs:
         return None
-    return {"auc_medio": float(np.mean(aucs)), "auc_std": float(np.std(aucs)),
-            "folds": [round(a, 4) for a in aucs], "base_rate": float(yf.mean())}
+    return {
+        "auc_medio": float(np.mean(aucs)),
+        "auc_std": float(np.std(aucs)),
+        "folds": [round(a, 4) for a in aucs],
+        "base_rate": float(yf.mean()),
+    }
 
 
 def retorno_barreira(f, m, n, i, alvo, stop, H) -> float:
@@ -407,16 +436,23 @@ def _oos_probs_xgb(Xf, yf, H, n_splits=5):
     for tr, te in purged_kfold_indices(len(Xf), n_splits, H, H):
         if len(tr) < 50 or len(np.unique(yf[tr])) < 2:
             continue
-        mdl = XGBClassifier(n_estimators=200, max_depth=4, learning_rate=0.03,
-                            subsample=0.8, colsample_bytree=0.8,
-                            eval_metric="logloss", verbosity=0)
+        mdl = XGBClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.03,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            eval_metric="logloss",
+            verbosity=0,
+        )
         mdl.fit(Xf[tr], yf[tr])
         prob[te] = mdl.predict_proba(Xf[te])[:, 1]
     return prob
 
 
-def teste_permutacao_auc_xgb(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02,
-                             n_perm=120, seed=11) -> dict:
+def teste_permutacao_auc_xgb(
+    symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02, n_perm=120, seed=11
+) -> dict:
     """Submete a AUC do XGBoost combinado ao MESMO rigor do teste primário:
     rotaciona o label (preserva autocorrelação, quebra alinhamento) e recomputa
     a purged-CV AUC -> null. p = fração de nulls >= AUC observada. Responde se a
@@ -432,9 +468,20 @@ def teste_permutacao_auc_xgb(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02,
     def _auc(yy):
         aucs = purged_cv_auc(
             lambda: __import__("xgboost").XGBClassifier(
-                n_estimators=100, max_depth=4, learning_rate=0.03, subsample=0.8,
-                colsample_bytree=0.8, eval_metric="logloss", verbosity=0),
-            Xf, yy, n_splits=5, horizonte=H, embargo=H)
+                n_estimators=100,
+                max_depth=4,
+                learning_rate=0.03,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                eval_metric="logloss",
+                verbosity=0,
+            ),
+            Xf,
+            yy,
+            n_splits=5,
+            horizonte=H,
+            embargo=H,
+        )
         return float(np.mean(aucs)) if aucs else np.nan
 
     auc_obs = _auc(yf)
@@ -446,8 +493,13 @@ def teste_permutacao_auc_xgb(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02,
         nulls.append(_auc(np.concatenate([yf[off:], yf[:off]])))
     nulls = np.array([a for a in nulls if not np.isnan(a)])
     p = float((np.sum(nulls >= auc_obs) + 1) / (len(nulls) + 1))
-    return {"auc_obs": auc_obs, "p_valor": p, "null_media": float(nulls.mean()),
-            "null_p95": float(np.quantile(nulls, 0.95)), "base_rate": float(yf.mean())}
+    return {
+        "auc_obs": auc_obs,
+        "p_valor": p,
+        "null_media": float(nulls.mean()),
+        "null_p95": float(np.quantile(nulls, 0.95)),
+        "base_rate": float(yf.mean()),
+    }
 
 
 def avaliar_economia(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02, custo=0.003) -> dict:
@@ -473,10 +525,19 @@ def avaliar_economia(symbol="BTCUSDT", H=8, alvo=0.02, stop=0.02, custo=0.003) -
     baldes = {}
     for k in (0.05, 0.10, 0.20, 0.30):
         sel = ordem[: int(k * len(ordem))]
-        baldes[k] = {"n": len(sel), "net_medio": float(net[sel].mean()),
-                     "win": float(yv[sel].mean()), "soma": float(net[sel].sum())}
-    return {"custo": custo, "n": len(net), "net_base": float(net.mean()),
-            "win_base": float(yv.mean()), "baldes": baldes}
+        baldes[k] = {
+            "n": len(sel),
+            "net_medio": float(net[sel].mean()),
+            "win": float(yv[sel].mean()),
+            "soma": float(net[sel].sum()),
+        }
+    return {
+        "custo": custo,
+        "n": len(net),
+        "net_base": float(net.mean()),
+        "win_base": float(yv.mean()),
+        "baldes": baldes,
+    }
 
 
 def ic_por_asset(symbol, fi, H) -> float:
@@ -572,9 +633,15 @@ def avaliar_holdout(symbol, fi, H, confirmo_uso_unico=False, permitir_reuso=Fals
     # um veredito que se apresenta como uso único sem ser.
     with open(METODOLOGIA, "a", encoding="utf-8") as fp:
         fp.write(registro)
-    return {"symbol": symbol, "feature": FEATURE_NAMES[fi], "H": H,
-            "ic_holdout": ic, "n": int(vmask.sum()),
-            "holdout_inicio_ms": HOLDOUT_INICIO_MS, "n_velas_holdout": N - ini}
+    return {
+        "symbol": symbol,
+        "feature": FEATURE_NAMES[fi],
+        "H": H,
+        "ic_holdout": ic,
+        "n": int(vmask.sum()),
+        "holdout_inicio_ms": HOLDOUT_INICIO_MS,
+        "n_velas_holdout": N - ini,
+    }
 
 
 # ══════════════════════════════════════════════════════════════
@@ -598,16 +665,20 @@ def imprimir_pesquisa(r, cross=None):
         print(f"  {nome:<14} {ic8:>+9.4f} {ic24:>+9.4f}")
 
     melhor_nome = FEATURE_NAMES[p["melhor_feature_idx"]]
-    print(f"\n  Melhor |IC|: {abs(p['melhor_ic']):.4f} "
-          f"({melhor_nome}, H={p['melhor_horizonte']}, IC={p['melhor_ic']:+.4f})")
+    print(
+        f"\n  Melhor |IC|: {abs(p['melhor_ic']):.4f} "
+        f"({melhor_nome}, H={p['melhor_horizonte']}, IC={p['melhor_ic']:+.4f})"
+    )
     print(f"  Teste de permutação (max-statistic, {N_PERM} rotações):")
     print(f"    p-valor = {p['p_valor']:.4f}   (null p95 de max|IC| = {p['null_p95']:.4f})")
 
     if r.get("auc_xgb"):
         a = r["auc_xgb"]
-        print(f"\n  [secundária] XGBoost combinado (barreira ±2%, base "
-              f"{a['base_rate']:.2%}): AUC {a['auc_medio']:.4f} ± {a['auc_std']:.4f} "
-              f"(folds {a['folds']})")
+        print(
+            f"\n  [secundária] XGBoost combinado (barreira ±2%, base "
+            f"{a['base_rate']:.2%}): AUC {a['auc_medio']:.4f} ± {a['auc_std']:.4f} "
+            f"(folds {a['folds']})"
+        )
 
     if cross:
         print("\n  Corroboração cross-asset (sinal do IC da feature vencedora):")
@@ -622,7 +693,9 @@ def imprimir_pesquisa(r, cross=None):
     cond_cross = bool(cross) and any(ic * p["melhor_ic"] > 0 for ic in cross.values())
     print(f"  Regra de decisão (METODOLOGIA.md):")
     print(f"    [{'x' if cond_p else ' '}] p-valor < 0.05                    ({p['p_valor']:.4f})")
-    print(f"    [{'x' if cond_ic else ' '}] |IC| >= {IC_PISO_ECONOMICO}                     ({abs(p['melhor_ic']):.4f})")
+    print(
+        f"    [{'x' if cond_ic else ' '}] |IC| >= {IC_PISO_ECONOMICO}                     ({abs(p['melhor_ic']):.4f})"
+    )
     print(f"    [{'x' if cond_cross else ' '}] replica sinal em ETH ou SOL")
     if cond_p and cond_ic and cond_cross:
         print("\n  >> HÁ EDGE CANDIDATO — prosseguir ao hold-out (uso único) para confirmar.")
@@ -643,23 +716,35 @@ def main():
     # nem no argparse, nem em teste, nem em outro módulo. O veredito existia em
     # prosa e o comando que o gerou não existia mais. Sem entrypoint, "re-derive
     # você mesmo" significava reescrever a chamada de cabeça.
-    ap.add_argument("--perm-auc", action="store_true",
-                    help="teste de permutação da AUC do XGBoost (secundário)")
-    ap.add_argument("--economia", action="store_true",
-                    help="expectância líquida por balde de probabilidade (custos)")
-    ap.add_argument("--custo", type=float, default=0.003,
-                    help="custo round-trip para --economia (default 0.30%%)")
+    ap.add_argument(
+        "--perm-auc", action="store_true", help="teste de permutação da AUC do XGBoost (secundário)"
+    )
+    ap.add_argument(
+        "--economia",
+        action="store_true",
+        help="expectância líquida por balde de probabilidade (custos)",
+    )
+    ap.add_argument(
+        "--custo",
+        type=float,
+        default=0.003,
+        help="custo round-trip para --economia (default 0.30%%)",
+    )
     args = ap.parse_args()
 
     if args.perm_auc:
         r = teste_permutacao_auc_xgb(args.symbol, seed=args.seed)
-        print(f"  AUC obs = {r.get('auc_obs'):.4f} | p = {r.get('p'):.4f} "
-              f"(n_perm={r.get('n_perm')})")
+        print(
+            f"  AUC obs = {r.get('auc_obs'):.4f} | p = {r.get('p'):.4f} "
+            f"(n_perm={r.get('n_perm')})"
+        )
         return
     if args.economia:
         r = avaliar_economia(args.symbol, custo=args.custo)
-        print(f"  custo={r['custo']:.4f} n={r['n']} net_base={r['net_base']:+.5f} "
-              f"win_base={r['win_base']:.3f}")
+        print(
+            f"  custo={r['custo']:.4f} n={r['n']} net_base={r['net_base']:+.5f} "
+            f"win_base={r['win_base']:.3f}"
+        )
         for nome, b in r["baldes"].items():
             print(f"    {nome:<10} n={b['n']:>5} net={b['net']:+.5f} win={b['win']:.3f}")
         return

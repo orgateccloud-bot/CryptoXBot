@@ -41,8 +41,17 @@ from ml_filtro import CONTEXTO_MINIMO, extrair_features  # noqa: E402
 TOLERANCIA = 1e-6
 
 NOMES = (
-    "dist_ema20", "dist_ema50", "rsi_norm", "atr_rel", "vol_rel_norm",
-    "bb_rel", "dist_vwap", "var_1", "var_4", "var_24", "bb_pos",
+    "dist_ema20",
+    "dist_ema50",
+    "rsi_norm",
+    "atr_rel",
+    "vol_rel_norm",
+    "bb_rel",
+    "dist_vwap",
+    "var_1",
+    "var_4",
+    "var_24",
+    "bb_pos",
 )
 
 
@@ -86,7 +95,10 @@ def _pares_para_comparar(serie, quantas=200):
         # INFERENCIA: a janela que prever() busca da API, terminando em i
         j0 = i - (CONTEXTO_MINIMO - 1)
         fi = extrair_features(
-            f[j0 : i + 1], m[j0 : i + 1], mn[j0 : i + 1], v[j0 : i + 1],
+            f[j0 : i + 1],
+            m[j0 : i + 1],
+            mn[j0 : i + 1],
+            v[j0 : i + 1],
             CONTEXTO_MINIMO - 1,
         )
         if ft is None or fi is None:
@@ -142,9 +154,7 @@ class TestOrigemDoDefeito:
         import inspect
 
         fonte = inspect.getsource(extrair_features)
-        codigo = "\n".join(
-            ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#")
-        )
+        codigo = "\n".join(ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#"))
         assert "vwap_rolling(" in codigo
         assert "ind.vwap(" not in codigo, "o VWAP cumulativo voltou"
 
@@ -162,12 +172,10 @@ class TestOrigemDoDefeito:
         import inspect
 
         fonte = inspect.getsource(ml_filtro.prever)
-        codigo = "\n".join(
-            ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#")
-        )
-        assert '"limit": CONTEXTO_MINIMO' in codigo, (
-            "prever() nao pede CONTEXTO_MINIMO velas — a paridade fica so no teste"
-        )
+        codigo = "\n".join(ln for ln in fonte.splitlines() if not ln.lstrip().startswith("#"))
+        assert (
+            '"limit": CONTEXTO_MINIMO' in codigo
+        ), "prever() nao pede CONTEXTO_MINIMO velas — a paridade fica so no teste"
 
 
 class TestContratoDasFeatures:

@@ -54,8 +54,7 @@ def logs(monkeypatch):
     """Captura o que cada logger recebeu, por nível."""
     cap = {"error": [], "critical": [], "warning": [], "info": []}
     for nivel in ("error", "critical", "warning"):
-        monkeypatch.setattr(main.logger, nivel,
-                            lambda msg, _n=nivel, **kw: cap[_n].append(msg))
+        monkeypatch.setattr(main.logger, nivel, lambda msg, _n=nivel, **kw: cap[_n].append(msg))
     monkeypatch.setattr(main.ws_logger, "info", lambda msg, **kw: cap["info"].append(msg))
     monkeypatch.setattr(main.ws_logger, "error", lambda msg, **kw: cap["error"].append(msg))
     return cap
@@ -166,6 +165,7 @@ class TestErroCriticoSoQuandoEhCritico:
     def test_loop_fechado_em_shutdown_nao_e_erro_critico(self, logs, monkeypatch):
         """O caso exato do ruído: RuntimeError('Event loop is closed') levantado
         porque PEDIMOS a parada."""
+
         def conectar(*a, **k):
             main._shutdown_event.set()  # shutdown chega junto, como no real
             raise RuntimeError("Event loop is closed")
@@ -203,6 +203,7 @@ class TestErroCriticoSoQuandoEhCritico:
     def test_desconexao_em_shutdown_nao_vira_warning(self, logs, monkeypatch):
         """Fechar a conexão no stop levanta ConnectionClosed -- é parada pedida,
         não desconexão a reportar."""
+
         def conectar(*a, **k):
             main._shutdown_event.set()
             raise main.websockets.exceptions.WebSocketException("closed")
@@ -214,6 +215,7 @@ class TestErroCriticoSoQuandoEhCritico:
 
     def test_depth_tem_o_mesmo_comportamento(self, logs, monkeypatch):
         """Os dois handlers são espelhos; o @depth não pode ficar de fora."""
+
         def conectar(*a, **k):
             main._shutdown_event.set()
             raise RuntimeError("Event loop is closed")

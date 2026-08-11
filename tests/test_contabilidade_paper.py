@@ -104,9 +104,9 @@ class TestRiscoReportadoEVerdadeiro:
         riscos = {}
         for par, preco in self.PARES:
             stop = round(preco * (1 - get_params(par)["stop_pct"]), 2)
-            riscos[par] = risco.validar_trade(
-                "COMPRA", preco, 1000.0, stop=stop, symbol=par
-            )["risco_usdt"]
+            riscos[par] = risco.validar_trade("COMPRA", preco, 1000.0, stop=stop, symbol=par)[
+                "risco_usdt"
+            ]
         assert len(set(riscos.values())) == 3, f"riscos colidiram: {riscos}"
         # A ordem segue os stop_pct: 1,5% < 2,0% < 3,0%
         assert riscos["BTCUSDT"] < riscos["ETHUSDT"] < riscos["SOLUSDT"]
@@ -172,9 +172,7 @@ class TestLimitanteDoSizingEExposto:
         }
         assert len(set(tamanhos.values())) == 1, f"Kelly voltou a ter efeito: {tamanhos}"
         # E abaixo do limiar ele TEM efeito — a fronteira existe de fato.
-        assert risco.calcular_tamanho(cap, preco, stop, fator_risco=0.001) < min(
-            tamanhos.values()
-        )
+        assert risco.calcular_tamanho(cap, preco, stop, fator_risco=0.001) < min(tamanhos.values())
 
     def test_limitante_indefinido_com_distancia_zero(self):
         assert risco._limitante_do_sizing(1000.0, 100.0, 100.0) == "indefinido"
@@ -223,18 +221,41 @@ def _resultado_de_analisar(monkeypatch):
         "volume": [1000.0] * 100,
     }
     monkeypatch.setattr(otimizada, "obter_klines", lambda *a, **k: dados)
-    monkeypatch.setattr(otimizada.reg, "detectar", lambda s: {
-        "symbol": s, "regime_final": "LATERAL", "pode_operar": False,
-        "motivo": "-", "score": 40, "votos": {},
-        "detalhes_tf": {"1h": {"adx": 10, "atr_ratio": 1.0, "regime": "LATERAL"}},
-    })
-    monkeypatch.setattr(otimizada.fg, "obter", lambda: {
-        "valor": 50, "classificacao_pt": "Neutro", "pode_operar": True, "reducao_alvo": False,
-    })
-    monkeypatch.setattr(otimizada.sup, "detectar_suportes", lambda *a, **k: {
-        "symbol": "BTCUSDT", "suportes": [], "resistencias": [], "suporte_forte": 0,
-        "distancia_%": 99, "na_zona": False,
-    })
+    monkeypatch.setattr(
+        otimizada.reg,
+        "detectar",
+        lambda s: {
+            "symbol": s,
+            "regime_final": "LATERAL",
+            "pode_operar": False,
+            "motivo": "-",
+            "score": 40,
+            "votos": {},
+            "detalhes_tf": {"1h": {"adx": 10, "atr_ratio": 1.0, "regime": "LATERAL"}},
+        },
+    )
+    monkeypatch.setattr(
+        otimizada.fg,
+        "obter",
+        lambda: {
+            "valor": 50,
+            "classificacao_pt": "Neutro",
+            "pode_operar": True,
+            "reducao_alvo": False,
+        },
+    )
+    monkeypatch.setattr(
+        otimizada.sup,
+        "detectar_suportes",
+        lambda *a, **k: {
+            "symbol": "BTCUSDT",
+            "suportes": [],
+            "resistencias": [],
+            "suporte_forte": 0,
+            "distancia_%": 99,
+            "na_zona": False,
+        },
+    )
     monkeypatch.setattr(otimizada.database, "salvar_sinal", lambda *a, **k: 1)
     return otimizada.analisar("BTCUSDT", ensemble_result={"prob_ensemble": 0.5})
 
@@ -410,27 +431,55 @@ def db_gate(tmp_path):
     trend (vencedora). Se o filtro falhar, o gate aprova pelo motivo errado."""
     db = tmp_path / "gate.db"
     conn = sqlite3.connect(db)
-    conn.execute(
-        """CREATE TABLE sinais (
+    conn.execute("""CREATE TABLE sinais (
                id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, tipo TEXT,
                symbol TEXT, preco REAL, preco_saida REAL, pnl_usdt REAL,
-               pnl_pct REAL, barreira_tocada TEXT, executado INTEGER, source TEXT)"""
-    )
+               pnl_pct REAL, barreira_tocada TEXT, executado INTEGER, source TEXT)""")
     base = datetime(2026, 5, 1)
     linhas = []
     for i in range(4):  # primaria: perde
         linhas.append(
-            ((base + timedelta(days=i)).strftime("%Y-%m-%d %H:%M:%S"), "COMPRA", "BTCUSDT",
-             100.0, 98.0, -2.0, -2.0, "STOP", 1, "estrategia_otimizada")
+            (
+                (base + timedelta(days=i)).strftime("%Y-%m-%d %H:%M:%S"),
+                "COMPRA",
+                "BTCUSDT",
+                100.0,
+                98.0,
+                -2.0,
+                -2.0,
+                "STOP",
+                1,
+                "estrategia_otimizada",
+            )
         )
     for i in range(6):  # trend: ganha (REPROVADA no hold-out)
         linhas.append(
-            ((base + timedelta(days=10 + i)).strftime("%Y-%m-%d %H:%M:%S"), "COMPRA", "BTCUSDT",
-             100.0, 130.0, 30.0, 30.0, "TARGET", 1, "trend_live")
+            (
+                (base + timedelta(days=10 + i)).strftime("%Y-%m-%d %H:%M:%S"),
+                "COMPRA",
+                "BTCUSDT",
+                100.0,
+                130.0,
+                30.0,
+                30.0,
+                "TARGET",
+                1,
+                "trend_live",
+            )
         )
     linhas.append(  # legado sem source: conta como primaria
-        ((base - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"), "COMPRA", "BTCUSDT",
-         100.0, 101.0, 1.0, 1.0, "TARGET", 1, None)
+        (
+            (base - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+            "COMPRA",
+            "BTCUSDT",
+            100.0,
+            101.0,
+            1.0,
+            1.0,
+            "TARGET",
+            1,
+            None,
+        )
     )
     conn.executemany(
         "INSERT INTO sinais (timestamp,tipo,symbol,preco,preco_saida,pnl_usdt,pnl_pct,"

@@ -186,7 +186,9 @@ def travar(motivo: str, *, alertar: bool = True) -> None:
     persistir_estado()
 
     print(f"[RISCO] *** BOT TRAVADO *** {motivo}")
-    print(f"[RISCO] Nenhum trade novo sera aberto. Para liberar: risco.destravar('{CONFIRMACAO_DESTRAVAR}')")
+    print(
+        f"[RISCO] Nenhum trade novo sera aberto. Para liberar: risco.destravar('{CONFIRMACAO_DESTRAVAR}')"
+    )
     if not alertar:
         return
     try:
@@ -213,7 +215,9 @@ def destravar(confirmacao: str) -> bool:
     disparada por engano num REPL, num teste ou num retry automatico.
     """
     if confirmacao != CONFIRMACAO_DESTRAVAR:
-        print(f"[RISCO] destravar() RECUSADO: confirmacao incorreta. Esperado: {CONFIRMACAO_DESTRAVAR!r}")
+        print(
+            f"[RISCO] destravar() RECUSADO: confirmacao incorreta. Esperado: {CONFIRMACAO_DESTRAVAR!r}"
+        )
         return False
     _carregar_estado_persistido()
     motivo = _estado_risco.get("motivo_travamento", "")
@@ -614,9 +618,7 @@ def _stop_para_sizing(sinal, preco, stop=None):
         if sinal == "VENDA" and stop > preco:
             return float(stop), True
     fallback = (
-        preco * (1 - STOP_PCT_FALLBACK)
-        if sinal == "COMPRA"
-        else preco * (1 + STOP_PCT_FALLBACK)
+        preco * (1 - STOP_PCT_FALLBACK) if sinal == "COMPRA" else preco * (1 + STOP_PCT_FALLBACK)
     )
     return fallback, False
 

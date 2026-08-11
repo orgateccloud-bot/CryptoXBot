@@ -45,13 +45,16 @@ class _FormatterComExtra(logging.Formatter):
     """
 
     _PADRAO = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {
-        "message", "asctime", "taskName",
+        "message",
+        "asctime",
+        "taskName",
     }
 
     def format(self, record):
         base = super().format(record)
         extras = {
-            k: v for k, v in record.__dict__.items()
+            k: v
+            for k, v in record.__dict__.items()
             if k not in self._PADRAO and not k.startswith("_")
         }
         if extras:
