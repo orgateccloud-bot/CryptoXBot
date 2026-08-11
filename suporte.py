@@ -145,19 +145,19 @@ def detectar_suportes(symbol, intervalo="1h"):
 
     f = d["fechamento"]
     h = d["maxima"]
-    l = d["minima"]
+    lo = d["minima"]
     v = d["volume"]
     preco = f[-1]
 
     # ── Metodo 1: Pivot Points ────────────────────────────────
-    pivots_sup, pivots_res = _pivot_points(h, l, f, 5)
+    pivots_sup, pivots_res = _pivot_points(h, lo, f, 5)
 
     # ── Metodo 2: Bollinger inferior ──────────────────────────
     bb_upper, bb_mid, bb_lower = ind.bollinger(f, 20, 2)
     bb_sup = bb_lower[-1] if bb_lower[-1] else 0
 
     # ── Metodo 3: VWAP ────────────────────────────────────────
-    vwap_val = ind.vwap(h, l, f, v)[-1]
+    vwap_val = ind.vwap(h, lo, f, v)[-1]
 
     # ── Metodo 4: EMAs como suporte ──────────────────────────
     ema20 = ind.ema(f, 20)[-1]
@@ -419,7 +419,7 @@ def imprimir(symbol="BTCUSDT"):
 
     # Zonas de volume
     if r["zonas_volume"]:
-        print(f"\n  Zonas de Alto Volume:")
+        print("\n  Zonas de Alto Volume:")
         for z in r["zonas_volume"][:3]:
             cor_z = verde if z["tipo"] == "suporte" else vermelho
             print(

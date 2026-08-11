@@ -431,7 +431,6 @@ def imprimir(
     verde = "\033[92m"
     vermelho = "\033[91m"
     amarelo = "\033[93m"
-    cinza = "\033[90m"
     reset = "\033[0m"
 
     cor_sinal = verde if r["sinal"] == "COMPRA" else vermelho if r["sinal"] == "VENDA" else amarelo
@@ -453,12 +452,12 @@ def imprimir(
     lstm_p = r.get("ml_lstm")
     print(
         f"  ML Ensemble: {ens_p*100:.1f}% "
-        f"(XGB:{xgb_p*100:.0f}% LSTM:{lstm_p*100:.0f}% {r.get('ml_confianca','?')})"
+        f"(XGB:{xgb_p*100:.0f}% LSTM:{lstm_p*100:.0f}% {r.get('ml_confianca', '?')})"
         if ens_p and xgb_p and lstm_p
         else f"  ML Prob: {(r.get('ml_prob') or 0)*100:.1f}%"
     )
-    print(f"  Regime:   {r.get('regime','?')}  (score {r.get('regime_score','?')}/100)")
-    print(f"  Fear & Greed: {r.get('fear_greed','?')}/100 — {r.get('fear_greed_pt','?')}")
+    print(f"  Regime:   {r.get('regime', '?')}  (score {r.get('regime_score', '?')}/100)")
+    print(f"  Fear & Greed: {r.get('fear_greed', '?')}/100 — {r.get('fear_greed_pt', '?')}")
     print()
 
     print("  FILTROS:")

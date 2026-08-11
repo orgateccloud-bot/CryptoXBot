@@ -33,6 +33,7 @@ from config.runtime_settings import (
     CORS_ORIGINS,
     CORS_SAME_ORIGIN_ONLY,
     PORT,
+    REST_BASE_URL,
     SECRET_KEY,
     SYMBOL_WS,
     WHALE_BTC_VOLUME,
@@ -117,8 +118,6 @@ def _headers_seguranca(resp):
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return resp
 
-
-from config.runtime_settings import REST_BASE_URL
 
 BASE_URL = REST_BASE_URL  # P0-1: endpoint unico (spot por padrao) vindo do config
 BASE_FAPI = "https://fapi.binance.com"
@@ -430,7 +429,7 @@ def atualizar_par(symbol):
             addSystemEvent(
                 cor_ev,
                 f"{sym} regime: {regime_fmt}",
-                f"Anterior: {regime_anterior.replace('TENDENCIA_','').replace('_',' ')}",
+                f"Anterior: {regime_anterior.replace('TENDENCIA_', '').replace('_', ' ')}",
             )
 
     except Exception as e:
@@ -707,7 +706,7 @@ def api_risco():
 @app.route("/api/conexao")
 def api_conexao():
     """Status de conectividade com a Binance: REST spot, REST futures, auth e modo."""
-    from config.runtime_settings import ALLOW_REAL_TRADING, API_KEY, DRY_RUN
+    from config.runtime_settings import ALLOW_REAL_TRADING, DRY_RUN
 
     def _ping(url: str) -> dict:
         t0 = time.time()

@@ -12,8 +12,6 @@ o que torna a suíte determinística sem qualquer mock de rede/DB.
 import os
 import sys
 
-import pytest
-
 # Garante que a raiz do repo está no path (score.py vive na raiz).
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if RAIZ not in sys.path:

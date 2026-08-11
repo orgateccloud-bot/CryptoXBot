@@ -344,7 +344,7 @@ def preparar_para_ic(X, f, m, n, ini, fim):
     [ini, fim), alinhados. Retorna (Xr, labels_por_h, validos_por_h) onde as
     máscaras já excluem linhas com feature NaN."""
     Xr = X[ini:fim]
-    fr, mr, nr = f[ini:fim], m[ini:fim], n[ini:fim]
+    fr = f[ini:fim]
     feat_ok = ~np.isnan(Xr).any(axis=1)
     labels, validos = {}, {}
     for H in HORIZONTES:
@@ -654,7 +654,7 @@ def imprimir_pesquisa(r, cross=None):
     di = datetime.fromtimestamp(r["periodo_pesquisa"][0] / 1000, tz=timezone.utc)
     df = datetime.fromtimestamp(r["periodo_pesquisa"][1] / 1000, tz=timezone.utc)
     print("=" * 70)
-    print(f"  EDGE LAB — pesquisa (porção de pesquisa, hold-out INTOCADO)")
+    print("  EDGE LAB — pesquisa (porção de pesquisa, hold-out INTOCADO)")
     print(f"  {r['symbol']} | {di:%Y-%m-%d} -> {df:%Y-%m-%d} | n={r['n_amostras']}")
     print("=" * 70)
     print("\n  IC (Spearman) por feature × horizonte:")
@@ -691,10 +691,11 @@ def imprimir_pesquisa(r, cross=None):
     cond_p = p["p_valor"] < 0.05
     cond_ic = abs(p["melhor_ic"]) >= IC_PISO_ECONOMICO
     cond_cross = bool(cross) and any(ic * p["melhor_ic"] > 0 for ic in cross.values())
-    print(f"  Regra de decisão (METODOLOGIA.md):")
+    print("  Regra de decisão (METODOLOGIA.md):")
     print(f"    [{'x' if cond_p else ' '}] p-valor < 0.05                    ({p['p_valor']:.4f})")
     print(
-        f"    [{'x' if cond_ic else ' '}] |IC| >= {IC_PISO_ECONOMICO}                     ({abs(p['melhor_ic']):.4f})"
+        f"    [{'x' if cond_ic else ' '}] |IC| >= {IC_PISO_ECONOMICO}                     "
+        f"({abs(p['melhor_ic']):.4f})"
     )
     print(f"    [{'x' if cond_cross else ' '}] replica sinal em ETH ou SOL")
     if cond_p and cond_ic and cond_cross:

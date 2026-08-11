@@ -7,7 +7,6 @@ Sem I/O algum (sem sqlite3/requests/etc). Extrai cálculos duplicados
 
 import math
 import statistics
-from typing import Optional
 
 GAMMA_EULER_MASCHERONI = 0.5772156649015329
 

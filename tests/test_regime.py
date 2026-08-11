@@ -22,8 +22,6 @@ import math
 import os
 import sys
 
-import pytest
-
 # regime.py vive na raiz do repo.
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if RAIZ not in sys.path:
@@ -42,39 +40,39 @@ def _serie_alta(n=N):
     """Tendência de alta limpa e monotônica."""
     f = [100.0 + i for i in range(n)]
     h = [x + 1.0 for x in f]
-    l = [x - 1.0 for x in f]
+    lo = [x - 1.0 for x in f]
     v = [1000.0] * n
-    return {"abertura": f, "maxima": h, "minima": l, "fechamento": f, "volume": v}
+    return {"abertura": f, "maxima": h, "minima": lo, "fechamento": f, "volume": v}
 
 
 def _serie_baixa(n=N):
     """Tendência de baixa limpa e monotônica."""
     f = [200.0 - i for i in range(n)]
     h = [x + 1.0 for x in f]
-    l = [x - 1.0 for x in f]
+    lo = [x - 1.0 for x in f]
     v = [1000.0] * n
-    return {"abertura": f, "maxima": h, "minima": l, "fechamento": f, "volume": v}
+    return {"abertura": f, "maxima": h, "minima": lo, "fechamento": f, "volume": v}
 
 
 def _serie_lateral(n=N):
     """Mercado de range: oscilação senoidal de baixa amplitude (ADX fraco)."""
     f = [100.0 + math.sin(i / 2) for i in range(n)]
     h = [x + 0.5 for x in f]
-    l = [x - 0.5 for x in f]
+    lo = [x - 0.5 for x in f]
     v = [1000.0] * n
-    return {"abertura": f, "maxima": h, "minima": l, "fechamento": f, "volume": v}
+    return {"abertura": f, "maxima": h, "minima": lo, "fechamento": f, "volume": v}
 
 
 def _serie_volatilidade(n=N):
     """Série calma com uma vela final de range explosivo -> ATR ratio alto."""
     f = [100.0 + 0.1 * i for i in range(n)]
     h = [x + 0.5 for x in f]
-    l = [x - 0.5 for x in f]
+    lo = [x - 0.5 for x in f]
     # Última vela com amplitude gigante (50x a faixa normal).
     h[-1] = f[-1] + 50.0
-    l[-1] = f[-1] - 50.0
+    lo[-1] = f[-1] - 50.0
     v = [1000.0] * n
-    return {"abertura": f, "maxima": h, "minima": l, "fechamento": f, "volume": v}
+    return {"abertura": f, "maxima": h, "minima": lo, "fechamento": f, "volume": v}
 
 
 def _mock_klines(mapa):
@@ -260,7 +258,7 @@ class TestDetectar:
 
     def test_dados_none_resulta_indefinido(self, monkeypatch):
         # _klines devolve None para todos os TFs -> classificação INDEFINIDO.
-        monkeypatch.setattr(regime, "_klines", lambda s, i, l=60: None)
+        monkeypatch.setattr(regime, "_klines", lambda s, i, lim=60: None)
         r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "INDEFINIDO"
         assert r["pode_operar"] is False
@@ -355,27 +353,27 @@ def _serie_volume_crescente(n=N):
     """Tendência de alta com volume estritamente crescente (>= 20 velas)."""
     f = [100.0 + i for i in range(n)]
     h = [x + 1.0 for x in f]
-    l = [x - 1.0 for x in f]
+    lo = [x - 1.0 for x in f]
     v = [1000.0 + 50.0 * i for i in range(n)]
-    return {"abertura": f, "maxima": h, "minima": l, "fechamento": f, "volume": v}
+    return {"abertura": f, "maxima": h, "minima": lo, "fechamento": f, "volume": v}
 
 
 def _serie_volume_decrescente(n=N):
     """Tendência de alta com volume DEcrescente -> vol_crescente False."""
     f = [100.0 + i for i in range(n)]
     h = [x + 1.0 for x in f]
-    l = [x - 1.0 for x in f]
+    lo = [x - 1.0 for x in f]
     v = [5000.0 - 50.0 * i for i in range(n)]
-    return {"abertura": f, "maxima": h, "minima": l, "fechamento": f, "volume": v}
+    return {"abertura": f, "maxima": h, "minima": lo, "fechamento": f, "volume": v}
 
 
 def _serie_curta(n=15):
     """Série de alta com menos de 20 velas (atalhos vol_media / ema200)."""
     f = [100.0 + i for i in range(n)]
     h = [x + 1.0 for x in f]
-    l = [x - 1.0 for x in f]
+    lo = [x - 1.0 for x in f]
     v = [1000.0] * n
-    return {"abertura": f, "maxima": h, "minima": l, "fechamento": f, "volume": v}
+    return {"abertura": f, "maxima": h, "minima": lo, "fechamento": f, "volume": v}
 
 
 # ===========================================================================
@@ -519,7 +517,7 @@ class TestDetectarRamos:
 
     def test_indefinido_so_quando_todos_klines_none(self, monkeypatch):
         # INDEFINIDO real: nenhum TF vota (todos viram INDEFINIDO, não contados).
-        monkeypatch.setattr(regime, "_klines", lambda s, i, l=60: None)
+        monkeypatch.setattr(regime, "_klines", lambda s, i, lim=60: None)
         r = regime.detectar("BTCUSDT")
         assert r["regime_final"] == "INDEFINIDO"
         assert sum(r["votos"].values()) == 0
@@ -602,7 +600,7 @@ class TestImprimir:
 
     def test_imprimir_cobre_cor_indefinido(self, monkeypatch, capsys):
         # Caminho INDEFINIDO usa a cor cinza (\033[90m) — exercita o ramo.
-        monkeypatch.setattr(regime, "_klines", lambda s, i, l=60: None)
+        monkeypatch.setattr(regime, "_klines", lambda s, i, lim=60: None)
         r = regime.imprimir("BTCUSDT")
         out = capsys.readouterr().out
         assert r["regime_final"] == "INDEFINIDO"

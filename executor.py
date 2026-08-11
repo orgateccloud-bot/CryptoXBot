@@ -1392,7 +1392,7 @@ class Executor:
         print(
             f"[EXEC] {'PARCIAL' if parcial else 'TOTAL'} FECHADO @ ${preco_saida:,.2f} "
             f"(ref ${preco:,.2f}, {desvio_saida:+.3f}%) | "
-            f"PnL: {'+' if pnl_usdt>=0 else ''}{pnl_usdt:.2f} USDT ({pnl_pct:+.2f}%) | "
+            f"PnL: {'+' if pnl_usdt >= 0 else ''}{pnl_usdt:.2f} USDT ({pnl_pct:+.2f}%) | "
             f"Motivo: {motivo}"
         )
 

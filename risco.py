@@ -187,7 +187,8 @@ def travar(motivo: str, *, alertar: bool = True) -> None:
 
     print(f"[RISCO] *** BOT TRAVADO *** {motivo}")
     print(
-        f"[RISCO] Nenhum trade novo sera aberto. Para liberar: risco.destravar('{CONFIRMACAO_DESTRAVAR}')"
+        f"[RISCO] Nenhum trade novo sera aberto. Para liberar: "
+        f"risco.destravar('{CONFIRMACAO_DESTRAVAR}')"
     )
     if not alertar:
         return
@@ -216,7 +217,8 @@ def destravar(confirmacao: str) -> bool:
     """
     if confirmacao != CONFIRMACAO_DESTRAVAR:
         print(
-            f"[RISCO] destravar() RECUSADO: confirmacao incorreta. Esperado: {CONFIRMACAO_DESTRAVAR!r}"
+            f"[RISCO] destravar() RECUSADO: confirmacao incorreta. Esperado: "
+            f"{CONFIRMACAO_DESTRAVAR!r}"
         )
         return False
     _carregar_estado_persistido()

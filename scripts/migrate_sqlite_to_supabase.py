@@ -180,7 +180,8 @@ def _insert_trades(pg, rows: list[dict], dry: bool) -> int:
         if not dry:
             pg.execute(
                 """
-                INSERT INTO trades (timestamp, symbol, preco, volume_btc, volume_usdt, direcao, eh_baleia, trade_id)
+                INSERT INTO trades (timestamp, symbol, preco, volume_btc, volume_usdt, direcao,
+                eh_baleia, trade_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (trade_id) WHERE trade_id IS NOT NULL DO NOTHING
                 """,
@@ -216,7 +217,8 @@ def _insert_snapshots(pg, rows: list[dict], dry: bool) -> int:
                 INSERT INTO snapshots_mercado (
                     timestamp, symbol, preco, variacao_24h, volume_24h_btc,
                     funding_rate, open_interest_btc, ema20_1h, ema50_1h, rsi_1h,
-                    tendencia, pressao_order_book, liquidez_compra_usdt, liquidez_venda_usdt, raw_payload
+                    tendencia, pressao_order_book, liquidez_compra_usdt, liquidez_venda_usdt,
+                    raw_payload
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
                 ON CONFLICT DO NOTHING
                 """,
@@ -327,7 +329,8 @@ def _insert_bot_events(pg, rows: list[dict], dry: bool) -> int:
         if not dry:
             pg.execute(
                 """
-                INSERT INTO bot_events (timestamp, service, symbol, event_type, severity, message, data)
+                INSERT INTO bot_events (timestamp, service, symbol, event_type, severity, message,
+                data)
                 VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)
                 ON CONFLICT DO NOTHING
                 """,

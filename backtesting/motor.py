@@ -73,7 +73,7 @@ def simular_historico_ticks(klines, periodo_ticks=50):
     """
     ticks = []
     for k in klines[-periodo_ticks:]:
-        abertura, maxima, minima, fechamento, volume = k[1], k[2], k[3], k[4], k[5]
+        abertura, fechamento, volume = k[1], k[4], k[5]
         # Simular ticks: assumir 70% do volume como buyer se fechamento > abertura
         is_bullish = fechamento > abertura
         buyer_volume = volume * 0.7 if is_bullish else volume * 0.3
@@ -391,13 +391,16 @@ def imprimir_relatorio(r):
     print(f"  Sharpe Ratio:  {r['sharpe_ratio']:6.2f}    {nota(r['sharpe_ratio'], 1.0, 1.5)}")
     print(f"  Expectancia:   {r['expectancia_%']:6.2f}%   {nota(r['expectancia_%'], 0.1, 0.5)}")
     print(
-        f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   {nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}"
+        f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   "
+        f"{nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}"
     )
     print(
-        f"  Sortino Ratio: {r.get('sortino_ratio', 0):6.2f}    {nota(r.get('sortino_ratio', 0), 1.5, 2.0)}"
+        f"  Sortino Ratio: {r.get('sortino_ratio', 0):6.2f}    "
+        f"{nota(r.get('sortino_ratio', 0), 1.5, 2.0)}"
     )
     print(
-        f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}    {nota(r.get('calmar_ratio', 0), 1.0, 2.0)}"
+        f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}    "
+        f"{nota(r.get('calmar_ratio', 0), 1.0, 2.0)}"
     )
     print(
         f"  PSR (prob. de Sharpe > 0; NAO e DSR — sem correcao de multiple-testing): "

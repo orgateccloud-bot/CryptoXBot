@@ -31,7 +31,6 @@ def _prever_com_mocks(xgb_prob, lstm_prob, regime="INDEFINIDO"):
         patch("lstm_modelo.prever", return_value=(lstm_prob, "OK")),
     ):
         # Patch lazy imports dentro de prever()
-        import importlib
 
         with patch.dict(
             "sys.modules",

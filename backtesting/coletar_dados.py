@@ -12,7 +12,6 @@ Uso:
 import argparse
 import os
 import sqlite3
-import sys
 import time
 from datetime import datetime, timedelta, timezone
 

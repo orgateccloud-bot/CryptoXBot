@@ -193,7 +193,8 @@ def main() -> int:
             alvos_sig.append((sid, ts, tipo, preco, motivo, pnl))
 
     print(
-        f"\n  Sinais de fechamento fabricados (|PnL| > {LIMITE_PNL_ABSURDO_PCT:.0f}%): {len(alvos_sig)}"
+        f"\n  Sinais de fechamento fabricados (|PnL| > {LIMITE_PNL_ABSURDO_PCT:.0f}%): "
+        f"{len(alvos_sig)}"
     )
     for sid, ts, tipo, preco, motivo, pnl in alvos_sig:
         print(f"    - id={sid} {ts[:19]} {tipo} preco={preco} PnL={pnl:+,.2f}%")

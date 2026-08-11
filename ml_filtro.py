@@ -319,7 +319,7 @@ def treinar(intervalo="1h", symbol="BTCUSDT"):
     y_prob = modelo.predict_proba(X_te)[:, 1]
     auc = roc_auc_score(y_te, y_prob)
 
-    print(f"\n[ML] RESULTADO DO TREINAMENTO:")
+    print("\n[ML] RESULTADO DO TREINAMENTO:")
     print(f"     AUC holdout purgado:  {auc:.4f}  (meta: > 0.60)")
     if cv_mean is not None:
         print(f"     AUC purged CV (honesto): {cv_mean:.4f} ± {cv_std:.4f}")
@@ -390,7 +390,8 @@ def prever(symbol="BTCUSDT"):
         else:
             return (
                 None,
-                f"Modelo nao treinado para {symbol}. Rode: python ml_filtro.py --treinar --par {symbol}",
+                f"Modelo nao treinado para {symbol}. Rode: python ml_filtro.py --treinar --par "
+                f"{symbol}",
             )
 
     with open(path, "rb") as f:

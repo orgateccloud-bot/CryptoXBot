@@ -98,7 +98,8 @@ def _score_cvd(preco_atual, historico_ticks, periodo=50):
 
     Args:
         preco_atual: preço atual
-        historico_ticks: lista de dicts [{"preco": float, "is_buyer_maker": bool, "quantidade": float}]
+        historico_ticks: lista de dicts com as chaves "preco" (float),
+            "is_buyer_maker" (bool) e "quantidade" (float)
         periodo: período para calcular slopes (default 50 ticks)
 
     Retorna score baseado em divergência:

@@ -167,8 +167,6 @@ def rodar(
     ts1h = [r[0] for r in k1h]
 
     f4h = [r[4] for r in k4h]
-    m4h = [r[2] for r in k4h]
-    n4h = [r[3] for r in k4h]
     ts4h = [r[0] for r in k4h]  # I-12: necessario p/ o alinhamento causal
 
     # Pre-computar indicadores 1H
@@ -284,9 +282,6 @@ def rodar(
 
         atr_med = sum(x for x in atr14[max(0, i - 20) : i] if x) / max(
             1, len([x for x in atr14[max(0, i - 20) : i] if x])
-        )
-        bw_med = sum(x for x in bw[max(0, i - 20) : i] if x) / max(
-            1, len([x for x in bw[max(0, i - 20) : i] if x])
         )
         atr_ratio = atr_v / atr_med if atr_med > 0 else 1.0
 
@@ -519,13 +514,16 @@ def imprimir_relatorio(r):
     print(f"  Sharpe Ratio:  {r['sharpe_ratio']:6.2f}    {nota(r['sharpe_ratio'], 1.0, 1.5)}")
     print(f"  Expectancia:   {r['expectancia_%']:6.2f}%   {nota(r['expectancia_%'], 0.1, 0.5)}")
     print(
-        f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   {nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}"
+        f"  Max Drawdown:  {r['max_drawdown_%']:6.2f}%   "
+        f"{nota(r['max_drawdown_%'], 15, 8, maior_melhor=False)}"
     )
     print(
-        f"  Sortino Ratio: {r.get('sortino_ratio', 0):6.2f}    {nota(r.get('sortino_ratio', 0), 1.5, 2.0)}"
+        f"  Sortino Ratio: {r.get('sortino_ratio', 0):6.2f}    "
+        f"{nota(r.get('sortino_ratio', 0), 1.5, 2.0)}"
     )
     print(
-        f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}    {nota(r.get('calmar_ratio', 0), 1.0, 2.0)}"
+        f"  Calmar Ratio:  {r.get('calmar_ratio', 0):6.2f}    "
+        f"{nota(r.get('calmar_ratio', 0), 1.0, 2.0)}"
     )
     print(
         f"  PSR (prob. de Sharpe > 0; NAO e DSR — sem correcao de multiple-testing): "
@@ -575,20 +573,21 @@ def imprimir_relatorio(r):
     print("=" * 62)
 
     # Ultimas 10 operacoes
-    print(f"\n  ULTIMAS 10 OPERACOES:")
+    print("\n  ULTIMAS 10 OPERACOES:")
     print(
-        f"  {'Data Entrada':16s} {'Entrada':>10s} {'Saida':>10s} {'Result':>8s} {'Score':>5s} {'ML%':>5s} {'Tipo'}"
+        f"  {'Data Entrada':16s} {'Entrada':>10s} {'Saida':>10s} {'Result':>8s} {'Score':>5s} "
+        f"{'ML%':>5s} {'Tipo'}"
     )
     print("  " + "-" * 68)
     for o in r["operacoes"][-10:]:
         sinal = "+" if o["resultado"] > 0 else ""
-        ml_str = f"{o.get('ml_prob',0)*100:4.0f}%" if o.get("ml_prob") else "  N/A"
+        ml_str = f"{o.get('ml_prob', 0)*100:4.0f}%" if o.get("ml_prob") else "  N/A"
         print(
             f"  {o['entrada_dt']:16s} "
             f"${o['preco_entrada']:>9,.0f} "
             f"${o['preco_saida']:>9,.0f} "
             f"{sinal}{o['resultado_pct']:>6.2f}% "
-            f"{o.get('score',0):>4}  "
+            f"{o.get('score', 0):>4}  "
             f"{ml_str}  "
             f"{o['tipo_saida']}"
         )

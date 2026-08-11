@@ -29,7 +29,6 @@ import json
 import logging
 import random
 import signal
-import sys
 import threading
 import time
 from collections import deque
@@ -463,7 +462,8 @@ async def process_message(message):
         else:
             print(
                 f"{cor}[{hora}] {seta} {direcao:6s}{reset}  "
-                f"{cinza}${price:,.2f}  {quantity:.3f} BTC ({formatar_valor(price*quantity)}){reset}"
+                f"{cinza}${price:,.2f}  {quantity:.3f} BTC "
+                f"({formatar_valor(price*quantity)}){reset}"
             )
         cvd_cor = "\033[92m" if cvd_btc >= 0 else "\033[91m"
         print(
@@ -702,7 +702,8 @@ def _registrar_signal_handlers():
 def _retreinar_modelos(pares: list[str]):
     """Retreina XGBoost e MLP para todos os pares. Chamado automaticamente."""
     print(
-        f"\n\033[94m[RETRAIN] Iniciando retreinamento semanal — {datetime.now().strftime('%d/%m/%Y %H:%M')}\033[0m"
+        f"\n\033[94m[RETRAIN] Iniciando retreinamento semanal — "
+        f"{datetime.now().strftime('%d/%m/%Y %H:%M')}\033[0m"
     )
     try:
         from lstm_modelo import treinar as treinar_mlp
@@ -716,10 +717,10 @@ def _retreinar_modelos(pares: list[str]):
             except Exception as e:
                 print(f"\033[91m[RETRAIN] XGBoost {par} ERRO: {e}\033[0m")
 
-        print(f"\033[94m[RETRAIN] MLP Sequencial — BTCUSDT...\033[0m")
+        print("\033[94m[RETRAIN] MLP Sequencial — BTCUSDT...\033[0m")
         try:
             treinar_mlp("1h")
-            print(f"\033[92m[RETRAIN] MLP OK\033[0m")
+            print("\033[92m[RETRAIN] MLP OK\033[0m")
         except Exception as e:
             print(f"\033[91m[RETRAIN] MLP ERRO: {e}\033[0m")
 
@@ -757,7 +758,8 @@ def iniciar_retreinamento_automatico(pares: list[str]):
     thread = threading.Thread(target=_loop_retrain, daemon=True, name="retrain-weekly")
     thread.start()
     print(
-        f"\033[94m[RETRAIN] Retreinamento automático agendado — todo domingo às {_RETREINAMENTO_HORA:02d}h\033[0m"
+        f"\033[94m[RETRAIN] Retreinamento automático agendado — todo domingo às "
+        f"{_RETREINAMENTO_HORA:02d}h\033[0m"
     )
 
 
@@ -853,7 +855,8 @@ def _escalar_incoerencia(par, resultado):
             "sinal_incoerente",
             f"{par}: sinal {original} descartado por incoerencia de precos — {detalhe}. "
             f"Entrada={resultado.get('preco')} stop={resultado.get('stop_loss')} "
-            f"target={resultado.get('take_profit')} suporte_forte={resultado.get('suporte_forte')}.",
+            f"target={resultado.get('take_profit')} "
+            f"suporte_forte={resultado.get('suporte_forte')}.",
             service="worker",
             symbol=par,
             severity="CRITICAL",
@@ -1032,7 +1035,6 @@ def _trend_abrir(par, exec_par, r, t0=None):
 
 def loop_par(par, intervalo_min, simulacao):
     """Loop independente para cada par operado."""
-    global _estado_pares
     reset = "\033[0m"
 
     rotulo = "TREND (Donchian, dry run)" if MODO_TREND else "Estrategia"
@@ -1542,7 +1544,8 @@ def main():
             for e in erros_boot:
                 print(f"  - {e}")
             print(
-                "Abortando. Use --simulacao para paper trading ou configure as variaveis de ambiente."
+                "Abortando. Use --simulacao para paper trading ou configure as variaveis de "
+                "ambiente."
             )
             raise SystemExit(1)
 
@@ -1653,11 +1656,11 @@ def main():
         print("       Reprovada no hold-out (research/METODOLOGIA_TREND.md).")
         print("       Score/ensemble/CVD/OBI/scale-in NAO participam da decisao.")
     else:
-        print(f"  [OK] Estrategia Otimizada MTF+ATR+Volume+VWAP+ML (por par)")
-    print(f"  [OK] Gestao de Risco (Kelly + Circuit Breaker)")
+        print("  [OK] Estrategia Otimizada MTF+ATR+Volume+VWAP+ML (por par)")
+    print("  [OK] Gestao de Risco (Kelly + Circuit Breaker)")
     print(f"  [OK] Executor {'Simulado' if simulacao else 'Real'} + Trailing Stop (por par)")
     print(f"  [OK] Banco de dados {database.backend_info()['backend'].upper()}")
-    print(f"  [OK] Retreinamento automatico (domingo 02h)")
+    print("  [OK] Retreinamento automatico (domingo 02h)")
     print(f"\n  Avaliacao de sinal: a cada {args.intervalo} minutos")
     print("  Ctrl+C para encerrar")
     print("=" * 56 + "\n")

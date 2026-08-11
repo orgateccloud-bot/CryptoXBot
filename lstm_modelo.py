@@ -28,7 +28,6 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import indicadores as ind
 from ml_filtro import extrair_features, verificar_drift_e_registrar
 
 MODEL_PATH = "data/modelo_lstm.pkl"
@@ -217,7 +216,7 @@ def treinar(intervalo="1h", max_iter=200):
     y_pred = modelo.predict(X_te_s)
     auc = roc_auc_score(y_te, y_prob)
 
-    print(f"\n[SEQ] RESULTADO DO TREINAMENTO:")
+    print("\n[SEQ] RESULTADO DO TREINAMENTO:")
     print(f"      AUC holdout purgado: {auc:.4f}")
     if cv_mean is not None:
         print(f"      AUC purged CV (honesto): {cv_mean:.4f} ± {cv_std:.4f}")

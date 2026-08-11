@@ -10,7 +10,6 @@ mockados no mesmo padrão de test_executor.py/test_executor_oco.py.
 
 import os
 import sys
-import time
 
 import pytest
 

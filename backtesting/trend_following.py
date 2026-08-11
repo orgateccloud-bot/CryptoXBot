@@ -215,7 +215,8 @@ def carregar_closes(symbol, intervalo="4h"):
     """Closes + timestamps (ts usado para o relatório de PnL por ano)."""
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        "SELECT timestamp, fechamento FROM klines WHERE symbol=? AND intervalo=? ORDER BY timestamp ASC",
+        "SELECT timestamp, fechamento FROM klines WHERE symbol=? AND intervalo=? ORDER BY "
+        "timestamp ASC",
         (symbol, intervalo),
     ).fetchall()
     conn.close()
@@ -567,7 +568,8 @@ def imprimir(res):
             continue
         print(
             f"  {sym:<9} {r['n_trades']:>6} {r['win_rate']:>6.1f} {r['profit_factor']:>6.2f} "
-            f"{r['payoff_ratio']:>7.2f} {r['expectancy_net_pct']:>+8.3f} {r['retorno_total_pct']:>+8.2f} "
+            f"{r['payoff_ratio']:>7.2f} {r['expectancy_net_pct']:>+8.3f} "
+            f"{r['retorno_total_pct']:>+8.2f} "
             f"{r['max_drawdown_pct']:>6.1f} {r['bh_retorno_pct']:>+9.2f} {r['bh_max_dd_pct']:>8.1f}"
         )
 
@@ -600,7 +602,7 @@ def imprimir(res):
         pa = res["pnl_por_ativo"]
         total_pos_a = sum(v for v in pa.values() if v > 0)
         print("  PnL por ativo:")
-        print("    " + "  ".join(f"{s.replace('USDT',''):>5}:{v:+.0f}" for s, v in pa.items()))
+        print("    " + "  ".join(f"{s.replace('USDT', ''):>5}:{v:+.0f}" for s, v in pa.items()))
         if total_pos_a > 0:
             conc_ativo = max(pa.values()) / total_pos_a
             print(f"    maior ativo = {conc_ativo:.0%} de todo o lucro bruto positivo")
@@ -619,12 +621,14 @@ def imprimir(res):
     rodada = "RODADA 2 (1d, PRIMÁRIA)" if rodada2 else "RODADA 1 (4h)"
     print(f"  Regra de decisão — {rodada}, pooled:")
     print(
-        f"    [{'x' if c1 else ' '}] expectância líquida > 0        ({p['expectancy_net_pct']:+.3f}%)"
+        f"    [{'x' if c1 else ' '}] expectância líquida > 0        "
+        f"({p['expectancy_net_pct']:+.3f}%)"
     )
     print(f"    [{'x' if c2 else ' '}] profit factor > 1.3            ({p['profit_factor']:.2f})")
     print(f"    [{'x' if c3 else ' '}] payoff ratio > 1.5             ({p['payoff_ratio']:.2f})")
     print(
-        f"    [{'x' if c4 else ' '}] >= buy-and-hold risk-adjusted  (estrat {ratio_estrat:.2f} vs B&H {ratio_bh:.2f})"
+        f"    [{'x' if c4 else ' '}] >= buy-and-hold risk-adjusted  (estrat {ratio_estrat:.2f} vs "
+        f"B&H {ratio_bh:.2f})"
     )
     print(f"    [{'x' if c5 else ' '}] >= {piso_trades} trades pooled           ({p['n_trades']})")
     frag = []
@@ -641,11 +645,13 @@ def imprimir(res):
         print("\n  >> PASSOU — prosseguir ao hold-out (USO ÚNICO).")
     elif all([c1, c2, c3, c4, c5]) and frag:
         print(
-            "\n  >> Critérios numéricos OK mas FRÁGIL (concentração) — não aprovar (pré-registrado)."
+            "\n  >> Critérios numéricos OK mas FRÁGIL (concentração) — não aprovar "
+            "(pré-registrado)."
         )
     else:
         print(
-            "\n  >> Não passou. Ver METODOLOGIA_TREND.md p/ próximos passos (sem ajuste de parâmetro)."
+            "\n  >> Não passou. Ver METODOLOGIA_TREND.md p/ próximos passos (sem ajuste de "
+            "parâmetro)."
         )
     print("=" * 72)
 

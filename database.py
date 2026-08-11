@@ -15,7 +15,7 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any
 
 from config.runtime_settings import (
     DATABASE_BACKEND,
@@ -113,7 +113,9 @@ def _get_pg_pool():
                 min_size=DB_POOL_MIN,
                 max_size=DB_POOL_MAX,
                 kwargs={"row_factory": dict_row, "prepare_threshold": None},
-                open=True,  # psycopg_pool >= 3.2 nao abre o pool implicitamente; sem isto, .connection() da PoolTimeout
+                # psycopg_pool >= 3.2 nao abre o pool implicitamente; sem isto,
+                # .connection() da PoolTimeout.
+                open=True,
             )
         )
     return _pg_pool
@@ -272,7 +274,8 @@ def _inicializar_sqlite() -> None:
 
     c.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp)")
     c.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id ON trades(trade_id) WHERE trade_id IS NOT NULL"
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id "
+        "ON trades(trade_id) WHERE trade_id IS NOT NULL"
     )
     c.execute("CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp ON sinais(symbol, timestamp)")
     c.execute(
@@ -382,16 +385,20 @@ def _inicializar_postgres() -> None:
             )
             """)
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp ON trades(symbol, timestamp DESC)"
+            "CREATE INDEX IF NOT EXISTS idx_trades_symbol_timestamp "
+            "ON trades(symbol, timestamp DESC)"
         )
         conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id ON trades(trade_id) WHERE trade_id IS NOT NULL"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_trade_id "
+            "ON trades(trade_id) WHERE trade_id IS NOT NULL"
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp ON sinais(symbol, timestamp DESC)"
+            "CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp "
+            "ON sinais(symbol, timestamp DESC)"
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp ON cvd_historico(symbol, timestamp DESC)"
+            "CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp "
+            "ON cvd_historico(symbol, timestamp DESC)"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON bot_events(timestamp DESC)"
@@ -966,7 +973,8 @@ def salvar_bot_event(
         with _pg_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO bot_events (timestamp, service, symbol, event_type, severity, message, data)
+                INSERT INTO bot_events
+                    (timestamp, service, symbol, event_type, severity, message, data)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (_utcnow(), service, sym, event_type, severity, message, _pg_json(data or {})),
@@ -1067,7 +1075,8 @@ def salvar_metricas_modelo(
         with _pg_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO model_metricas (timestamp, symbol, modelo_tipo, auc, cv_auc_mean, cv_auc_std)
+                INSERT INTO model_metricas
+                    (timestamp, symbol, modelo_tipo, auc, cv_auc_mean, cv_auc_std)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (_utcnow(), sym, modelo_tipo, auc, cv_auc_mean, cv_auc_std),
@@ -1137,7 +1146,8 @@ if __name__ == "__main__":
     if _backend() == "postgres":
         with conectar() as conn:
             rows = conn.execute(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' ORDER BY table_name"
             ).fetchall()
             for row in rows:
                 print(f"  - {row['table_name']}")

@@ -498,10 +498,23 @@ A logica de ordenacao e uma so: o que reduz mais probabilidade de perda por hora
 | `black --check .` | ✅ passa e **bloqueia** |
 | `isort --check .` | ✅ passa e **bloqueia** |
 | `pytest tests/` | ✅ 1626 passed, 5 skipped |
-| `flake8` exit 0 | ❌ **139 achados** (eram 2.170) — ainda com `\|\| true`, mas com teto de regressão que falha o CI se subir |
+| `flake8` exit 0 | ✅ **0 achados** (eram 2.170) — `\|\| true` removido, o passo **bloqueia** |
 | branch protection na `main` | ❌ **pendente — exige ação do dono do repo** |
 
-Sobre os 139: 1.966 dos 2.170 achados originais estavam em `.claude/worktrees/`, que são **cópias do próprio repositório** em estados antigos. O CI lintava o passado do projeto. Excluído esse diretório (mais `_legado/`, `.venv/`, `scratch_vbt/`), o débito real do código vivo é: 54 E501, 19 E402, 17 F401, 14 F541, 12 E741, 10 E231, 8 F841, 5 diversos. Nenhum é defeito de comportamento; todos são estilo/higiene. O teto `FLAKE8_TETO=139` em `ci.yml` garante que o número só desce.
+Sobre os 2.170: **1.966 estavam em `.claude/worktrees/`**, que são cópias do próprio repositório em estados antigos, criadas por sessões paralelas — o CI lintava o passado do projeto. Excluído esse diretório (mais `_legado/`, `.venv/`, `scratch_vbt/` e `config/settings.py`, que é gitignored e não existe no CI), restaram 139 no código vivo, todos zerados:
+
+| Código | n | Como foi resolvido |
+|---|---:|---|
+| E501 linha > 100 | 54 | literais quebrados em concatenação implícita; SQL quebrado em duas linhas (whitespace-insensitive); um ternário aninhado extraído para variável |
+| E402 import fora do topo | 19 | `per-file-ignores` no `.flake8` — o import vem **depois** de `sys.path.insert(...)`, que é o que o torna resolvível; subir quebra o módulo |
+| F401 import não usado | 17 | removidos |
+| F541 f-string sem placeholder | 14 | prefixo `f` retirado |
+| E741 variável `l` | 12 | `lo` (lows) nos builders, `lim` nos lambdas de `_klines` |
+| E231 falta espaço após vírgula | 10 | corrigido |
+| F841 local nunca lido | 8 | removidos |
+| E221/E225/E302/E305/F824 | 5 | 3 eram de `config/settings.py` (fora do CI); `pnl_usdt>=0` espaçado; `global _estado_pares` inerte removido |
+
+Dois defeitos reais apareceram durante a limpeza, ambos por `str.replace` sem `count`: `mr`/`nr` foram apagados de `avaliar_economia` em `research/edge_lab.py` (o F841 apontava só a outra ocorrência) e um comentário de `database.py` foi partido no meio. Os dois foram pegos por `F821 undefined name` e por `compileall` antes de qualquer commit.
 
 Branch protection continua aberto porque ativar exige permissão de admin em `orgateccloud-bot/CryptoXBot` e porque a regra **bloquearia o push direto na `main`**, que é o fluxo em uso hoje — é decisão do operador, não mudança a aplicar em silêncio.
 

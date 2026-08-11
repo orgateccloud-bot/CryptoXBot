@@ -368,7 +368,8 @@ def walk_forward(
 
     if len(k1h) < janela_treino + janela_teste + 100:
         return {
-            "erro": f"Dados insuficientes ({len(k1h)} candles). Precisa de {janela_treino + janela_teste + 100}."
+            "erro": f"Dados insuficientes ({len(k1h)} candles). Precisa de "
+            "{janela_treino + janela_teste + 100}."
         }
 
     f1h = [r[4] for r in k1h]
@@ -912,7 +913,8 @@ def imprimir_relatorio(r):
         print("  *** NAO USAR COMO MEDICAO OFICIAL DO GATE ***")
     print(f"{'='*65}")
     print(
-        f"  Janelas:  {r['total_janelas']} (treino: {r['janela_treino']} / teste: {r['janela_teste']})"
+        f"  Janelas:  {r['total_janelas']} (treino: {r['janela_treino']} / teste: "
+        f"{r['janela_teste']})"
     )
     print(
         f"  Taxa/lado: {r['taxa']*100:.3f}%  |  F&G historico: "
@@ -950,7 +952,8 @@ def imprimir_relatorio(r):
         print(f"\n  Buy-and-hold no periodo TESTADO ({bh['dt_inicio']} -> {bh['dt_fim']}):")
         print(f"    Retorno: {bh['retorno_%']:+.2f}%  |  Max DD (preco): {bh['max_dd_%']:.2f}%")
         print(
-            f"    vs estrategia: {r['retorno_total_%']:+.2f}%  |  Max DD: {r['max_drawdown_%']:.2f}%"
+            f"    vs estrategia: {r['retorno_total_%']:+.2f}%  |  Max DD: "
+            f"{r['max_drawdown_%']:.2f}%"
         )
 
     print()

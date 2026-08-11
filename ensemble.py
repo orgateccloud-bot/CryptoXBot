@@ -118,29 +118,44 @@ def prever(symbol, regime_atual="INDEFINIDO"):
         if concordancia and prob_ensemble >= limiar:
             confianca = "ALTA"
             pode_operar = True
-            motivo = f"Ensemble {prob_ensemble*100:.1f}% — XGB e LSTM concordam (ALTA) | Regime: {regime_atual}"
+            motivo = (
+                f"Ensemble {prob_ensemble*100:.1f}% — XGB e LSTM concordam (ALTA) "
+                f"| Regime: {regime_atual}"
+            )
         elif prob_ensemble >= limiar:
             confianca = "MEDIA"
             pode_operar = True
-            motivo = f"Ensemble {prob_ensemble*100:.1f}% — modelos divergem (MEDIA) | Regime: {regime_atual}"
+            motivo = (
+                f"Ensemble {prob_ensemble*100:.1f}% — modelos divergem (MEDIA) "
+                f"| Regime: {regime_atual}"
+            )
         else:
             confianca = "BAIXA"
             pode_operar = False
-            motivo = f"Ensemble {prob_ensemble*100:.1f}% — abaixo do limiar {limiar*100:.0f}% | Regime: {regime_atual}"
+            motivo = (
+                f"Ensemble {prob_ensemble*100:.1f}% — abaixo do limiar {limiar*100:.0f}% "
+                f"| Regime: {regime_atual}"
+            )
 
     elif prob_xgb is not None:
         prob_ensemble = prob_xgb
         concordancia = False
         confianca = "MEDIA"
         pode_operar = prob_xgb >= limiar
-        motivo = f"Apenas XGBoost: {prob_xgb*100:.1f}% (LSTM indisponivel: {msg_lstm}) | Regime: {regime_atual}"
+        motivo = (
+            f"Apenas XGBoost: {prob_xgb*100:.1f}% (LSTM indisponivel: {msg_lstm}) "
+            f"| Regime: {regime_atual}"
+        )
 
     elif prob_lstm is not None:
         prob_ensemble = prob_lstm
         concordancia = False
         confianca = "MEDIA"
         pode_operar = prob_lstm >= limiar
-        motivo = f"Apenas LSTM: {prob_lstm*100:.1f}% (XGBoost indisponivel: {msg_xgb}) | Regime: {regime_atual}"
+        motivo = (
+            f"Apenas LSTM: {prob_lstm*100:.1f}% (XGBoost indisponivel: {msg_xgb}) "
+            f"| Regime: {regime_atual}"
+        )
 
     else:
         prob_ensemble = 0.5
@@ -195,7 +210,8 @@ def imprimir(symbol="BTCUSDT", regime_atual="INDEFINIDO"):
     # Regime e pesos
     print(f"  Regime: {r['regime']}")
     print(
-        f"  Pesos:  XGB {r['pesos_aplicados']['xgb']*100:.0f}% / LSTM {r['pesos_aplicados']['lstm']*100:.0f}%"
+        f"  Pesos:  XGB {r['pesos_aplicados']['xgb']*100:.0f}% / LSTM "
+        f"{r['pesos_aplicados']['lstm']*100:.0f}%"
     )
     print(f"  Threshold: {r['pesos_aplicados']['threshold']*100:.0f}%")
     print()

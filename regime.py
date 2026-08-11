@@ -56,8 +56,8 @@ def _adx(maximas, minimas, fechamentos, periodo=14):
     tr_list, dm_plus, dm_minus = [], [], []
 
     for i in range(1, n):
-        h, l, pc = maximas[i], minimas[i], fechamentos[i - 1]
-        tr = max(h - l, abs(h - pc), abs(l - pc))
+        h, lo, pc = maximas[i], minimas[i], fechamentos[i - 1]
+        tr = max(h - lo, abs(h - pc), abs(lo - pc))
         tr_list.append(tr)
 
         up = maximas[i] - maximas[i - 1]
@@ -103,19 +103,19 @@ def _classificar_tf(dados, label=""):
 
     f = dados["fechamento"]
     h = dados["maxima"]
-    l = dados["minima"]
+    lo = dados["minima"]
     v = dados["volume"]
 
     ema20 = ind.ema(f, 20)[-1]
     ema50 = ind.ema(f, 50)[-1]
     ema200 = ind.ema(f, min(200, len(f) - 1))[-1] if len(f) > 50 else ema50
 
-    atr_vals = ind.atr(h, l, f, 14)
+    atr_vals = ind.atr(h, lo, f, 14)
     atr_atual = atr_vals[-1] or 0
     atr_media = sum(x for x in atr_vals[-20:] if x) / max(1, len([x for x in atr_vals[-20:] if x]))
     atr_ratio = atr_atual / atr_media if atr_media > 0 else 1.0
 
-    adx_vals = _adx(h, l, f, 14)
+    adx_vals = _adx(h, lo, f, 14)
     adx = adx_vals[-1] if adx_vals else 0
 
     preco = f[-1]
@@ -218,7 +218,10 @@ def detectar(symbol):
         # Conflito entre TFs — ser conservador
         regime_final = "INDEFINIDO"
         pode_operar = False
-        motivo = f"Conflito entre timeframes: 1H={tf1h['regime']} 4H={tf4h['regime']} 1D={tf1d['regime']}"
+        motivo = (
+            f"Conflito entre timeframes: 1H={tf1h['regime']} "
+            f"4H={tf4h['regime']} 1D={tf1d['regime']}"
+        )
 
     # Score 0-100
     adx_medio = (tf1h["adx"] + tf4h["adx"]) / 2

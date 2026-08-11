@@ -19,7 +19,6 @@ Uso:
 import itertools
 import os
 import sys
-from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import indicadores as ind
@@ -28,7 +27,6 @@ from backtesting.alinhamento import mapear_idx_fechado
 from backtesting.motor_ensemble import SLIPPAGE, TAXA, _adx, carregar
 from backtesting.regua import score_unificado
 from backtesting.walk_forward import FRACAO_PARCIAL, TARGET2_MULT, _fng_do_dia, avaliar_tick_saida
-from ml_filtro import extrair_features
 
 DB_PATH = "data/btc_data.db"
 
@@ -468,7 +466,7 @@ def imprimir_top(resultados, top_n=10, ordenar_por="sharpe"):
     sharpes_trials_pt = [r["sharpe"] / (252**0.5) for r in resultados]  # DESANUALIZAR
     dsr_best = metricas.deflated_sharpe_ratio(best["retornos_pct"], sharpes_trials_pt)
 
-    print(f"\n  MELHOR CONFIGURACAO:")
+    print("\n  MELHOR CONFIGURACAO:")
     for k, v in best["params"].items():
         if "pct" in k:
             print(f"    {k}: {v*100:.1f}%")

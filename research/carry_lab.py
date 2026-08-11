@@ -230,7 +230,7 @@ def imprimir(res, variante="A", holdout=False):
         )
         if r["anuais"]:
             pior_a = min(r["anuais"], key=lambda a: r["anuais"][a]["anualizado"])
-            print(f"    por ano (anualizado s/ capital):")
+            print("    por ano (anualizado s/ capital):")
             for a, d in r["anuais"].items():
                 marca = "  <-- pior" if a == pior_a else ""
                 print(

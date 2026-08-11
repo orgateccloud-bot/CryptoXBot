@@ -9,8 +9,23 @@ extend-ignore = E203,W503
 ; .claude/worktrees/ sao CÓPIAS do proprio repo em estados antigos, criadas
 ; por sessoes paralelas. Eram 1.966 dos 2.147 achados — o CI estava lintando
 ; o passado do projeto.
-exclude = .venv,venv,build,dist,_legado,.claude,scratch_vbt
+; config/settings.py e gitignored: guarda as credenciais locais do operador e
+; NAO existe no CI. Lintar um arquivo que so existe na maquina de quem roda
+; faz a contagem local divergir da do CI — e a contagem e o gate.
+exclude = .venv,venv,build,dist,_legado,.claude,scratch_vbt,config/settings.py
+; E402 = import fora do topo. Nestes arquivos o import vem DEPOIS de
+; `sys.path.insert(0, dirname(abspath(__file__)))`, que e justamente o que o
+; torna resolvivel — subir o import quebra o modulo. A supressao por arquivo e
+; o registro honesto disso; `# noqa` linha a linha so empurrava as linhas para
+; alem de 100 colunas e trocava um achado por outro.
 per-file-ignores =
     backtesting/*.py:E402
     scripts/*.py:E402
     tests/*.py:E402
+    research/*.py:E402
+    estrategias/*.py:E402
+    lstm_modelo.py:E402
+    ml_filtro.py:E402
+    regime.py:E402
+    score.py:E402
+    suporte.py:E402

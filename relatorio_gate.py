@@ -333,7 +333,8 @@ def main():
         )
     else:
         print(
-            "  [??] Benchmark indisponível — critério buy-and-hold NÃO avaliado (não conta como aprovado)."
+            "  [??] Benchmark indisponível — critério buy-and-hold NÃO avaliado (não conta como "
+            "aprovado)."
         )
         aprovado = False
 
