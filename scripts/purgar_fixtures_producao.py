@@ -64,10 +64,45 @@ def _preco_mercado(symbol: str) -> float:
         return 0.0
 
 
-def _posicao_suspeita(nome: str, dados: dict) -> str | None:
-    """Devolve o motivo se for fixture, ou None se parecer legítima."""
+def _worker_em_simulacao() -> bool:
+    """M-1: o worker está rodando em paper AGORA?
+
+    O bot publica o modo EFETIVO em `bot_events` (`modo_efetivo`,
+    main.py:1631) justamente porque o ambiente DESTE processo não reflete o
+    `--real` do worker. Na dúvida — sem evento, sem banco, erro de leitura —
+    devolve True: tratar como paper preserva dados, tratar como real os apaga.
+    """
+    try:
+        import database
+
+        eventos = database.listar_bot_events(limite=1, tipo="modo_efetivo")
+        if eventos:
+            msg = str(eventos[0].get("message") or "").upper()
+            em_sim = "SIMULACAO" in msg
+            print(f"  Modo do worker (ultimo evento): {'SIMULACAO' if em_sim else 'REAL'}")
+            return em_sim
+        print("  [AVISO] nenhum evento 'modo_efetivo' registrado — assumindo SIMULACAO")
+    except Exception as e:
+        print(f"  [AVISO] nao consegui ler o modo efetivo ({e}) — assumindo SIMULACAO")
+    return True
+
+
+def _posicao_suspeita(nome: str, dados: dict, em_simulacao: bool | None = None) -> str | None:
+    """Devolve o motivo se for fixture, ou None se parecer legítima.
+
+    M-1: `order_id` começando com `SIM-` NÃO é fixture quando o bot roda em
+    paper — `executor.py:502` gera exatamente esse formato em simulação, e é
+    esse o modo em que o BXBotWorker roda 24/7 acumulando a Etapa 2 do gate.
+    O critério casava com TODA posição legítima de paper: `--confirmar`
+    apagava o estado inteiro que a Etapa 2 depende.
+
+    `executor.py:1836` já tinha a guarda certa (`if not self.simulacao and
+    order_id.startswith("SIM-")`) — ela só faltava aqui.
+    """
+    if em_simulacao is None:
+        em_simulacao = _worker_em_simulacao()
     order_id = str(dados.get("order_id") or "")
-    if order_id.startswith("SIM-"):
+    if order_id.startswith("SIM-") and not em_simulacao:
         return f'order_id sintetico "{order_id}"'
     abertura = str(dados.get("abertura") or "")
     if abertura and "T" not in abertura:

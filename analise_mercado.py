@@ -9,13 +9,19 @@ from datetime import datetime
 
 import requests
 
+# M-1: toda requisicao tem teto. Sem timeout, um socket pendurado trava
+# relatorio_completo() para sempre — e como start_health_server roda ANTES
+# (main.py), o worker fica vivo, /health responde 200 e o loop de trading
+# nunca comeca. E um apagao que o NSSM nao detecta: o processo nao morre.
+TIMEOUT_HTTP = 10
+
 BASE_URL = "https://fapi.binance.com"
 SYMBOL = "BTCUSDT"
 
 
 def get_preco_atual():
     """Preço atual e variação 24h."""
-    r = requests.get(f"{BASE_URL}/fapi/v1/ticker/24hr", params={"symbol": SYMBOL})
+    r = requests.get(f"{BASE_URL}/fapi/v1/ticker/24hr", params={"symbol": SYMBOL}, timeout=TIMEOUT_HTTP)
     d = r.json()
     return {
         "preco": float(d["lastPrice"]),
@@ -29,7 +35,7 @@ def get_preco_atual():
 
 def get_order_book(limit=20):
     """Maiores paredes de compra (suporte) e venda (resistência)."""
-    r = requests.get(f"{BASE_URL}/fapi/v1/depth", params={"symbol": SYMBOL, "limit": limit})
+    r = requests.get(f"{BASE_URL}/fapi/v1/depth", params={"symbol": SYMBOL, "limit": limit}, timeout=TIMEOUT_HTTP)
     d = r.json()
 
     bids = [(float(p), float(q)) for p, q in d["bids"]]  # compras
@@ -55,7 +61,7 @@ def get_order_book(limit=20):
 
 def get_funding_rate():
     """Taxa de financiamento atual (sentimento do mercado de futuros)."""
-    r = requests.get(f"{BASE_URL}/fapi/v1/premiumIndex", params={"symbol": SYMBOL})
+    r = requests.get(f"{BASE_URL}/fapi/v1/premiumIndex", params={"symbol": SYMBOL}, timeout=TIMEOUT_HTTP)
     d = r.json()
     taxa = float(d["lastFundingRate"]) * 100
     if taxa > 0.01:
@@ -72,7 +78,7 @@ def get_funding_rate():
 
 def get_open_interest():
     """Contratos em aberto - indica nível de alavancagem no mercado."""
-    r = requests.get(f"{BASE_URL}/fapi/v1/openInterest", params={"symbol": SYMBOL})
+    r = requests.get(f"{BASE_URL}/fapi/v1/openInterest", params={"symbol": SYMBOL}, timeout=TIMEOUT_HTTP)
     d = r.json()
     return {
         "open_interest_btc": float(d["openInterest"]),
@@ -83,7 +89,9 @@ def get_open_interest():
 def get_medias_moveis():
     """EMA 20, EMA 50 e RSI calculados a partir das klines de 1h."""
     r = requests.get(
-        f"{BASE_URL}/fapi/v1/klines", params={"symbol": SYMBOL, "interval": "1h", "limit": 60}
+        f"{BASE_URL}/fapi/v1/klines",
+        params={"symbol": SYMBOL, "interval": "1h", "limit": 60},
+        timeout=TIMEOUT_HTTP,
     )
     klines = r.json()
     fechamentos = [float(k[4]) for k in klines]
