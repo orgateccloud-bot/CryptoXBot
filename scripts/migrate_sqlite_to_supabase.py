@@ -47,6 +47,28 @@ def _sqlite_conn() -> sqlite3.Connection:
     return conn
 
 
+def _destino_seguro() -> str:
+    """I-13: host e banco, NUNCA a URL crua.
+
+    Imprimir 40-50 caracteres de uma connection string vaza usuario e
+    frequentemente a senha — o formato e
+    `postgresql://usuario:senha@host/banco`, e a senha cabe nos 40
+    primeiros caracteres. Esses logs vao para arquivo e para o console de
+    quem estiver olhando.
+    """
+    if not DATABASE_URL:
+        return "(DATABASE_URL nao definida)"
+    from urllib.parse import urlparse
+
+    try:
+        u = urlparse(DATABASE_URL)
+        # aspas simples dentro da f-string: aninhar aspas DUPLAS so e valido
+        # no Python 3.12+ (PEP 701) e o projeto declara 3.11+
+        return f"{u.hostname or '?'}{u.path or ''}"
+    except Exception:
+        return "(URL ilegivel)"
+
+
 def _pg_conn():
     if not DATABASE_URL:
         print("[ERRO] DATABASE_URL não configurado. Defina no .env ou como variável de ambiente.")
@@ -102,20 +124,41 @@ def _parse_json(value: Any) -> dict | None:
 # ── Leitura SQLite ─────────────────────────────────────────────────
 
 
+def _tabela_inexistente(exc: Exception) -> bool:
+    """I-13: distingue "a tabela não existe" de "o banco está travado".
+
+    Um `except Exception` cru tratava as duas coisas igual, e as consequências
+    são opostas: tabela ausente é esperado (schemas evoluem), banco travado
+    significa que a migração vai reportar sucesso tendo copiado ZERO linhas.
+    """
+    return isinstance(exc, sqlite3.OperationalError) and "no such table" in str(exc).lower()
+
+
 def _sqlite_count(conn: sqlite3.Connection, tabela: str) -> int:
     try:
         row = conn.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()
         return row[0] if row else 0
-    except Exception:
-        return -1  # tabela não existe neste SQLite
+    except Exception as e:
+        if _tabela_inexistente(e):
+            return -1  # tabela não existe neste SQLite
+        raise
 
 
 def _sqlite_rows(conn: sqlite3.Connection, tabela: str) -> list[dict]:
+    """I-13: só engole "tabela não existe". Qualquer outro erro PROPAGA.
+
+    Antes, `except Exception: return []` transformava `database is locked` —
+    provável com o worker rodando 24/7 sobre o mesmo arquivo — em "0 linhas" e
+    a migração seguia, reportava sucesso e deixava a tabela vazia no destino.
+    Falhar alto é a única forma de isso não passar despercebido.
+    """
     try:
         rows = conn.execute(f"SELECT * FROM {tabela}").fetchall()
         return [dict(r) for r in rows]
-    except Exception:
-        return []
+    except Exception as e:
+        if _tabela_inexistente(e):
+            return []
+        raise
 
 
 # ── Inserção Postgres ──────────────────────────────────────────────
@@ -175,6 +218,7 @@ def _insert_snapshots(pg, rows: list[dict], dry: bool) -> int:
                     funding_rate, open_interest_btc, ema20_1h, ema50_1h, rsi_1h,
                     tendencia, pressao_order_book, liquidez_compra_usdt, liquidez_venda_usdt, raw_payload
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+                ON CONFLICT DO NOTHING
                 """,
                 params,
             )
@@ -194,7 +238,8 @@ def _insert_cvd(pg, rows: list[dict], dry: bool) -> int:
         )
         if not dry:
             pg.execute(
-                "INSERT INTO cvd_historico (timestamp, symbol, cvd, compras_btc, vendas_btc) VALUES (%s,%s,%s,%s,%s)",
+                "INSERT INTO cvd_historico (timestamp, symbol, cvd, compras_btc, vendas_btc)"
+                " VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                 params,
             )
         count += 1
@@ -202,6 +247,15 @@ def _insert_cvd(pg, rows: list[dict], dry: bool) -> int:
 
 
 def _insert_sinais(pg, rows: list[dict], dry: bool) -> int:
+    """I-13: copiava 9 colunas e DESCARTAVA as quatro do meta-labeling.
+
+    `preco_saida`, `pnl_usdt`, `pnl_pct` e `barreira_tocada` existem nos DOIS
+    schemas (database.py:248-251 no SQLite, :328-331 no Postgres) e sao
+    exatamente a materia-prima da Etapa 2 do gate. Sem elas a migracao
+    preservava a DECISAO de cada trade e apagava o RESULTADO — o relatorio do
+    gate leria `pnl_usdt IS NOT NULL` e encontraria zero, depois de meses de
+    paper trading.
+    """
     count = 0
     for r in rows:
         params = (
@@ -214,12 +268,19 @@ def _insert_sinais(pg, rows: list[dict], dry: bool) -> int:
             r.get("source"),
             _parse_bool(r.get("executado")),
             _parse_ts(r.get("executado_em")),
+            r.get("preco_saida"),
+            r.get("pnl_usdt"),
+            r.get("pnl_pct"),
+            r.get("barreira_tocada"),
         )
         if not dry:
             pg.execute(
                 """
-                INSERT INTO sinais (timestamp, symbol, tipo, preco, motivo, score, source, executado, executado_em)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO sinais
+                (timestamp, symbol, tipo, preco, motivo, score, source, executado,
+                 executado_em, preco_saida, pnl_usdt, pnl_pct, barreira_tocada)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT DO NOTHING
                 """,
                 params,
             )
@@ -268,6 +329,7 @@ def _insert_bot_events(pg, rows: list[dict], dry: bool) -> int:
                 """
                 INSERT INTO bot_events (timestamp, service, symbol, event_type, severity, message, data)
                 VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)
+                ON CONFLICT DO NOTHING
                 """,
                 params,
             )

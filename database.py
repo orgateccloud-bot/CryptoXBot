@@ -45,6 +45,26 @@ def _symbol(symbol: str | None = None) -> str:
     return (symbol or SYMBOL or "BTCUSDT").upper()
 
 
+def _primeiro_valor(row):
+    """I-13: primeira coluna de uma linha, nos DOIS backends.
+
+    O pool do Postgres usa `row_factory=dict_row` (:95) e o SQLite entrega
+    `sqlite3.Row` (ou tupla). `row[0]` funciona num e levanta `KeyError: 0` no
+    outro — e era assim que `salvar_sinal` e `historico_cv_auc_modelo`
+    quebravam determinamente sob Postgres.
+
+    Escrever `row["id"]` resolveria só metade: os dois call sites selecionam
+    colunas com nomes diferentes (`id` e `cv_auc_mean`), e um SELECT de coluna
+    unica nao deveria obrigar o chamador a repetir o nome dela. Esta funcao
+    devolve o unico valor, seja qual for a forma da linha.
+    """
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return next(iter(row.values()), None)
+    return row[0]
+
+
 def _pg_dsn() -> str:
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_BACKEND=postgres exige DATABASE_URL configurado.")
@@ -578,7 +598,16 @@ def salvar_sinal(
                 ),
             ).fetchone()
             conn.commit()
-            sinal_id = row[0] if row else None
+            # I-13: o pool usa `row_factory=dict_row` (:95), entao `row` e um
+            # DICT e `row[0]` levantava `KeyError: 0`. Nao era um caso de borda:
+            # `salvar_sinal` esta no caminho de TODA decisao e de todo
+            # fechamento — no dia em que DATABASE_URL fosse configurado, o bot
+            # nao gravaria UM sinal sequer.
+            #
+            # `buscar_sinais` (:724) e `sinais_executados` (:748) ja faziam
+            # `dict(row)` corretamente; o defeito estava so onde alguem indexou
+            # por POSICAO, que e o idioma do sqlite3.Row e nao o do dict_row.
+            sinal_id = _primeiro_valor(row)
     else:
         conn = conectar()
         cursor = conn.execute(
@@ -1074,7 +1103,13 @@ def historico_cv_auc_modelo(symbol: str, modelo_tipo: str, limit: int = 20) -> l
                 """,
                 (sym, modelo_tipo, limit),
             ).fetchall()
-            return [row[0] for row in rows]
+            # I-13: mesmo defeito de `salvar_sinal` — dict_row nao aceita
+            # indice por posicao. Aqui a consequencia era mais silenciosa: o
+            # guard-rail de drift (`verificar_drift_e_registrar`) engole
+            # excecoes de proposito, entao sob Postgres o historico voltaria
+            # sempre vazio e o detector nunca dispararia — sem nenhum erro
+            # visivel.
+            return [_primeiro_valor(row) for row in rows]
 
     conn = conectar()
     rows = conn.execute(

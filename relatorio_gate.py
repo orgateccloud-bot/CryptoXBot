@@ -11,7 +11,7 @@ Uso:
   python relatorio_gate.py --capital 1000
   DATABASE_URL=postgresql://... python relatorio_gate.py --postgres
 
-Sem dependências além da stdlib (psycopg2 opcional para --postgres).
+Sem dependências além da stdlib (psycopg3 opcional para --postgres).
 """
 
 import argparse
@@ -52,10 +52,13 @@ def _conectar(args):
         if not url:
             sys.exit("--postgres exige DATABASE_URL no ambiente")
         try:
-            import psycopg2  # type: ignore
+            # I-13: psycopg3. `psycopg2` NAO esta no requirements.txt — o
+            # projeto inteiro usa psycopg3 (database.py:82), entao este
+            # import falhava mesmo num ambiente corretamente instalado.
+            import psycopg  # type: ignore
         except ImportError:
-            sys.exit("pip install psycopg2-binary para usar --postgres")
-        return psycopg2.connect(url), "%s"
+            sys.exit("pip install 'psycopg[binary]' para usar --postgres")
+        return psycopg.connect(url), "%s"
     if not os.path.exists(args.db):
         sys.exit(f"Banco não encontrado: {args.db}")
     return sqlite3.connect(args.db), "?"
