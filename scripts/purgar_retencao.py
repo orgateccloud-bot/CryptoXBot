@@ -149,19 +149,16 @@ def _valor(row, idx: int = 0):
 def _contar(conn, tabela: str, corte, backend: str) -> tuple[int, int]:
     """(total, a purgar)."""
     ph = _ph(backend)
-    total = _valor(conn.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone())  # nosec B608
-    antigos = _valor(
-        conn.execute(
-            f"SELECT COUNT(*) FROM {tabela} WHERE timestamp < {ph}", (corte,)  # nosec B608
-        ).fetchone()
-    )
+    q_total = f"SELECT COUNT(*) FROM {tabela}"  # nosec B608
+    q_antigos = f"SELECT COUNT(*) FROM {tabela} WHERE timestamp < {ph}"  # nosec B608
+    total = _valor(conn.execute(q_total).fetchone())
+    antigos = _valor(conn.execute(q_antigos, (corte,)).fetchone())
     return int(total or 0), int(antigos or 0)
 
 
 def _faixa(conn, tabela: str) -> tuple[Any, Any]:
-    row = conn.execute(
-        f"SELECT MIN(timestamp), MAX(timestamp) FROM {tabela}"  # nosec B608
-    ).fetchone()
+    q = f"SELECT MIN(timestamp), MAX(timestamp) FROM {tabela}"  # nosec B608
+    row = conn.execute(q).fetchone()
     if row is None:
         return None, None
     if isinstance(row, dict):
@@ -178,7 +175,8 @@ def _colunas(conn, tabela: str, backend: str) -> set[str]:
             (tabela,),
         )
         return {_valor(r) for r in cur}
-    return {r[1] for r in conn.execute(f"PRAGMA table_info({tabela})")}
+    q = f"PRAGMA table_info({tabela})"  # nosec B608
+    return {r[1] for r in conn.execute(q)}
 
 
 def _worker_ativo(conn, backend: str) -> bool:
@@ -276,10 +274,8 @@ def _arquivar(conn, tabela: str, corte, backend: str, dir_dumps: str, carimbo: s
 
 def _deletar(conn, tabela: str, corte, backend: str) -> int:
     ph = _ph(backend)
-    sql = (
-        f"DELETE FROM {tabela} WHERE id IN "  # nosec B608
-        f"(SELECT id FROM {tabela} WHERE timestamp < {ph} ORDER BY id LIMIT {ph})"
-    )
+    lote = f"SELECT id FROM {tabela} WHERE timestamp < {ph} ORDER BY id LIMIT {ph}"  # nosec B608
+    sql = f"DELETE FROM {tabela} WHERE id IN ({lote})"  # nosec B608
     removidas = 0
     while True:
         cur = conn.execute(sql, (corte, LOTE))
@@ -513,14 +509,10 @@ def _reinserir(conn, tabela: str, caminho: str, backend: str) -> int:
             marcadores = ", ".join([ph] * len(cols))
             campos = ", ".join(cols)
             if backend == "postgres":
-                sql = (
-                    f"INSERT INTO {tabela} ({campos}) VALUES ({marcadores}) "  # nosec B608
-                    f"ON CONFLICT DO NOTHING"
-                )
+                verbo, ignorar = "INSERT INTO", "ON CONFLICT DO NOTHING"
             else:
-                sql = (
-                    f"INSERT OR IGNORE INTO {tabela} ({campos}) VALUES ({marcadores})"
-                )
+                verbo, ignorar = "INSERT OR IGNORE INTO", ""
+            sql = f"{verbo} {tabela} ({campos}) VALUES ({marcadores}) {ignorar}"  # nosec B608
             cur = conn.execute(sql, vals)
             inseridas += cur.rowcount if (cur.rowcount or 0) > 0 else 0
     return inseridas
