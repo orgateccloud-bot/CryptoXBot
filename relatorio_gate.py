@@ -121,6 +121,32 @@ def carregar_trades_fechados(conn, ph, source=SOURCE_PRIMARIA):
     return trades
 
 
+GATE_DOC = "docs/GATE_GO_LIVE.md"
+
+
+def _etapa1_aprovada() -> bool:
+    """M-1: a Etapa 1 do gate passou?
+
+    A Etapa 2 (que este relatório avalia) só pode começar se a Etapa 1 aprovar
+    — está escrito em `GATE_GO_LIVE.md:157`. O relatório podia imprimir
+    "APROVADO — prosseguir à Etapa 3" e sair 0 sem nunca olhar para isso.
+
+    A fonte é o próprio documento do gate, que é onde o veredito é registrado.
+    FAIL-CLOSED: documento ausente ou ilegível conta como REPROVADA. Uma
+    ferramenta que decide sobre capital não pode dar luz verde por não ter
+    conseguido ler o pré-requisito.
+    """
+    try:
+        with open(GATE_DOC, encoding="utf-8") as f:
+            texto = f.read()
+    except OSError:
+        print(f"  [!!] {GATE_DOC} nao encontrado — Etapa 1 tratada como REPROVADA.")
+        return False
+    # O documento declara o veredito no cabeçalho. Enquanto essa frase estiver
+    # lá, a Etapa 1 está reprovada.
+    return "ESTRATÉGIA REPROVADA" not in texto.upper().replace("ESTRATEGIA", "ESTRATÉGIA")
+
+
 def _parse_ts(ts):
     if isinstance(ts, datetime):
         return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
@@ -171,7 +197,12 @@ def metricas(trades, capital_inicial):
     perdas = [t["pnl_usdt"] for t in trades if t["pnl_usdt"] < 0]
     pnl_total = sum(t["pnl_usdt"] for t in trades)
     bruto_g, bruto_p = sum(ganhos), abs(sum(perdas))
-    pf = bruto_g / bruto_p if bruto_p > 0 else float("inf")
+    # M-1: era `float("inf")` sem perdedores — e `inf > 1.3` PASSA. Um punhado
+    # de trades sem nenhuma perda dava profit factor infinito e APROVAVA o
+    # criterio, que e exatamente o cenario de amostra pequena e sortuda que o
+    # gate existe para barrar. Sem perdedores o PF nao esta definido: None
+    # reprova, em vez de aprovar.
+    pf = bruto_g / bruto_p if bruto_p > 0 else None
     win_rate = len(ganhos) / len(trades) * 100 if trades else 0.0
 
     # Max drawdown sobre equity acumulada
@@ -232,7 +263,11 @@ def main():
     print(f"Capital simulado inicial: {args.capital:.2f} USDT\n")
     print(f"  Trades fechados:  {m['n']}")
     print(f"  Win rate:         {m['win_rate']:.1f}%   (lembrete: win rate NÃO é o critério)")
-    print(f"  Profit factor:    {m['pf']:.2f}")
+    # M-1: `pf` e None quando nao ha perdedores — nao formatar como numero.
+    # "indefinido" e a leitura honesta: com zero perdas o PF nao existe, e
+    # antes isso virava `inf`, que passava no criterio.
+    _pf = m["pf"]
+    print(f"  Profit factor:    {'indefinido (sem perdas)' if _pf is None else f'{_pf:.2f}'}")
     print(f"  PnL total:        {m['pnl_total']:+.2f} USDT  ({m['retorno_pct']:+.2f}%)")
     print(f"  Expectancy:       {m['expectancy']:+.2f} USDT/trade")
     print(f"  Max drawdown:     {m['mdd_pct']:.2f}%")
@@ -257,9 +292,29 @@ def main():
     print("AVALIAÇÃO CONTRA O GATE (Etapa 2 — GATE_GO_LIVE.md)")
     print("=" * 78)
     aprovado = True
+
+    # M-1: FAIL-CLOSED contra a Etapa 1. Este relatorio avalia a Etapa 2, e
+    # podia imprimir "GATE: APROVADO — prosseguir a Etapa 3" e sair 0 sem
+    # nunca consultar a Etapa 1 — que esta REPROVADA em 4 de 5 criterios
+    # (docs/GATE_GO_LIVE.md). Aprovar a Etapa 2 nao pula a Etapa 1: as etapas
+    # sao sequenciais, e a ferramenta que o operador usa para decidir sobre
+    # capital nao pode dizer "prossiga" enquanto a anterior esta reprovada.
+    etapa1_ok = _etapa1_aprovada()
+    aprovado &= _linha(
+        "Etapa 1 do gate (pre-requisito)",
+        "APROVADA" if etapa1_ok else "REPROVADA",
+        "APROVADA",
+        etapa1_ok,
+    )
+
     aprovado &= _linha("Duração (dias)", f"{dias}", f"{MIN_DIAS}", dias >= MIN_DIAS)
     aprovado &= _linha("Trades fechados", f"{m['n']}", f"{MIN_TRADES}", m["n"] >= MIN_TRADES)
-    aprovado &= _linha("Profit factor", f"{m['pf']:.2f}", f"{MIN_PROFIT_FACTOR}", m["pf"] > MIN_PROFIT_FACTOR)
+    aprovado &= _linha(
+        "Profit factor",
+        "indefinido (sem perdas)" if m["pf"] is None else f"{m['pf']:.2f}",
+        f"{MIN_PROFIT_FACTOR}",
+        m["pf"] is not None and m["pf"] > MIN_PROFIT_FACTOR,
+    )
     aprovado &= _linha("PnL total > 0", f"{m['pnl_total']:+.2f}", "> 0", m["pnl_total"] > 0)
     aprovado &= _linha("Max drawdown", f"{m['mdd_pct']:.2f}%", f"<= {MAX_DRAWDOWN_PCT}%", m["mdd_pct"] <= MAX_DRAWDOWN_PCT)
     if bh is not None:
