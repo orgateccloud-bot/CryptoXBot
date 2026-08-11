@@ -499,7 +499,22 @@ A logica de ordenacao e uma so: o que reduz mais probabilidade de perda por hora
 | `isort --check .` | ✅ passa e **bloqueia** |
 | `pytest tests/` | ✅ 1626 passed, 5 skipped |
 | `flake8` exit 0 | ✅ **0 achados** (eram 2.170) — `\|\| true` removido, o passo **bloqueia** |
-| branch protection na `main` | ❌ **pendente — exige ação do dono do repo** |
+| `pip-audit` exit 0 | ✅ PYSEC-2026-3447 resolvido com `setuptools>=83.0.0` nos 3 jobs |
+| branch protection na `main` | ✅ ativa (ver abaixo) |
+
+**Pipeline inteiro verde no runner** — run [31542342765](https://github.com/orgateccloud-bot/CryptoXBot/actions/runs/31542342765): Lint ✓ 52s, Tests ✓ 2m10s, Security ✓ 30s.
+
+**Branch protection** (`PUT /repos/orgateccloud-bot/CryptoXBot/branches/main/protection`):
+
+| Regra | Valor | Por quê |
+|---|---|---|
+| `required_status_checks.contexts` | Lint, Tests 3.11, Security | os 3 jobs precisam passar |
+| `required_status_checks.strict` | `true` | o branch precisa estar atualizado com a `main` antes do merge |
+| `allow_force_pushes` | `false` | trava por configuração a regra que era só convenção ("NUNCA push --force na main") |
+| `allow_deletions` | `false` | a `main` dispara deploy; apagá-la é irreversível |
+| `enforce_admins` | **`false`** | ver ressalva |
+
+Ressalva sobre `enforce_admins: false`: o dono do repositório **continua conseguindo dar push direto na `main` sem CI verde**. Isso é deliberado — é o fluxo em uso hoje (não há PRs, é um operador só) e ligar `enforce_admins` transformaria cada correção urgente em produção num PR que espera 3 minutos de CI. O que a proteção garante hoje, incondicionalmente, é: nada de force-push, nada de deletar a branch, e qualquer PR de terceiro precisa dos 3 checks. Para tornar o gate absoluto: `gh api -X PUT repos/orgateccloud-bot/CryptoXBot/branches/main/protection/enforce_admins`.
 
 Sobre os 2.170: **1.966 estavam em `.claude/worktrees/`**, que são cópias do próprio repositório em estados antigos, criadas por sessões paralelas — o CI lintava o passado do projeto. Excluído esse diretório (mais `_legado/`, `.venv/`, `scratch_vbt/` e `config/settings.py`, que é gitignored e não existe no CI), restaram 139 no código vivo, todos zerados:
 
