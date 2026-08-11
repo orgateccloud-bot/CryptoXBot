@@ -374,7 +374,7 @@ def cmd_migrate(dry: bool) -> None:
     modo = "DRY-RUN (nada será inserido)" if dry else "CONFIRMAR (inserção real)"
     print(f"\n[MIGRAÇÃO] Modo: {modo}")
     print(f"  Origem : {DB_PATH}")
-    print(f"  Destino: {DATABASE_URL[:40]}...\n")
+    print(f"  Destino: {_destino_seguro()}\n")
 
     sqlite = _sqlite_conn()
     pg = _pg_conn()
@@ -395,14 +395,32 @@ def cmd_migrate(dry: bool) -> None:
             continue
 
         try:
-            n = inserter(pg, rows, dry)
+            # I-13: SAVEPOINT por tabela. Em psycopg3 o primeiro erro deixa a
+            # transacao em estado abortado — sem isto, um erro em `trades`
+            # fazia as 5 tabelas seguintes falharem em cascata com
+            # "current transaction is aborted", e o laco seguia imprimindo
+            # [ERRO] em cada uma como se fossem 6 problemas independentes.
+            # `pg.transaction()` aninhado emite SAVEPOINT/ROLLBACK TO, entao
+            # a tabela que falha e desfeita sozinha e as outras seguem.
+            with pg.transaction():
+                n = inserter(pg, rows, dry)
             resultados[tabela] = n
             print(f"  {tabela:<25} {n:>6} linhas {'simuladas' if dry else 'inseridas'}")
         except Exception as exc:
             erros.append(f"{tabela}: {exc}")
             print(f"  {tabela:<25}  [ERRO] {exc}")
 
-    if not dry:
+    # I-13: o commit era INCONDICIONAL e imprimia "[OK] Commit realizado"
+    # mesmo com tabelas em erro — uma migracao parcial era reportada como
+    # sucesso. Migracao parcial e pior que nenhuma: o operador acredita que
+    # tem os dados e o `--confirmar` seguinte reinsere so o que faltou, sem
+    # que ninguem saiba o que ficou de fora.
+    if dry:
+        pg.rollback()
+    elif erros:
+        pg.rollback()
+        print(f"\n[ABORTADO] {len(erros)} tabela(s) com erro — ROLLBACK, nada foi gravado.")
+    else:
         pg.commit()
         print("\n[OK] Commit realizado.")
 
@@ -416,6 +434,7 @@ def cmd_migrate(dry: bool) -> None:
         print(f"\n  Erros ({len(erros)}):")
         for e in erros:
             print(f"    • {e}")
+        sys.exit(1)
     else:
         print("  Sem erros.")
 
@@ -425,7 +444,7 @@ def cmd_migrate(dry: bool) -> None:
 
 def cmd_validar_pg() -> None:
     pg = _pg_conn()
-    print(f"\nPostgres: {DATABASE_URL[:50]}...")
+    print(f"\nPostgres: {_destino_seguro()}")
     print("-" * 40)
     total = 0
     for tabela in TABELAS:
