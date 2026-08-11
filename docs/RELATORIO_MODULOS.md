@@ -442,6 +442,25 @@ A logica de ordenacao e uma so: o que reduz mais probabilidade de perda por hora
 - relatorio_gate.py: usar psycopg3 (hoje importa psycopg2, :39, que nao esta no requirements) e respeitar DATABASE_URL/DATABASE_BACKEND (hoje conecta em data/btc_data.db, :23,43-45, ignorando a configuracao).
 - Retencao/purga das tabelas sem leitor antes de pagar armazenamento: `trades`, `snapshots_mercado` e `cvd_historico` somam 361 MB, nenhuma tem SELECT no caminho de producao (resumo_trades :761 e ultimos_snapshots :676 nao tem call site; cvd_historico nao tem sequer um SELECT).
 
+**Estado (2026-08-11).**
+
+| Ação | Estado |
+|---|---|
+| dict_row: `salvar_sinal`, `historico_cv_auc_modelo` | ✅ `_primeiro_valor()` resolve nos dois backends |
+| migrador copia `preco_saida`/`pnl_usdt`/`pnl_pct`/`barreira_tocada` | ✅ |
+| migrador com `ON CONFLICT` nas 4 tabelas | ✅ |
+| migrador com savepoint por tabela + commit condicional | ✅ `ec5dee4`, `tests/test_migrador_savepoint.py` (7 testes) |
+| migrador para de imprimir a `DATABASE_URL` crua | ✅ `_destino_seguro()`; teste varre a fonte por `DATABASE_URL[:` |
+| `logger.py`: `TIMESTAMPTZ` no PG + SQLite com WAL/busy_timeout | ✅ `85f46b1` |
+| `relatorio_gate.py`: psycopg3 + respeitar `DATABASE_URL` | ⬜ aberto |
+| retenção/purga das 3 tabelas sem leitor | ✅ `scripts/purgar_retencao.py` + 26 testes — **ferramenta pronta, purga NÃO executada** |
+
+**Retenção — política e mecânica.** Decisão do operador: **90 dias em `trades` e `snapshots_mercado`, arquivando antes de apagar; `cvd_historico` sai inteira** (é a única sem leitor *nem* uso futuro previsto — as outras duas são matéria-prima de E-11). Medido no banco vivo: 1.843.150 de 2.938.237 linhas de `trades`, 7.077 de 9.833 snapshots e as 4.623 de CVD — 1,85 milhão de linhas, ~63% do arquivo.
+
+A ordem do script é rígida, e é ela que o torna reversível (protocolo @Zeta): grava o dump em `_legado/dumps/<tabela>-ate-<carimbo>.jsonl.gz`, **relê o .gz do disco** contando linhas e calculando sha256, e só então roda o DELETE. Dump truncado por disco cheio ou processo morto falha na releitura e o DELETE não acontece — há teste dirigido para isso. `--restaurar` confere o sha256 contra o manifesto, valida cada coluna do JSON contra o schema real (um `.jsonl.gz` forjado poderia emendar SQL pelo nome da coluna) e é idempotente. DELETE em lotes de 20 mil, para não segurar o lock do SQLite enquanto o worker escreve.
+
+Duas correções de fato ao levantamento acima: `cvd_historico` **é escrita** (`main.py:1361` por ciclo, `:1733` no shutdown) — o que ela não tem é leitor, e por isso volta a crescer ~35 linhas/dia depois da purga; e o espaço em disco só é devolvido com `--vacuum`, que precisa de lock exclusivo e portanto do worker parado.
+
 **Critério de saída.** `DATABASE_URL=<testdb> pytest tests/test_database_postgres.py -v` verde, cobrindo salvar_sinal, historico_cv_auc_modelo e as 3 funcoes de crash recovery (database.py:860,865,879 — hoje sem nenhum teste direto). Migrar duas vezes seguidas e obter `SELECT COUNT(*)` identico nas 6 tabelas. `SELECT COUNT(*) FROM sinais WHERE pnl_usdt IS NOT NULL` identico na origem e no destino.
 
 **Risco de não fazer.** No dia em que DATABASE_URL for configurado, o bot nao grava UM sinal sequer; e a chamada de executor.py:997 nao tem try/except e vem DEPOIS de registrar_resultado (:996) e ANTES de limpar a posicao (:1039-1043), deixando posicao fantasma na memoria e no risk_state. E a migracao apaga o historico que a Etapa 2 precisa.

@@ -123,3 +123,8 @@ research/.cache/
 # (345 MB cada — nunca versionar)
 data/*.bak-*
 *.db.bak-*
+
+# I-13: dumps de retencao (scripts/purgar_retencao.py). O CODIGO em _legado/ E
+# versionado — estes dumps nao: sao dezenas de MB de tape bruto da Binance por
+# arquivo, e o ponto deles e reversibilidade LOCAL, nao historico no git.
+_legado/dumps/
