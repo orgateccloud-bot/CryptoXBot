@@ -54,6 +54,17 @@ from typing import Any, Iterable
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Os prints usam "→" e "─". No console padrao do Windows (cp1252) o primeiro
+# deles levanta UnicodeEncodeError e o comando morre com traceback — inclusive
+# `--help`, cujo texto vem do docstring acima. Num script DESTRUTIVO, um
+# traceback no lugar do relatorio de contagens e como o operador perde a
+# unica chance de conferir o que vai sair.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - stream sem suporte
+        pass
+
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # None = purga tudo (não há nada a reter). Ver o cabeçalho para o porquê de

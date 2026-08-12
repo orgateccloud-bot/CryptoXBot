@@ -448,7 +448,7 @@ A logica de ordenacao e uma so: o que reduz mais probabilidade de perda por hora
 |---|---|
 | dict_row: `salvar_sinal`, `historico_cv_auc_modelo` | ✅ `_primeiro_valor()` resolve nos dois backends |
 | migrador copia `preco_saida`/`pnl_usdt`/`pnl_pct`/`barreira_tocada` | ✅ |
-| migrador com `ON CONFLICT` nas 4 tabelas | ✅ |
+| migrador com `ON CONFLICT` nas 4 tabelas | ⚠️ feito, mas **INERTE** — ver abaixo; idempotência real vem da guarda de destino populado |
 | migrador com savepoint por tabela + commit condicional | ✅ `ec5dee4`, `tests/test_migrador_savepoint.py` (7 testes) |
 | migrador para de imprimir a `DATABASE_URL` crua | ✅ `_destino_seguro()`; teste varre a fonte por `DATABASE_URL[:` |
 | `logger.py`: `TIMESTAMPTZ` no PG + SQLite com WAL/busy_timeout | ✅ `85f46b1` |
@@ -465,7 +465,17 @@ A ordem do script é rígida, e é ela que o torna reversível (protocolo @Zeta)
 
 Duas correções de fato ao levantamento acima: `cvd_historico` **é escrita** (`main.py:1361` por ciclo, `:1733` no shutdown) — o que ela não tem é leitor, e por isso volta a crescer ~35 linhas/dia depois da purga; e o espaço em disco só é devolvido com `--vacuum`, que precisa de lock exclusivo e portanto do worker parado.
 
-**Critério de saída.** `DATABASE_URL=<testdb> pytest tests/test_database_postgres.py -v` verde, cobrindo salvar_sinal, historico_cv_auc_modelo e as 3 funcoes de crash recovery (database.py:860,865,879 — hoje sem nenhum teste direto). Migrar duas vezes seguidas e obter `SELECT COUNT(*)` identico nas 6 tabelas. `SELECT COUNT(*) FROM sinais WHERE pnl_usdt IS NOT NULL` identico na origem e no destino.
+**O `ON CONFLICT` do migrador não fazia nada.** Medido, não presumido: o único UNIQUE em todo o schema Postgres, fora as chaves primárias, é `idx_trades_trade_id` — e ele é **parcial** (`WHERE trade_id IS NOT NULL`). `snapshots_mercado`, `cvd_historico`, `sinais` e `bot_events` têm apenas `id BIGSERIAL PRIMARY KEY`, que gera valor novo a cada insert: o `ON CONFLICT DO NOTHING` dessas quatro nunca dispara. Em `trades`, 2.492.922 das 2.956.398 linhas do SQLite têm `trade_id` NULL — 84% ficam fora do índice.
+
+Um segundo `--confirmar` duplicaria, portanto: `sinais` +5.339, `snapshots_mercado` +9.895, `cvd_historico` +4.687, `bot_events` +29, `trades` +2.492.922. Só `risk_state` (`ON CONFLICT (name) DO UPDATE`) é idempotente de verdade. **`sinais` é a que decide capital** — dobrar a tabela dobra o `n` e o PnL que `relatorio_gate.py` lê.
+
+O teste que "provava" a idempotência fazia `grep` da string `ON CONFLICT` no código-fonte: media a presença da cláusula, não o efeito dela. Foi substituído por um que afirma a verdade, e o docstring do migrador — que dizia "pode ser executado múltiplas vezes com segurança" — foi corrigido.
+
+Fechado sem tocar no schema: `--confirmar` agora **recusa** rodar contra um destino que já tem linhas (`_tabelas_ocupadas`), e `--forcar` passa por cima com aviso explícito. Criar as constraints que faltam é a alternativa, mas é mudança de schema em produção com risco de quebrar INSERT ao vivo se duplicata legítima ocorrer — decisão do operador. `mig.IDEMPOTENTES` documenta a lista, e há teste que falha se alguém a ampliar sem criar a constraint correspondente.
+
+**Bônus do mesmo bug de encoding do `relatorio_gate.py`:** `--help` do migrador crashava com `UnicodeEncodeError` no `→` do docstring, e `--confirmar` crashava no `⚠ ATENÇÃO` — **antes de perguntar qualquer coisa**. Ou seja, a migração real nunca teria rodado nessa máquina. Corrigido nos três scripts de linha de comando (migrador e as duas purgas). `main.py` e `dashboard.py` têm o mesmo padrão e ficaram de fora: mexer no boot de um bot que roda 24/7 merece mudança própria.
+
+**Critério de saída.** `DATABASE_URL_TESTE=postgresql://... pytest tests/test_migrador_postgres_real.py tests/test_database_postgres.py -v` — 12 testes, hoje pulados por falta de DSN. Cobrem salvar_sinal, historico_cv_auc_modelo e as 3 funcoes de crash recovery (database.py:860,865,879); migrar duas vezes e obter `SELECT COUNT(*)` identico nas 6 tabelas. `SELECT COUNT(*) FROM sinais WHERE pnl_usdt IS NOT NULL` identico na origem e no destino.
 
 **Risco de não fazer.** No dia em que DATABASE_URL for configurado, o bot nao grava UM sinal sequer; e a chamada de executor.py:997 nao tem try/except e vem DEPOIS de registrar_resultado (:996) e ANTES de limpar a posicao (:1039-1043), deixando posicao fantasma na memoria e no risk_state. E a migracao apaga o historico que a Etapa 2 precisa.
 

@@ -188,6 +188,26 @@ class TestMigradorPreservaOResultado:
 
 
 class TestMigradorIdempotente:
+    """ATENÇÃO ao que estes testes afirmam e ao que NÃO afirmam.
+
+    A versão anterior deste bloco fazia `assert "ON CONFLICT" in sql` e
+    concluía "migrador idempotente". Media a presença da cláusula, não o
+    efeito dela — e o efeito é nenhum em 4 das 6 tabelas.
+
+    `ON CONFLICT DO NOTHING` sem alvo só suprime conflitos que ocorreriam.
+    `snapshots_mercado`, `cvd_historico`, `sinais` e `bot_events` têm como
+    única chave única o `id BIGSERIAL PRIMARY KEY`, que gera valor novo a cada
+    insert: nunca há conflito, logo nunca há supressão. Reinserir duplica.
+
+    Em `trades` existe UNIQUE de verdade (`idx_trades_trade_id`), mas parcial
+    — `WHERE trade_id IS NOT NULL` — e 2.492.922 das 2.956.398 linhas do
+    SQLite têm trade_id NULL.
+
+    A idempotência real vem de `_tabelas_ocupadas` (guarda de destino
+    populado), coberta em `tests/test_migrador_savepoint.py`. Aqui provamos
+    só a estrutura do SQL, que é o que dá para provar sem um Postgres.
+    """
+
     @pytest.mark.parametrize(
         "fn,linha",
         [
@@ -197,13 +217,41 @@ class TestMigradorIdempotente:
             (mig._insert_bot_events, {"timestamp": "2026-01-01T00:00:00"}),
         ],
     )
-    def test_todo_insert_tem_on_conflict(self, fn, linha):
-        # Sem ON CONFLICT, um segundo `--confirmar` duplica a tabela inteira —
-        # e em `sinais` isso DOBRA o n e o PnL que o gate le.
+    def test_nenhum_insert_e_puro(self, fn, linha):
+        """A cláusula tem que estar lá para o dia em que houver constraint —
+        mas isto NÃO prova idempotência. Ver o docstring da classe."""
         pg = _PgFalso()
         fn(pg, [linha], dry=False)
         sql, _ = pg.chamadas[0]
         assert "ON CONFLICT" in sql, f"{fn.__name__} faz INSERT puro"
+
+    def test_risk_state_e_a_unica_com_alvo_de_conflito(self):
+        """`ON CONFLICT (name) DO UPDATE` é o único que aponta para uma
+        constraint que existe — `risk_state.name TEXT PRIMARY KEY`."""
+        pg = _PgFalso()
+        mig._insert_risk_state(pg, [{"name": "default", "data": "{}"}], dry=False)
+        sql, _ = pg.chamadas[0]
+        assert "ON CONFLICT (name)" in sql and "DO UPDATE" in sql
+
+    def test_schema_nao_ganhou_unique_sem_atualizar_IDEMPOTENTES(self):
+        """Se alguém criar a constraint que falta, esta lista tem que crescer
+        junto — senão a guarda continua bloqueando uma reinserção que passou a
+        ser segura, e o operador aprende a usar --forcar por reflexo."""
+        import re
+
+        ddl = open(
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "database.py"
+            ),
+            encoding="utf-8",
+        ).read()
+        with_unique = set(re.findall(r"CREATE UNIQUE INDEX[^\"']*?ON (\w+)", ddl))
+        # `trades` tem UNIQUE, mas PARCIAL: 84% das linhas ficam fora dele,
+        # entao ela nao pode entrar em IDEMPOTENTES.
+        assert with_unique <= {"trades"}, (
+            f"schema ganhou UNIQUE em {with_unique - {'trades'}} — reavalie "
+            f"mig.IDEMPOTENTES, hoje {mig.IDEMPOTENTES}"
+        )
 
 
 class TestLeituraSqliteNaoEngoleErro:

@@ -49,12 +49,28 @@ class _Savepoint:
         return False  # nunca engole a excecao
 
 
+class _Resultado:
+    """O que `Connection.execute` devolve no psycopg3: um cursor."""
+
+    def __init__(self, linhas):
+        self._linhas = linhas
+
+    def fetchone(self):
+        return self._linhas[0] if self._linhas else None
+
+    def fetchall(self):
+        return list(self._linhas)
+
+
 class FakePg:
-    def __init__(self, falhar_em=()):
+    def __init__(self, falhar_em=(), destino_ocupado=None):
         self.falhar_em = set(falhar_em)
         self.eventos = []
         self.linhas = []
         self.abortada = False
+        # I-13: contagens do destino, para exercitar a guarda de reinsercao.
+        # Vazio = destino limpo, que e o caso da migracao inicial.
+        self.destino_ocupado = destino_ocupado or {}
 
     def transaction(self):
         return _Savepoint(self)
@@ -63,11 +79,22 @@ class FakePg:
         # depois de um erro sem savepoint, um Postgres real recusa TUDO.
         if self.abortada:
             raise RuntimeError("current transaction is aborted")
+
+        # A guarda de destino populado consulta o catalogo e conta linhas. Um
+        # fake que so entende INSERT nao modela o psycopg3, e mascararia esse
+        # caminho inteiro.
+        if "information_schema.tables" in sql:
+            return _Resultado([{"table_name": t} for t in mig.TABELAS])
+        if sql.lstrip().upper().startswith("SELECT COUNT(*)"):
+            tabela = sql.split("FROM")[1].strip().split()[0]
+            return _Resultado([{"n": self.destino_ocupado.get(tabela, 0)}])
+
         for t in self.falhar_em:
             if f"INTO {t}" in sql:
                 self.abortada = True
                 raise RuntimeError(f"erro proposital em {t}")
         self.linhas.append(sql)
+        return _Resultado([])
 
     def commit(self):
         self.eventos.append("COMMIT")
@@ -84,15 +111,15 @@ class FakePg:
 def migracao(monkeypatch):
     """Roda cmd_migrate com SQLite e Postgres falsos."""
 
-    def _run(falhar_em=(), dry=False):
-        pg = FakePg(falhar_em)
+    def _run(falhar_em=(), dry=False, destino_ocupado=None, forcar=False):
+        pg = FakePg(falhar_em, destino_ocupado)
         monkeypatch.setattr(mig, "DATABASE_URL", "postgresql://u:senha@host/banco")
         monkeypatch.setattr(mig, "_pg_conn", lambda: pg)
         monkeypatch.setattr(mig, "_sqlite_conn", lambda: type("C", (), {"close": lambda s: None})())
         monkeypatch.setattr(mig, "_sqlite_rows", lambda c, t: [{"timestamp": "2026-08-11"}])
         codigo = 0
         try:
-            mig.cmd_migrate(dry=dry)
+            mig.cmd_migrate(dry=dry, forcar=forcar)
         except SystemExit as e:
             codigo = e.code
         return pg, codigo
@@ -131,6 +158,52 @@ class TestCommitCondicional:
         pg, codigo = migracao(dry=True)
         assert "COMMIT" not in pg.eventos
         assert codigo == 0
+
+
+class TestGuardaDeDestinoPopulado:
+    """A idempotência que o `ON CONFLICT` NÃO dá.
+
+    Medido no schema: o único UNIQUE fora das PKs é `idx_trades_trade_id`, e
+    ele é parcial (`WHERE trade_id IS NOT NULL`). `snapshots_mercado`,
+    `cvd_historico`, `sinais` e `bot_events` têm só `id BIGSERIAL PRIMARY
+    KEY`, que gera valor novo a cada insert — o `ON CONFLICT DO NOTHING`
+    dessas quatro nunca dispara. Um segundo `--confirmar` duplicaria `sinais`,
+    dobrando o n e o PnL que decidem sobre capital real.
+    """
+
+    def test_destino_com_dados_recusa_e_nao_insere(self, migracao):
+        pg, codigo = migracao(destino_ocupado={"sinais": 5339})
+        assert codigo == 1
+        assert not pg.linhas, "inseriu apesar de recusar"
+        assert "COMMIT" not in pg.eventos
+
+    def test_risk_state_sozinho_nao_bloqueia(self, migracao):
+        """`risk_state` tem ON CONFLICT (name) DO UPDATE — reinserir e seguro,
+        e bloquear por causa dela impediria toda migracao legitima."""
+        pg, codigo = migracao(destino_ocupado={"risk_state": 1})
+        assert codigo == 0
+        assert pg.linhas
+
+    def test_destino_vazio_migra_normalmente(self, migracao):
+        pg, codigo = migracao()
+        assert codigo == 0
+        assert "COMMIT" in pg.eventos
+
+    def test_forcar_passa_por_cima(self, migracao):
+        pg, codigo = migracao(destino_ocupado={"sinais": 5339}, forcar=True)
+        assert codigo == 0
+        assert pg.linhas, "--forcar nao deixou inserir"
+
+    def test_dry_run_nao_e_bloqueado(self, migracao):
+        """Dry-run nao escreve, entao destino populado nao e impedimento — e
+        justamente o comando que o operador usa para inspecionar antes."""
+        pg, codigo = migracao(dry=True, destino_ocupado={"sinais": 5339})
+        assert codigo == 0
+
+    def test_so_risk_state_e_declarada_idempotente(self):
+        """Guarda contra alguem ampliar IDEMPOTENTES sem criar a constraint.
+        A lista so pode crescer junto com um UNIQUE de verdade no schema."""
+        assert mig.IDEMPOTENTES == {"risk_state"}
 
 
 class TestCredencialNaoVazaNoLog:

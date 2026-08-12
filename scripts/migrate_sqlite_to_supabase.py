@@ -15,8 +15,16 @@ Pré-requisitos:
   DATABASE_URL=postgresql://... (Supabase connection string)
   pip install psycopg psycopg-pool
 
-O script usa ON CONFLICT DO NOTHING em trades (trade_id) e ON CONFLICT DO UPDATE
-em risk_state (name). Pode ser executado múltiplas vezes com segurança.
+IDEMPOTÊNCIA — leia antes de rodar duas vezes.
+  O `ON CONFLICT DO NOTHING` de `snapshots_mercado`, `cvd_historico`, `sinais` e
+  `bot_events` NÃO FAZ NADA: a única chave única dessas tabelas é o
+  `id BIGSERIAL PRIMARY KEY`, que gera valor novo a cada insert, então conflito
+  nenhum ocorre. Em `trades` o UNIQUE existe mas é parcial
+  (`WHERE trade_id IS NOT NULL`) e 84% das linhas têm trade_id NULL. Só
+  `risk_state` (ON CONFLICT (name) DO UPDATE) é idempotente de verdade.
+
+  Por isso `--confirmar` RECUSA rodar contra um destino que já tem linhas — ver
+  IDEMPOTENTES e `_tabelas_ocupadas`. `--forcar` passa por cima e DUPLICA.
 """
 
 from __future__ import annotations
@@ -29,10 +37,43 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+# Os prints usam "→", "─" e "⚠". No console padrao do Windows (cp1252) o
+# primeiro deles levanta UnicodeEncodeError e o comando morre com traceback —
+# inclusive `--help`, cujo texto vem do docstring acima. Num script
+# DESTRUTIVO isso e pior que cosmetico: o `⚠ ATENCAO` vinha ANTES da
+# confirmacao, entao a migracao real nao chegava nem a perguntar.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - stream sem suporte
+        pass
+
 DB_PATH = os.getenv("DB_PATH", "data/btc_data.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 TABELAS = ["trades", "snapshots_mercado", "cvd_historico", "sinais", "risk_state", "bot_events"]
+
+# I-13: quais tabelas de fato sobrevivem a uma segunda insercao sem duplicar.
+#
+# MEDIDO, nao presumido. O unico UNIQUE em todo o schema Postgres, fora as
+# chaves primarias, e `idx_trades_trade_id` — e ele e PARCIAL
+# (`WHERE trade_id IS NOT NULL`). `snapshots_mercado`, `cvd_historico`,
+# `sinais` e `bot_events` tem apenas `id BIGSERIAL PRIMARY KEY`, que gera
+# valor novo a cada insert: o `ON CONFLICT DO NOTHING` dessas quatro NUNCA
+# dispara. Em `trades`, 2.492.922 das 2.956.398 linhas do SQLite tem trade_id
+# NULL — 84% ficam fora do indice parcial.
+#
+# Das 6, portanto, so `risk_state` (ON CONFLICT (name) DO UPDATE) e
+# idempotente de verdade. Um segundo --confirmar duplicaria `sinais`, dobrando
+# o n e o PnL que relatorio_gate.py le para decidir sobre capital real. O
+# teste que "provava" a idempotencia fazia grep da string ON CONFLICT no
+# codigo-fonte — media a presenca da clausula, nao o efeito dela.
+#
+# Fechar com constraints novas seria mudanca de schema em producao, com risco
+# de quebrar INSERT ao vivo se duplicata legitima existir: decisao do
+# operador, nao deste script. `_tabelas_ocupadas` resolve sem tocar no schema
+# — recusa migrar para tabela que ja tem linha.
+IDEMPOTENTES = {"risk_state"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────
@@ -86,6 +127,36 @@ def _pg_conn():
     return psycopg.connect(url, row_factory=dict_row, prepare_threshold=None)
 
 
+def _valor_unico(row) -> Any:
+    """Primeira coluna, com dict_row ou tupla — o pool usa dict_row."""
+    if row is None:
+        return None
+    return next(iter(row.values())) if isinstance(row, dict) else row[0]
+
+
+def _tabelas_existentes(pg) -> set[str]:
+    """Perguntado ao catalogo, nao tentado e capturado: em psycopg3 um erro de
+    "relation does not exist" aborta a transacao inteira, e as contagens
+    seguintes falhariam todas em cascata."""
+    rows = pg.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
+    ).fetchall()
+    return {(r["table_name"] if isinstance(r, dict) else r[0]) for r in rows}
+
+
+def _tabelas_ocupadas(pg) -> dict[str, int]:
+    """Tabelas de destino que JA tem linha e cuja reinsercao duplicaria."""
+    existentes = _tabelas_existentes(pg)
+    ocupadas: dict[str, int] = {}
+    for tabela in TABELAS:
+        if tabela in IDEMPOTENTES or tabela not in existentes:
+            continue
+        n = _valor_unico(pg.execute(f"SELECT COUNT(*) AS n FROM {tabela}").fetchone())  # nosec B608
+        if n:
+            ocupadas[tabela] = int(n)
+    return ocupadas
+
+
 def _parse_ts(value: Any) -> str | None:
     if value is None:
         return None
@@ -136,7 +207,7 @@ def _tabela_inexistente(exc: Exception) -> bool:
 
 def _sqlite_count(conn: sqlite3.Connection, tabela: str) -> int:
     try:
-        row = conn.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()
+        row = conn.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()  # nosec B608
         return row[0] if row else 0
     except Exception as e:
         if _tabela_inexistente(e):
@@ -153,7 +224,7 @@ def _sqlite_rows(conn: sqlite3.Connection, tabela: str) -> list[dict]:
     Falhar alto é a única forma de isso não passar despercebido.
     """
     try:
-        rows = conn.execute(f"SELECT * FROM {tabela}").fetchall()
+        rows = conn.execute(f"SELECT * FROM {tabela}").fetchall()  # nosec B608
         return [dict(r) for r in rows]
     except Exception as e:
         if _tabela_inexistente(e):
@@ -370,7 +441,7 @@ def cmd_listar() -> None:
     conn.close()
 
 
-def cmd_migrate(dry: bool) -> None:
+def cmd_migrate(dry: bool, forcar: bool = False) -> None:
     modo = "DRY-RUN (nada será inserido)" if dry else "CONFIRMAR (inserção real)"
     print(f"\n[MIGRAÇÃO] Modo: {modo}")
     print(f"  Origem : {DB_PATH}")
@@ -378,6 +449,31 @@ def cmd_migrate(dry: bool) -> None:
 
     sqlite = _sqlite_conn()
     pg = _pg_conn()
+
+    # I-13: destino ja populado. Ver IDEMPOTENTES — o ON CONFLICT de 4 das 6
+    # tabelas nao dispara, entao um segundo --confirmar duplica. Recusar e a
+    # unica saida que nao mente: a alternativa (deixar rodar) faz o gate ler
+    # 2x o n e 2x o PnL, e a outra (constraints novas) e mudanca de schema em
+    # producao que so o operador pode autorizar.
+    if not dry:
+        ocupadas = _tabelas_ocupadas(pg)
+        if ocupadas and not forcar:
+            print("  [RECUSADO] o destino já tem dados nas tabelas abaixo:\n")
+            for tabela, n in ocupadas.items():
+                print(f"    {tabela:<25} {n:>10,} linhas")
+            print(
+                "\n  Reinserir duplicaria essas linhas — o ON CONFLICT delas não dispara"
+                "\n  (não há UNIQUE no schema além de trades.trade_id, que é parcial)."
+                "\n  Em `sinais` isso dobra o n e o PnL que o relatório do gate lê."
+                "\n"
+                "\n  Se a intenção é MESMO reinserir, use --forcar. Para recomeçar do zero,"
+                "\n  limpe as tabelas no destino antes.\n"
+            )
+            pg.close()
+            sqlite.close()
+            sys.exit(1)
+        if ocupadas and forcar:
+            print("  [AVISO] --forcar: reinserindo em destino já populado. Vai DUPLICAR.\n")
 
     resultados: dict[str, int] = {}
     erros: list[str] = []
@@ -449,7 +545,7 @@ def cmd_validar_pg() -> None:
     total = 0
     for tabela in TABELAS:
         try:
-            row = pg.execute(f"SELECT COUNT(*) AS n FROM {tabela}").fetchone()
+            row = pg.execute(f"SELECT COUNT(*) AS n FROM {tabela}").fetchone()  # nosec B608
             n = row["n"] if row else 0
             print(f"  {tabela:<25} {n:>8} linhas")
             total += n
@@ -472,6 +568,11 @@ def main() -> None:
     group.add_argument(
         "--validar-pg", action="store_true", help="Lista contagens no Postgres de destino"
     )
+    parser.add_argument(
+        "--forcar",
+        action="store_true",
+        help="reinsere mesmo com o destino populado (DUPLICA — ver IDEMPOTENTES)",
+    )
 
     args = parser.parse_args()
 
@@ -486,7 +587,7 @@ def main() -> None:
         except KeyboardInterrupt:
             print("\n[ABORTADO]")
             sys.exit(0)
-        cmd_migrate(dry=False)
+        cmd_migrate(dry=False, forcar=args.forcar)
     elif args.validar_pg:
         cmd_validar_pg()
 
