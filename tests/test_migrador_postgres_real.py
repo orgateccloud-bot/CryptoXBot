@@ -15,16 +15,17 @@ consegue dar:
 
 POR QUE ELAS IMPORTAM MAIS DO QUE PARECEM
 ------------------------------------------
-O `ON CONFLICT DO NOTHING` de `snapshots_mercado`, `cvd_historico`, `sinais` e
-`bot_events` **não faz nada**: a única chave única dessas tabelas é
-`id BIGSERIAL PRIMARY KEY`, que gera valor novo a cada insert, então conflito
-nenhum ocorre. Em `trades` o UNIQUE existe mas é parcial
-(`WHERE trade_id IS NOT NULL`) e 84% das linhas têm trade_id NULL.
+Historia em duas medicoes, ambas contra Postgres real:
 
-O teste hermético que "provava" a idempotência fazia `grep` da string
-`ON CONFLICT` no código-fonte. Esta suíte mede o efeito, que é o oposto — e
-`test_sem_a_guarda_a_reinsercao_DUPLICA` demonstra o defeito acontecendo, em
-vez de argumentar sobre ele.
+2026-08-12 (manha): o `ON CONFLICT DO NOTHING` de snapshots/cvd/sinais/
+bot_events NAO FAZIA NADA — unica chave unica era o id BIGSERIAL, que nunca
+conflita. `test_sem_a_guarda_a_reinsercao_DUPLICA` demonstrou a duplicacao
+acontecendo. Em `trades` o UNIQUE e parcial (trade_id NULL fica fora).
+
+2026-08-12 (tarde, migration 004 aplicada no codigo): os UNIQUE de chave
+natural existem, criados por `inicializar()`; o ON CONFLICT das quatro passou
+a segurar reinsercao de verdade — `test_com_004_a_reinsercao_so_duplica_trades_null`
+prova a verdade nova, e `trades` continua sendo o motivo de a guarda existir.
 
 COMO RODAR
 ----------
@@ -231,25 +232,23 @@ class TestMigrarDuasVezes:
         assert c["risk_state"] == 1
         assert c["bot_events"] == 1
 
-    def test_sem_a_guarda_a_reinsercao_DUPLICA(self, ambiente):
-        """A demonstração do defeito, não o argumento sobre ele.
-
-        Com --forcar (que pula a guarda) a segunda migração duplica tudo menos
-        `risk_state` e a única linha de `trades` que tem trade_id. É a prova
-        de que o `ON CONFLICT DO NOTHING` das outras não faz nada.
-        """
+    def test_com_004_a_reinsercao_so_duplica_trades_null(self, ambiente):
+        """Antes da 004, --forcar duplicava sinais/snapshots/cvd/bot_events
+        inteiras (provado nesta suite em 2026-08-12, contra PG real). Com os
+        UNIQUE criados, o ON CONFLICT segura as quatro — o que resta duplicar
+        sao as linhas de `trades` com trade_id NULL, fora do indice parcial.
+        E exatamente por isso que trades continua bloqueando a guarda."""
         _migrar()
         antes = _contagens(ambiente["dsn"])
         _migrar(forcar=True)
         depois = _contagens(ambiente["dsn"])
 
-        assert depois["sinais"] == antes["sinais"] * 2, "sinais NAO duplicou — o schema mudou?"
-        assert depois["snapshots_mercado"] == antes["snapshots_mercado"] * 2
-        assert depois["cvd_historico"] == antes["cvd_historico"] * 2
-        assert depois["bot_events"] == antes["bot_events"] * 2
-        # trades: so a linha com trade_id e barrada pelo indice parcial
-        assert depois["trades"] == antes["trades"] * 2 - 1
-        # risk_state: ON CONFLICT (name) DO UPDATE, o unico de verdade
+        assert depois["sinais"] == antes["sinais"], "ON CONFLICT de sinais nao segurou"
+        assert depois["snapshots_mercado"] == antes["snapshots_mercado"]
+        assert depois["cvd_historico"] == antes["cvd_historico"]
+        assert depois["bot_events"] == antes["bot_events"]
+        # trades: as 2 linhas com trade_id NULL reinsertam; a com trade_id nao
+        assert depois["trades"] == antes["trades"] + 2
         assert depois["risk_state"] == antes["risk_state"]
 
 
@@ -341,23 +340,22 @@ class TestSchemaReal:
         for tabela in ("trades", "snapshots_mercado", "cvd_historico", "sinais"):
             assert tipos.get(tabela) == "timestamp with time zone", f"{tabela}: {tipos.get(tabela)}"
 
-    def test_apenas_trades_tem_unique_alem_das_pks(self, ambiente):
-        """A medição que sustenta `mig.IDEMPOTENTES`. Se algum dia aparecer
-        UNIQUE nas outras, a guarda pode ser relaxada — e este teste avisa."""
+    def test_004_cria_unique_nas_quatro_tabelas(self, ambiente):
+        """Pos-004: banco criado do zero por inicializar() nasce com os
+        indices que o migrador espera — DDL e guarda andam juntos."""
         import psycopg
 
         con = psycopg.connect(ambiente["dsn"], autocommit=True)
         try:
             linhas = con.execute(
-                "SELECT t.relname FROM pg_index i"
-                " JOIN pg_class t ON t.oid = i.indrelid"
-                " JOIN pg_namespace n ON n.oid = t.relnamespace"
-                " WHERE n.nspname = %s AND i.indisunique AND NOT i.indisprimary",
+                "SELECT indexname FROM pg_indexes WHERE schemaname = %s",
                 (SCHEMA,),
             ).fetchall()
         finally:
             con.close()
-        assert {r[0] for r in linhas} <= {"trades"}
+        presentes = {r[0] for r in linhas}
+        for tabela, indice in mig.IDEMPOTENTES_COM_UNIQUE.items():
+            assert indice in presentes, f"{tabela}: indice {indice} nao foi criado"
 
 
 # ── isolamento: a rede de seguranca deste arquivo ──────────────

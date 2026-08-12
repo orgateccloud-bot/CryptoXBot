@@ -164,7 +164,7 @@ fase 3 é meses e é a única que decide.
 | 4 | Rodar as provas Postgres (12 testes) | `createdb bxbot_teste` → `DATABASE_URL_TESTE=... pytest tests/test_migrador_postgres_real.py tests/test_database_postgres.py -v` | Fecha o critério de saída de I-13. Isolado por schema — não toca produção nem se apontado errado |
 | 5 | Purga de retenção | `python scripts/purgar_retencao.py --confirmar` e, com worker parado, `--vacuum` | 1,85 M linhas (63% dos 375 MB) arquivadas e removidas; dump verificado antes do DELETE |
 | 6 | Decidir piso MLP 0,55 | — | **Evidência medida (2026-08-12, `model_metricas`)**: MLP/BTCUSDT cv_auc 0,5777 ±0,018 (antes 0,5685) — fraco, mas ACIMA do piso 0,55 cogitado; XGBoost 0,585–0,626. Com o piso em 0,55, o MLP de hoje passa. A decisão virou: aceitar 0,55, subir o piso, ou reduzir o peso |
-| 7 | Decidir constraints UNIQUE no Postgres | **`supabase/migrations/004_unique_constraints.sql` — PROPOSTA pronta, não aplicada** | Duplicatas medidas: **0** em snapshots/sinais/bot_events em 4,5 meses → as três podem ganhar UNIQUE. `trades` fica de fora (11.178 colisões legítimas na chave composta). Checklist do "aplica" está no cabeçalho do arquivo |
+| 7 | ~~Decidir constraints UNIQUE~~ | ✅ **004 APLICADA no código em 2026-08-12** | UNIQUE de chave natural nas 4 tabelas (zero duplicatas medidas; `trades` fora por 11.178 colisões legítimas); ON CONFLICT nos escritores; guarda do migrador **dinâmica** (consulta `pg_indexes` do destino). 40 testes contra PG 18 real. Resta rodar a 004 no Supabase junto com 002+003 (Fase 2) |
 
 ### Fase 1 — Prova de execução (custo: ~1 semana, depende de chaves testnet)
 

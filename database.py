@@ -396,6 +396,27 @@ def _inicializar_postgres() -> None:
             "CREATE INDEX IF NOT EXISTS idx_sinais_symbol_timestamp "
             "ON sinais(symbol, timestamp DESC)"
         )
+        # 004: UNIQUE que torna o ON CONFLICT do migrador REAL. Chaves
+        # naturais medidas com ZERO duplicatas em 4,5 meses de dados
+        # (2026-08-12). `trades` fica de fora: 11.178 colisoes legitimas na
+        # chave composta — a dedupe dela continua no indice parcial acima.
+        # Banco criado do zero nasce igual ao migrado pela 004.
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_symbol_ts "
+            "ON snapshots_mercado (symbol, timestamp)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_cvd_symbol_ts "
+            "ON cvd_historico (symbol, timestamp)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sinais_symbol_ts "
+            "ON sinais (symbol, timestamp)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_events_ts_tipo "
+            "ON bot_events (timestamp, event_type)"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_cvd_symbol_timestamp "
             "ON cvd_historico(symbol, timestamp DESC)"
@@ -520,6 +541,7 @@ def salvar_snapshot(dados: dict[str, Any], symbol: str | None = None) -> None:
                     rsi_1h, tendencia, pressao_order_book,
                     liquidez_compra_usdt, liquidez_venda_usdt, raw_payload
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT DO NOTHING
                 """,
                 (_utcnow(), *values, _pg_json(dados)),
             )
@@ -551,6 +573,7 @@ def salvar_cvd(
                 """
                 INSERT INTO cvd_historico (timestamp, symbol, cvd, compras_btc, vendas_btc)
                 VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
                 """,
                 (_utcnow(), sym, cvd, compras_btc, vendas_btc),
             )
@@ -590,6 +613,7 @@ def salvar_sinal(
                 INSERT INTO sinais
                 (timestamp, symbol, tipo, preco, motivo, score, source, executado, executado_em)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
                 RETURNING id
                 """,
                 (
@@ -976,6 +1000,7 @@ def salvar_bot_event(
                 INSERT INTO bot_events
                     (timestamp, service, symbol, event_type, severity, message, data)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
                 """,
                 (_utcnow(), service, sym, event_type, severity, message, _pg_json(data or {})),
             )

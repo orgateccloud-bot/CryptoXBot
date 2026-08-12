@@ -63,7 +63,7 @@ class _Resultado:
 
 
 class FakePg:
-    def __init__(self, falhar_em=(), destino_ocupado=None):
+    def __init__(self, falhar_em=(), destino_ocupado=None, indices=()):
         self.falhar_em = set(falhar_em)
         self.eventos = []
         self.linhas = []
@@ -71,6 +71,9 @@ class FakePg:
         # I-13: contagens do destino, para exercitar a guarda de reinsercao.
         # Vazio = destino limpo, que e o caso da migracao inicial.
         self.destino_ocupado = destino_ocupado or {}
+        # 004: indices UNIQUE presentes no destino (pg_indexes). Vazio modela
+        # um destino antigo, criado antes da 004.
+        self.indices = set(indices)
 
     def transaction(self):
         return _Savepoint(self)
@@ -85,6 +88,8 @@ class FakePg:
         # caminho inteiro.
         if "information_schema.tables" in sql:
             return _Resultado([{"table_name": t} for t in mig.TABELAS])
+        if "pg_indexes" in sql:
+            return _Resultado([{"indexname": i} for i in self.indices])
         if sql.lstrip().upper().startswith("SELECT COUNT(*)"):
             tabela = sql.split("FROM")[1].strip().split()[0]
             return _Resultado([{"n": self.destino_ocupado.get(tabela, 0)}])
@@ -111,8 +116,8 @@ class FakePg:
 def migracao(monkeypatch):
     """Roda cmd_migrate com SQLite e Postgres falsos."""
 
-    def _run(falhar_em=(), dry=False, destino_ocupado=None, forcar=False):
-        pg = FakePg(falhar_em, destino_ocupado)
+    def _run(falhar_em=(), dry=False, destino_ocupado=None, forcar=False, indices=()):
+        pg = FakePg(falhar_em, destino_ocupado, indices)
         monkeypatch.setattr(mig, "DATABASE_URL", "postgresql://u:senha@host/banco")
         monkeypatch.setattr(mig, "_pg_conn", lambda: pg)
         monkeypatch.setattr(mig, "_sqlite_conn", lambda: type("C", (), {"close": lambda s: None})())
@@ -200,10 +205,47 @@ class TestGuardaDeDestinoPopulado:
         pg, codigo = migracao(dry=True, destino_ocupado={"sinais": 5339})
         assert codigo == 0
 
-    def test_so_risk_state_e_declarada_idempotente(self):
-        """Guarda contra alguem ampliar IDEMPOTENTES sem criar a constraint.
-        A lista so pode crescer junto com um UNIQUE de verdade no schema."""
+    def test_so_risk_state_e_incondicionalmente_idempotente(self):
+        """risk_state e a unica cuja idempotencia nao depende do destino (PK
+        + DO UPDATE). As outras quatro sao CONDICIONAIS: valem apenas quando o
+        indice da 004 existe no destino, verificado via pg_indexes."""
         assert mig.IDEMPOTENTES == {"risk_state"}
+        assert set(mig.IDEMPOTENTES_COM_UNIQUE) == {
+            "snapshots_mercado",
+            "cvd_historico",
+            "sinais",
+            "bot_events",
+        }
+        assert "trades" not in mig.IDEMPOTENTES_COM_UNIQUE, (
+            "trades NUNCA pode entrar: o UNIQUE dela e parcial e ~58% das "
+            "linhas tem trade_id NULL"
+        )
+
+    def test_destino_COM_indices_da_004_nao_bloqueia(self, migracao):
+        """A 004 aplicada no destino torna o ON CONFLICT real — reinsercao
+        deixa de ser perigosa e a guarda deixa de atrapalhar."""
+        pg, codigo = migracao(
+            destino_ocupado={"sinais": 5339, "snapshots_mercado": 100},
+            indices=set(mig.IDEMPOTENTES_COM_UNIQUE.values()),
+        )
+        assert codigo == 0, "bloqueou um destino que a 004 ja protege"
+        assert "COMMIT" in pg.eventos
+
+    def test_destino_antigo_SEM_indices_continua_bloqueado(self, migracao):
+        """Destino criado antes da 004 nao tem os indices: reinserir la
+        duplicaria como sempre. A verificacao e no catalogo, nao na lista."""
+        pg, codigo = migracao(destino_ocupado={"sinais": 5339}, indices=set())
+        assert codigo == 1
+        assert not pg.linhas
+
+    def test_indice_parcial_de_trades_nao_libera_trades(self, migracao):
+        """trades populada bloqueia MESMO com todos os indices da 004: o
+        indice dela e parcial e nao cobre trade_id NULL."""
+        pg, codigo = migracao(
+            destino_ocupado={"trades": 1000},
+            indices=set(mig.IDEMPOTENTES_COM_UNIQUE.values()) | {"idx_trades_trade_id"},
+        )
+        assert codigo == 1
 
 
 class TestCredencialNaoVazaNoLog:

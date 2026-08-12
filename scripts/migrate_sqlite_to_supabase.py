@@ -16,15 +16,15 @@ Pré-requisitos:
   pip install psycopg psycopg-pool
 
 IDEMPOTÊNCIA — leia antes de rodar duas vezes.
-  O `ON CONFLICT DO NOTHING` de `snapshots_mercado`, `cvd_historico`, `sinais` e
-  `bot_events` NÃO FAZ NADA: a única chave única dessas tabelas é o
-  `id BIGSERIAL PRIMARY KEY`, que gera valor novo a cada insert, então conflito
-  nenhum ocorre. Em `trades` o UNIQUE existe mas é parcial
-  (`WHERE trade_id IS NOT NULL`) e 84% das linhas têm trade_id NULL. Só
-  `risk_state` (ON CONFLICT (name) DO UPDATE) é idempotente de verdade.
+  Depende do DESTINO ter os UNIQUE da migration 004. Com eles,
+  `snapshots_mercado`, `cvd_historico`, `sinais` e `bot_events` reinsertam sem
+  duplicar (ON CONFLICT real); `risk_state` sempre foi idempotente (PK). A
+  guarda verifica no catálogo (pg_indexes) se cada índice existe — destino
+  antigo sem a 004 continua bloqueado como antes.
 
-  Por isso `--confirmar` RECUSA rodar contra um destino que já tem linhas — ver
-  IDEMPOTENTES e `_tabelas_ocupadas`. `--forcar` passa por cima e DUPLICA.
+  `trades` NUNCA é idempotente por schema: o UNIQUE dela é parcial
+  (`WHERE trade_id IS NOT NULL`) e ~58% das linhas têm trade_id NULL. Destino
+  com `trades` populada RECUSA; `--forcar` passa por cima e DUPLICA essas.
 """
 
 from __future__ import annotations
@@ -69,11 +69,22 @@ TABELAS = ["trades", "snapshots_mercado", "cvd_historico", "sinais", "risk_state
 # teste que "provava" a idempotencia fazia grep da string ON CONFLICT no
 # codigo-fonte — media a presenca da clausula, nao o efeito dela.
 #
-# Fechar com constraints novas seria mudanca de schema em producao, com risco
-# de quebrar INSERT ao vivo se duplicata legitima existir: decisao do
-# operador, nao deste script. `_tabelas_ocupadas` resolve sem tocar no schema
-# — recusa migrar para tabela que ja tem linha.
-IDEMPOTENTES = {"risk_state"}
+# 004 (2026-08-12) criou os UNIQUE que faltavam em snapshots_mercado,
+# cvd_historico, sinais e bot_events — chaves naturais medidas com ZERO
+# duplicatas em 4,5 meses. Com o indice PRESENTE no destino, o ON CONFLICT
+# dessas quatro passa a funcionar de verdade.
+#
+# A guarda NAO confia em lista estatica para elas: um destino antigo, criado
+# antes da 004 e nunca migrado, nao tem os indices — e reinserir la duplicaria
+# como antes. `_tabelas_ocupadas` pergunta ao catalogo (pg_indexes) se o
+# indice esperado existe; so entao trata a tabela como idempotente.
+IDEMPOTENTES = {"risk_state"}  # ON CONFLICT (name) DO UPDATE — PK, sempre vale
+IDEMPOTENTES_COM_UNIQUE = {
+    "snapshots_mercado": "idx_snapshots_symbol_ts",
+    "cvd_historico": "idx_cvd_symbol_ts",
+    "sinais": "idx_sinais_symbol_ts",
+    "bot_events": "idx_bot_events_ts_tipo",
+}
 
 
 # ── Helpers ────────────────────────────────────────────────────────
@@ -144,13 +155,24 @@ def _tabelas_existentes(pg) -> set[str]:
     return {(r["table_name"] if isinstance(r, dict) else r[0]) for r in rows}
 
 
+def _indices_unique_presentes(pg) -> set[str]:
+    """Nomes de indice UNIQUE que existem no schema corrente do destino."""
+    rows = pg.execute(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()"
+    ).fetchall()
+    return {(r["indexname"] if isinstance(r, dict) else r[0]) for r in rows}
+
+
 def _tabelas_ocupadas(pg) -> dict[str, int]:
     """Tabelas de destino que JA tem linha e cuja reinsercao duplicaria."""
     existentes = _tabelas_existentes(pg)
+    indices = _indices_unique_presentes(pg)
     ocupadas: dict[str, int] = {}
     for tabela in TABELAS:
         if tabela in IDEMPOTENTES or tabela not in existentes:
             continue
+        if IDEMPOTENTES_COM_UNIQUE.get(tabela) in indices:
+            continue  # 004 aplicada no destino: o ON CONFLICT segura a reinsercao
         n = _valor_unico(pg.execute(f"SELECT COUNT(*) AS n FROM {tabela}").fetchone())  # nosec B608
         if n:
             ocupadas[tabela] = int(n)

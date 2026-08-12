@@ -233,10 +233,11 @@ class TestMigradorIdempotente:
         sql, _ = pg.chamadas[0]
         assert "ON CONFLICT (name)" in sql and "DO UPDATE" in sql
 
-    def test_schema_nao_ganhou_unique_sem_atualizar_IDEMPOTENTES(self):
-        """Se alguém criar a constraint que falta, esta lista tem que crescer
-        junto — senão a guarda continua bloqueando uma reinserção que passou a
-        ser segura, e o operador aprende a usar --forcar por reflexo."""
+    def test_ddl_e_IDEMPOTENTES_COM_UNIQUE_andam_juntos(self):
+        """004 aplicada: cada indice que o migrador espera no destino tem que
+        existir no DDL de _inicializar_postgres com o MESMO nome — e
+        vice-versa. Um lado sem o outro e a guarda liberando reinsercao que
+        duplica (ou bloqueando uma que ja e segura)."""
         import re
 
         ddl = open(
@@ -245,13 +246,13 @@ class TestMigradorIdempotente:
             ),
             encoding="utf-8",
         ).read()
-        with_unique = set(re.findall(r"CREATE UNIQUE INDEX[^\"']*?ON (\w+)", ddl))
-        # `trades` tem UNIQUE, mas PARCIAL: 84% das linhas ficam fora dele,
-        # entao ela nao pode entrar em IDEMPOTENTES.
-        assert with_unique <= {"trades"}, (
-            f"schema ganhou UNIQUE em {with_unique - {'trades'}} — reavalie "
-            f"mig.IDEMPOTENTES, hoje {mig.IDEMPOTENTES}"
-        )
+        indices_ddl = set(re.findall(r"CREATE UNIQUE INDEX IF NOT EXISTS (\w+)", ddl))
+        esperados = set(mig.IDEMPOTENTES_COM_UNIQUE.values())
+        faltando = esperados - indices_ddl
+        assert not faltando, f"migrador espera indices que o DDL nao cria: {faltando}"
+        # `trades` continua fora por decisao MEDIDA: 11.178 colisoes legitimas
+        # na chave composta; o indice dela e parcial e nao entra na guarda.
+        assert "trades" not in mig.IDEMPOTENTES_COM_UNIQUE
 
 
 class TestLeituraSqliteNaoEngoleErro:

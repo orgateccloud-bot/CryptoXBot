@@ -1,8 +1,14 @@
 -- 004 — UNIQUE que torna o ON CONFLICT do migrador REAL (I-13)
 -- =============================================================
--- STATUS: PROPOSTA. Preparada em 2026-08-12; NAO aplicada em lugar nenhum.
--- Aplicar e decisao do operador — este arquivo existe para que a decisao
--- seja um "aplica" de uma palavra, com a evidencia ja medida.
+-- STATUS: APLICADA NO CODIGO em 2026-08-12 (autorizada pelo operador):
+--   [x] indices espelhados em database.py:_inicializar_postgres — banco novo
+--       nasce com eles; verificado contra PostgreSQL 18 real (40 testes)
+--   [x] ON CONFLICT DO NOTHING nos escritores salvar_snapshot, salvar_cvd,
+--       salvar_sinal (RETURNING devolve None no conflito) e salvar_bot_event
+--   [x] guarda do migrador virou DINAMICA: pergunta ao pg_indexes do destino
+--       se o indice existe antes de tratar a tabela como idempotente
+--   [ ] PENDENTE: rodar ESTE arquivo no Supabase de producao (banco criado
+--       antes da 004) — junto com as migrations 002+003, quando houver DSN
 --
 -- POR QUE: o ON CONFLICT DO NOTHING de snapshots_mercado, cvd_historico,
 -- sinais e bot_events nao faz nada hoje — a unica chave unica dessas tabelas
