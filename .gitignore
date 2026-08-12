@@ -10,6 +10,9 @@ data/*.db
 # DEPOIS da extensao: data/btc_data.db.bkp-ts-20260808-093743.
 *.db.bkp-*
 data/*.db.bkp*
+# WAL/SHM do SQLite (o sufixo vem depois de .db, entao *.db nao cobre)
+*.db-shm
+*.db-wal
 data/*.sqlite
 data/*.sqlite3
 data/*.csv

@@ -123,10 +123,20 @@ E o veredito tem de ser re-derivável com diferença **0.0** por
 
 ## Estado
 
-**Nada foi medido ainda.** `research/micro_lab.py` não existe; a coleta de
-`@depth`/`@aggTrade` histórico não começou. Este documento é o contrato, e
-existe antes da primeira medição justamente para que o resultado, qualquer que
-seja, valha.
+**Nada foi medido ainda** — e o instrumento agora existe (atualização
+2026-08-12, só de FATOS; nenhum critério acima mudou):
+
+- `research/micro_lab.py` implementado, com fail-closed: sem a série do livro
+  ele ABORTA em vez de medir 3 das 5 features e chamar pelo nome da hipótese.
+- `research/coletar_book.py` coleta @bookTicker dos 3 pares, agregado por
+  minuto (OFI de Cont-Kukanov-Stoikov + spread) em `data/book_btc.db`.
+  **Início da coleta: 2026-08-12.** Para 24/7:
+  `nssm install BXBotBook <python> <repo>esearch\coletar_book.py`.
+- O tape (@aggTrade) já existe em `trades` desde 2026-03-31 — mas a barra só
+  conta quando TAPE e LIVRO cobrem a mesma hora, então a série útil começa com
+  o coletor.
+- Primeira medição possível quando houver ≥300 barras completas (~13 dias de
+  coleta contínua). `--status` mostra a cobertura.
 
 ## Consumos do hold-out
 

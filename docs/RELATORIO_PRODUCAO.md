@@ -130,7 +130,7 @@ vazios `core/`, `execution/`, `infra/`, `ai/` (só `__init__.py` — candidatos 
 
 | Dimensão | 07/2026 | Hoje | O que falta para 🟢 |
 |---|:---:|:---:|---|
-| **Edge validado** | 🔴 | 🔴 | É o portão. `micro_lab.py` conforme metodologia pré-registrada, medição, e um PASS que hoje não existe |
+| **Edge validado** | 🔴 | 🔴 | É o portão. Instrumentos prontos em 2026-08-12 (`micro_lab.py` fail-closed + `coletar_book.py` coletando desde já); primeira medição possível com ~13 dias de coleta contínua; um PASS que hoje não existe |
 | Travas de capital (I-8) | 🔴 | 🟢 | — (DRY_RUN aborta contradição; drawdown total trava; 3 condições + `--real` + PROCEDÊNCIA) |
 | Canal de escalonamento (I-9) | 🔴 | 🟡 | **Token Telegram real** — a detecção funciona (CRITICAL em `bot_events` ao vivo), a entrega segue morta |
 | Execução na exchange (I-10) | 🔴 | 🟡 | Rodar `INTEGRACAO_CICLOS=50` contra testnet (precisa de chaves testnet do operador) |
@@ -138,7 +138,7 @@ vazios `core/`, `execution/`, `infra/`, `ai/` (só `__init__.py` — candidatos 
 | Contabilidade de paper (E-8) | 🔴 | 🟢 | — (circuito fechado; 1º trade com PnL real em 2026-08-09) |
 | Substrato reproduzível (I-11) | 🔴 | 🟢 | — |
 | Régua de medição (I-12) | 🔴 | 🟢 | — |
-| Persistência/Postgres (I-13) | 🔴 | 🟡 | 12 testes aguardando `DATABASE_URL_TESTE`; purga `--confirmar`; decisão sobre constraints UNIQUE |
+| Persistência/Postgres (I-13) | 🔴 | 🟢 | Critério de saída **CUMPRIDO em 2026-08-12**: 40/40 testes contra PostgreSQL 18 real (cluster descartável) — migrar 2× com contagem idêntica, pnl idêntico origem/destino, logger ciclo completo. Restam do operador: purga `--confirmar` e decisão sobre UNIQUE |
 | ML honesto (E-10) | 🟡 | 🟡 | Base viva de cv_auc (tempo) + decisão do piso MLP 0,55 |
 | Sentimento (E-9) | 🔴 | 🟢 | — |
 | Qualidade/CI (M-1) | 🔴 | 🟢 | — |
@@ -252,8 +252,10 @@ projetado.
 3. **`main.py`/`dashboard.py` crasham em console cp1252** — padrão corrigido nos scripts, não no
    boot do worker (deliberado: mexer no boot 24/7 merece mudança própria). Sob NSSM não há console,
    então o risco é só em execução manual.
-4. **`backtesting/motor.py`** segue com 8 componentes mockados — não é régua de nada. Aposentar
-   para `_legado/` na próxima limpeza.
+4. **`backtesting/motor.py`** segue com 8 componentes mockados — não é régua de nada. Verificado
+   em 2026-08-12: tem consumidor vivo (`main.py:1588`, caminho `--backtest`) e suíte própria
+   (`test_motores_aposentados.py`), então aposentá-lo é mudança de comportamento, não limpeza —
+   fica para uma decisão deliberada, junto com o destino do `--backtest` da CLI.
 5. **Etapa 2 "corre" com estratégia reprovada** — o relógio atual serve para provar infra
    (decisão registrada em `disciplina-pesquisa-vs-execucao`), e o relatório do gate exclui e
    reporta qualquer source secundária. O risco de auto-engano está mitigado por código, não por
