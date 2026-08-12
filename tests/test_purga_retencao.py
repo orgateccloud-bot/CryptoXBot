@@ -225,6 +225,22 @@ class TestPurga:
         assert _rodar(banco, "--confirmar", "--dias", "-5") == 2
         assert _contar(db) == antes
 
+    def test_vacuum_roda_mesmo_sem_nada_a_purgar(self, banco, monkeypatch, capsys):
+        """Fluxo em duas etapas real: purga com worker vivo, VACUUM depois com
+        ele parado. O early-return de 'Nada a purgar' tornava a segunda visita
+        um no-op silencioso — encontrado em produção em 2026-08-12."""
+        db, _ = banco
+        _rodar(banco, "--confirmar")
+        capsys.readouterr()
+
+        monkeypatch.setattr(pr, "_worker_ativo", lambda conn, backend: False)
+        tamanho_antes = os.path.getsize(db)
+        assert _rodar(banco, "--confirmar", "--vacuum") == 0
+        saida = capsys.readouterr().out
+        assert "VACUUM" in saida, "nao chegou ao vacuum na segunda visita"
+        assert "Nada a purgar — seguindo direto" in saida
+        assert os.path.getsize(db) <= tamanho_antes
+
 
 # ── a garantia que justifica o script existir ──────────────────
 

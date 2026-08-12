@@ -377,39 +377,46 @@ def cmd_purgar(args) -> int:
                 print("  DRY-RUN: nada foi escrito nem apagado. Use --confirmar.\n")
             return 0
 
-        if not sum(r["purgar"] for r in inv):
+        ha_purga = bool(sum(r["purgar"] for r in inv))
+        if not ha_purga and not args.vacuum:
             print("\n  Nada a purgar.\n")
             return 0
+        if not ha_purga:
+            # Fluxo em duas etapas: a purga roda com o worker vivo; o VACUUM
+            # vem DEPOIS, com ele parado. O early-return original tornava o
+            # --vacuum inalcancavel justamente nessa segunda visita.
+            print("\n  Nada a purgar — seguindo direto para o VACUUM.")
 
-        carimbo = datetime.now().strftime("%Y%m%dT%H%M%S")
-        print(f"\n  Arquivando em {args.saida} (carimbo {carimbo})\n")
+        if ha_purga:
+            carimbo = datetime.now().strftime("%Y%m%dT%H%M%S")
+            print(f"\n  Arquivando em {args.saida} (carimbo {carimbo})\n")
 
-        total_removidas = 0
-        for r in inv:
-            if not r["purgar"]:
-                print(f"    {r['tabela']:<20} nada a purgar")
-                continue
-            print(f"    {r['tabela']:<20} arquivando {r['purgar']:,} linhas...", flush=True)
-            man = _arquivar(conn, r["tabela"], r["corte"], backend, args.saida, carimbo)
-            print(
-                f"    {'':<20} -> {man['arquivo']} "
-                f"({man['linhas']:,} linhas, {man['bytes'] / 1e6:,.1f} MB)"
-            )
-            print(f"    {'':<20} sha256 {man['sha256'][:16]}... verificado")
-
-            removidas = _deletar(conn, r["tabela"], r["corte"], backend)
-            total_removidas += removidas
-            if removidas != man["linhas"]:
+            total_removidas = 0
+            for r in inv:
+                if not r["purgar"]:
+                    print(f"    {r['tabela']:<20} nada a purgar")
+                    continue
+                print(f"    {r['tabela']:<20} arquivando {r['purgar']:,} linhas...", flush=True)
+                man = _arquivar(conn, r["tabela"], r["corte"], backend, args.saida, carimbo)
                 print(
-                    f"    {'':<20} [AVISO] arquivadas {man['linhas']:,} mas removidas "
-                    f"{removidas:,} — alguem inseriu linha antiga durante a purga"
+                    f"    {'':<20} -> {man['arquivo']} "
+                    f"({man['linhas']:,} linhas, {man['bytes'] / 1e6:,.1f} MB)"
                 )
-            else:
-                print(f"    {'':<20} removidas {removidas:,} linhas")
+                print(f"    {'':<20} sha256 {man['sha256'][:16]}... verificado")
 
-        print(f"\n  Total removido: {total_removidas:,} linhas")
-        print("\n  Depois:")
-        _imprimir_inventario(_inventario(conn, backend, args.dias))
+                removidas = _deletar(conn, r["tabela"], r["corte"], backend)
+                total_removidas += removidas
+                if removidas != man["linhas"]:
+                    print(
+                        f"    {'':<20} [AVISO] arquivadas {man['linhas']:,} mas removidas "
+                        f"{removidas:,} — alguem inseriu linha antiga durante a purga"
+                    )
+                else:
+                    print(f"    {'':<20} removidas {removidas:,} linhas")
+
+            print(f"\n  Total removido: {total_removidas:,} linhas")
+            print("\n  Depois:")
+            _imprimir_inventario(_inventario(conn, backend, args.dias))
 
         if args.vacuum:
             if backend == "postgres":
