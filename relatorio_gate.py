@@ -5,22 +5,39 @@ Fonte única de verdade para as métricas da Etapa 2 do GATE_GO_LIVE.md.
 Lê trades FECHADOS da tabela `sinais` (pnl_usdt IS NOT NULL) e compara o
 resultado contra buy-and-hold de BTCUSDT no mesmo período.
 
-Uso:
-  python relatorio_gate.py                          # SQLite (data/btc_data.db)
-  python relatorio_gate.py --db caminho/outro.db
-  python relatorio_gate.py --capital 1000
-  DATABASE_URL=postgresql://... python relatorio_gate.py --postgres
+A FONTE segue a configuração do projeto (`DATABASE_BACKEND`/`DATABASE_URL`),
+igual ao resto do bot — não um caminho fixo. Ver `_conectar`.
 
-Sem dependências além da stdlib (psycopg3 opcional para --postgres).
+Uso:
+  python relatorio_gate.py                    # o backend que estiver configurado
+  python relatorio_gate.py --sqlite           # forca o SQLite local
+  python relatorio_gate.py --db outro.db      # forca ESTE arquivo
+  python relatorio_gate.py --postgres         # forca Postgres (exige DATABASE_URL)
+  python relatorio_gate.py --capital 1000
+
+Só stdlib, fora psycopg3 quando o backend for Postgres.
 """
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime, timezone
 
-DB_PATH_DEFAULT = "data/btc_data.db"
+RAIZ = os.path.dirname(os.path.abspath(__file__))
+DB_PATH_DEFAULT = os.path.join("data", "btc_data.db")
+
+# O relatorio imprime "→", "≥" e acentos. No console padrao do Windows
+# (cp1252) o primeiro "→" levantava UnicodeEncodeError e o comando morria com
+# traceback DEPOIS de ja ter lido o banco — o operador via um stack trace onde
+# deveria ver APROVADO/REPROVADO. Um gate que nao consegue imprimir o veredito
+# nao decidiu nada.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover - stream sem suporte
+        pass
 MIN_TRADES = 30
 MIN_DIAS = 90
 MIN_PROFIT_FACTOR = 1.3
@@ -46,22 +63,78 @@ SOURCE_PRIMARIA = "estrategia_otimizada"
 # ── Acesso a dados ────────────────────────────────────────────
 
 
+def _config():
+    """(backend, database_url, db_path) como o resto do bot os enxerga.
+
+    Passa por `config.runtime_settings` para herdar o `load_dotenv()` — a
+    configuracao do operador vive no `.env`, e ler so `os.environ` perderia
+    ela. Se o modulo nao importar (ambiente pelado), cai para as env vars: e
+    melhor rodar com menos contexto do que nao rodar.
+    """
+    try:
+        sys.path.insert(0, RAIZ)
+        from config.runtime_settings import DATABASE_BACKEND, DATABASE_URL, DB_PATH
+
+        return (DATABASE_BACKEND or "sqlite"), (DATABASE_URL or ""), (DB_PATH or DB_PATH_DEFAULT)
+    except Exception:
+        return (
+            os.environ.get("DATABASE_BACKEND", "sqlite"),
+            os.environ.get("DATABASE_URL", ""),
+            os.environ.get("DB_PATH", DB_PATH_DEFAULT),
+        )
+
+
+def _mascarar(dsn: str) -> str:
+    """postgresql://user:SENHA@host/db -> postgresql://user:***@host/db"""
+    return re.sub(r"(://[^:/@]+:)[^@]*(@)", r"\1***\2", dsn)
+
+
 def _conectar(args):
-    if args.postgres:
-        url = os.environ.get("DATABASE_URL", "")
+    """Resolve a FONTE dos trades e devolve (conexao, placeholder, descricao).
+
+    I-13 — o defeito que isto corrige: `--db data/btc_data.db` era o default
+    fixo, e o Postgres so entrava com `--postgres` explicito. Num deploy com
+    `DATABASE_BACKEND=postgres`, rodar `python relatorio_gate.py` media o
+    SQLite local — que nessa maquina e um arquivo de paper trading antigo — e
+    imprimia um veredito sobre o banco ERRADO. A ferramenta que decide se o
+    capital real pode ser ligado nao pode escolher a fonte por omissao.
+
+    Precedencia (explicito ganha da configuracao, configuracao ganha do
+    default): --db > --sqlite > --postgres > DATABASE_BACKEND.
+    """
+    backend_cfg, url_cfg, db_cfg = _config()
+
+    if args.db:
+        alvo = args.db
+    elif args.sqlite:
+        alvo = db_cfg
+    elif args.postgres or backend_cfg.lower() in {"postgres", "postgresql", "supabase"}:
+        url = url_cfg or os.environ.get("DATABASE_URL", "")
         if not url:
-            sys.exit("--postgres exige DATABASE_URL no ambiente")
+            # FAIL-CLOSED: nao cair para o SQLite em silencio. O backend
+            # configurado e Postgres; sem DSN a resposta certa e "nao sei
+            # medir", nao "medi outra coisa".
+            sys.exit(
+                "Backend Postgres configurado mas DATABASE_URL esta vazio.\n"
+                "Defina DATABASE_URL, ou rode com --sqlite para medir o arquivo local."
+            )
         try:
             # I-13: psycopg3. `psycopg2` NAO esta no requirements.txt — o
             # projeto inteiro usa psycopg3 (database.py:82), entao este
             # import falhava mesmo num ambiente corretamente instalado.
             import psycopg  # type: ignore
         except ImportError:
-            sys.exit("pip install 'psycopg[binary]' para usar --postgres")
-        return psycopg.connect(url), "%s"
-    if not os.path.exists(args.db):
-        sys.exit(f"Banco não encontrado: {args.db}")
-    return sqlite3.connect(args.db), "?"
+            sys.exit("pip install 'psycopg[binary]' para usar o backend Postgres")
+        return psycopg.connect(url), "%s", f"postgres {_mascarar(url)}"
+    else:
+        alvo = db_cfg
+
+    if not os.path.isabs(alvo):
+        alvo = os.path.join(RAIZ, alvo)
+    alvo = os.path.normpath(alvo)
+    if not os.path.exists(alvo):
+        sys.exit(f"Banco não encontrado: {alvo}")
+    return sqlite3.connect(alvo), "?", f"sqlite {alvo}"
 
 
 def carregar_trades_fechados(conn, ph, source=SOURCE_PRIMARIA):
@@ -121,7 +194,11 @@ def carregar_trades_fechados(conn, ph, source=SOURCE_PRIMARIA):
     return trades
 
 
-GATE_DOC = "docs/GATE_GO_LIVE.md"
+# Ancorado no diretorio DO SCRIPT, nao no cwd: relativo, um `cd` qualquer fazia
+# o open() falhar e a Etapa 1 constar como REPROVADA por arquivo ausente. O
+# fail-closed esta certo, o motivo estaria errado — e motivo errado num gate e
+# o que faz o operador parar de acreditar nele.
+GATE_DOC = os.path.join(RAIZ, "docs", "GATE_GO_LIVE.md")
 
 
 def _etapa1_aprovada() -> bool:
@@ -184,9 +261,50 @@ def preco_btc_periodo(conn, ph, inicio, fim):
         p_fim = cur.fetchone()
         if p_ini and p_fim:
             return float(p_ini[0]), float(p_fim[0])
-    except Exception:
-        pass
+    except Exception as exc:
+        # Nao engolir: "sem benchmark" reprova o gate, e o operador precisa
+        # saber se foi falta de dado ou erro de consulta.
+        print(f"  [!!] Falha ao ler klines da fonte principal: {exc}")
     return None, None
+
+
+def benchmark_btc(conn, ph, inicio, fim, klines_db=None):
+    """Buy-and-hold de BTC no periodo, tentando a fonte principal e depois o
+    SQLite local.
+
+    `klines` NAO existe no Postgres: nao esta em `_inicializar_postgres`
+    (database.py:293) nem em nenhuma migration — quem a cria e
+    `backtesting/coletar_dados.py`, que escreve sempre em SQLite. Sem este
+    fallback, apontar o relatorio para o Supabase faria o criterio
+    buy-and-hold ficar PERMANENTEMENTE indisponivel, e como benchmark ausente
+    reprova (main:339), o gate reprovaria para sempre por falta de fonte — nao
+    por desempenho da estrategia. Seria fail-closed pelo motivo errado, que e
+    tao ruim quanto aprovar errado: o operador para de conseguir distinguir os
+    dois casos.
+
+    Klines sao OHLC publico de BTC, nao estado do bot — le-las de outro
+    arquivo nao mistura fonte de verdade nenhuma. Se tambem nao houver klines
+    ali, devolve (None, None) e o gate reprova, agora com motivo correto.
+    """
+    p_ini, p_fim = preco_btc_periodo(conn, ph, inicio, fim)
+    if p_ini and p_fim:
+        return p_ini, p_fim, None
+
+    if not klines_db:
+        return None, None, None
+    if not os.path.isabs(klines_db):
+        klines_db = os.path.join(RAIZ, klines_db)
+    if not os.path.exists(klines_db):
+        return None, None, None
+
+    alt = sqlite3.connect(klines_db)
+    try:
+        p_ini, p_fim = preco_btc_periodo(alt, "?", inicio, fim)
+    finally:
+        alt.close()
+    if p_ini and p_fim:
+        return p_ini, p_fim, klines_db
+    return None, None, None
 
 
 # ── Métricas ──────────────────────────────────────────────────
@@ -234,19 +352,33 @@ def _linha(criterio, valor, minimo, passou):
 # ── Relatório ─────────────────────────────────────────────────
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="Relatório do Gate de Go-Live")
-    ap.add_argument("--db", default=DB_PATH_DEFAULT)
-    ap.add_argument("--postgres", action="store_true")
+    ap.add_argument("--db", default=None, help="forca um arquivo SQLite especifico")
+    ap.add_argument("--sqlite", action="store_true", help="forca o SQLite configurado")
+    ap.add_argument("--postgres", action="store_true", help="forca Postgres (exige DATABASE_URL)")
     ap.add_argument("--capital", type=float, default=1000.0, help="capital simulado inicial (USDT)")
-    args = ap.parse_args()
+    ap.add_argument(
+        "--klines-db",
+        default=None,
+        help="SQLite de onde ler klines para o benchmark quando a fonte nao as tiver "
+        "(padrao: o DB_PATH configurado)",
+    )
+    args = ap.parse_args(argv)
 
-    conn, ph = _conectar(args)
+    # O fallback de klines segue a CONFIGURACAO, como tudo mais. Fixa-lo em
+    # `data/btc_data.db` faria `--db outro.db` abrir o banco de producao pelas
+    # costas — inofensivo por ser leitura, mas e exatamente o tipo de fonte
+    # implicita que I-13 existe para eliminar.
+    klines_db = args.klines_db or _config()[2]
+
+    conn, ph, fonte = _conectar(args)
     trades = carregar_trades_fechados(conn, ph)
 
     print("=" * 78)
     print("RELATÓRIO DO GATE — trades fechados (sinais.pnl_usdt IS NOT NULL)")
     print("=" * 78)
+    print(f"\nFonte: {fonte}")
 
     if not trades:
         print("\n  ZERO trades fechados no banco.")
@@ -281,14 +413,19 @@ def main():
     )
 
     # Benchmark buy-and-hold
-    p_ini, p_fim = preco_btc_periodo(conn, ph, inicio, fim)
+    p_ini, p_fim, via = benchmark_btc(conn, ph, inicio, fim, klines_db)
     print("\nBenchmark buy-and-hold BTCUSDT no mesmo período:")
     bh = None
     if p_ini and p_fim:
         bh = (p_fim / p_ini - 1) * 100
         print(f"  BTC: {p_ini:.0f} → {p_fim:.0f}  ({bh:+.2f}%)   vs bot: {m['retorno_pct']:+.2f}%")
+        if via:
+            print(f"  (klines lidas de {via} — a fonte dos trades nao as tem)")
     else:
-        print("  Sem klines BTCUSDT/1h no banco para o período — rode coletar_dados.py.")
+        print(
+            "  Sem klines BTCUSDT/1h cobrindo o período, nem na fonte dos trades nem em "
+            f"{klines_db}.\n  Rode: python backtesting/coletar_dados.py"
+        )
 
     print("\n" + "=" * 78)
     print("AVALIAÇÃO CONTRA O GATE (Etapa 2 — GATE_GO_LIVE.md)")

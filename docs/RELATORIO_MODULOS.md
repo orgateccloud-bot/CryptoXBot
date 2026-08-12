@@ -452,8 +452,12 @@ A logica de ordenacao e uma so: o que reduz mais probabilidade de perda por hora
 | migrador com savepoint por tabela + commit condicional | ✅ `ec5dee4`, `tests/test_migrador_savepoint.py` (7 testes) |
 | migrador para de imprimir a `DATABASE_URL` crua | ✅ `_destino_seguro()`; teste varre a fonte por `DATABASE_URL[:` |
 | `logger.py`: `TIMESTAMPTZ` no PG + SQLite com WAL/busy_timeout | ✅ `85f46b1` |
-| `relatorio_gate.py`: psycopg3 + respeitar `DATABASE_URL` | ⬜ aberto |
+| `relatorio_gate.py`: psycopg3 + respeitar `DATABASE_URL` | ✅ + 27 testes (o arquivo não tinha nenhum) |
 | retenção/purga das 3 tabelas sem leitor | ✅ `scripts/purgar_retencao.py` + 26 testes — **ferramenta pronta, purga NÃO executada** |
+
+**`relatorio_gate.py` — a fonte deixa de ser escolhida por omissão.** A parte do psycopg3 já estava feita; o que faltava era a fonte. O relatório abria `data/btc_data.db` fixo e só ia ao Postgres com `--postgres` explícito: num deploy com `DATABASE_BACKEND=postgres`, `python relatorio_gate.py` media o SQLite local — nessa máquina, paper trading antigo — e emitia veredito sobre o banco errado sem dizer que tinha feito isso. Precedência agora: `--db` > `--sqlite` > `--postgres` > `DATABASE_BACKEND`, e a fonte medida é impressa no cabeçalho (DSN mascarada). Backend Postgres configurado com `DATABASE_URL` vazio **aborta** em vez de cair para o arquivo local: sem DSN a resposta certa é "não sei medir", não "medi outra coisa".
+
+Três defeitos vizinhos que apareceram ao mexer: (a) `klines` não existe no schema Postgres — não está em `_inicializar_postgres` nem em migration nenhuma, quem a cria é `backtesting/coletar_dados.py`, sempre em SQLite. Sem tratar, o critério buy-and-hold ficaria permanentemente indisponível no Supabase e o gate reprovaria para sempre por falta de fonte, não por desempenho — fail-closed pelo motivo errado. Há fallback para o SQLite configurado, e ele diz de onde leu. (b) `GATE_DOC` era relativo ao cwd: rodar de outro diretório fazia a Etapa 1 constar REPROVADA por arquivo ausente. (c) o relatório morria com `UnicodeEncodeError` no primeiro `→` no console cp1252 do Windows — depois de já ter lido o banco, entregando traceback onde deveria estar o veredito.
 
 **Retenção — política e mecânica.** Decisão do operador: **90 dias em `trades` e `snapshots_mercado`, arquivando antes de apagar; `cvd_historico` sai inteira** (é a única sem leitor *nem* uso futuro previsto — as outras duas são matéria-prima de E-11). Medido no banco vivo: 1.843.150 de 2.938.237 linhas de `trades`, 7.077 de 9.833 snapshots e as 4.623 de CVD — 1,85 milhão de linhas, ~63% do arquivo.
 
