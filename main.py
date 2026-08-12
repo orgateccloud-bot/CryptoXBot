@@ -1,4 +1,5 @@
 """
+
 BotBinance — Orquestrador Principal v2
 =========================================
 Threads em execução simultânea:
@@ -29,6 +30,7 @@ import json
 import logging
 import random
 import signal
+import sys
 import threading
 import time
 from collections import deque
@@ -59,6 +61,15 @@ from estrategias.otimizada import registrar_sinal as registrar_sinal_otimizada
 from executor import Executor
 from health import start_health_server
 from logger import logger
+
+# Console Windows padrao e cp1252, e este arquivo imprime "→"/"─"/emoji: o
+# primeiro deles matava execucao MANUAL com UnicodeEncodeError (sob NSSM nao
+# ha console, por isso o servico 24/7 nunca sentiu). Mesma guarda dos scripts.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover
+        pass
 
 # E-8: `from suporte import ScaleIn` removido — o scale-in saiu do caminho vivo
 # (as parcelas 2 e 3 eram inalcancaveis pelo gate `not exec_par.posicao`, e o

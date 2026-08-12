@@ -163,8 +163,8 @@ fase 3 é meses e é a única que decide.
 | 3 | IP allowlist na chave ativa `...6kpYs` | painel Binance | Reduz o raio de qualquer vazamento futuro |
 | 4 | Rodar as provas Postgres (12 testes) | `createdb bxbot_teste` → `DATABASE_URL_TESTE=... pytest tests/test_migrador_postgres_real.py tests/test_database_postgres.py -v` | Fecha o critério de saída de I-13. Isolado por schema — não toca produção nem se apontado errado |
 | 5 | Purga de retenção | `python scripts/purgar_retencao.py --confirmar` e, com worker parado, `--vacuum` | 1,85 M linhas (63% dos 375 MB) arquivadas e removidas; dump verificado antes do DELETE |
-| 6 | Decidir piso MLP 0,55 | — | cv_auc ~ruído carregando peso 20 no ensemble via ML |
-| 7 | Decidir constraints UNIQUE no Postgres | migration nova | Única forma de idempotência real no migrador além da guarda; mudança de schema é sua |
+| 6 | Decidir piso MLP 0,55 | — | **Evidência medida (2026-08-12, `model_metricas`)**: MLP/BTCUSDT cv_auc 0,5777 ±0,018 (antes 0,5685) — fraco, mas ACIMA do piso 0,55 cogitado; XGBoost 0,585–0,626. Com o piso em 0,55, o MLP de hoje passa. A decisão virou: aceitar 0,55, subir o piso, ou reduzir o peso |
+| 7 | Decidir constraints UNIQUE no Postgres | **`supabase/migrations/004_unique_constraints.sql` — PROPOSTA pronta, não aplicada** | Duplicatas medidas: **0** em snapshots/sinais/bot_events em 4,5 meses → as três podem ganhar UNIQUE. `trades` fica de fora (11.178 colisões legítimas na chave composta). Checklist do "aplica" está no cabeçalho do arquivo |
 
 ### Fase 1 — Prova de execução (custo: ~1 semana, depende de chaves testnet)
 
@@ -249,9 +249,9 @@ projetado.
    chega ao telefone. É o risco operacional nº 1 e custa 5 minutos.
 2. **Máquina única** — o worker vive num PC Windows via NSSM. Queda de energia/disco é indisponível
    até intervenção manual. Mitigação natural é a Fase 2 (Railway como espelho ou primário).
-3. **`main.py`/`dashboard.py` crasham em console cp1252** — padrão corrigido nos scripts, não no
-   boot do worker (deliberado: mexer no boot 24/7 merece mudança própria). Sob NSSM não há console,
-   então o risco é só em execução manual.
+3. ~~**`main.py`/`dashboard.py` crasham em console cp1252**~~ — **fechado em 2026-08-12**: mesma
+   guarda dos scripts, aplicada após o bloco de imports dos dois; entra em vigor no próximo
+   restart dos serviços.
 4. **`backtesting/motor.py`** segue com 8 componentes mockados — não é régua de nada. Verificado
    em 2026-08-12: tem consumidor vivo (`main.py:1588`, caminho `--backtest`) e suíte própria
    (`test_motores_aposentados.py`), então aposentá-lo é mudança de comportamento, não limpeza —

@@ -1,4 +1,5 @@
 """
+
 Dashboard BotBinance — Servidor Flask + SocketIO
 Abre no navegador: http://localhost:5000
 
@@ -17,6 +18,7 @@ APIs disponíveis:
 import hmac as _hmac
 import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime
@@ -39,6 +41,15 @@ from config.runtime_settings import (
     WHALE_BTC_VOLUME,
     WS_BASE_URL,
 )
+
+# Console Windows padrao e cp1252, e este arquivo imprime "→"/"─"/emoji: o
+# primeiro deles matava execucao MANUAL com UnicodeEncodeError (sob NSSM nao
+# ha console, por isso o servico 24/7 nunca sentiu). Mesma guarda dos scripts.
+for _fluxo in (sys.stdout, sys.stderr):
+    try:
+        _fluxo.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # pragma: no cover
+        pass
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="")
 app.config["SECRET_KEY"] = SECRET_KEY
