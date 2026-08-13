@@ -142,7 +142,7 @@ vazios `core/`, `execution/`, `infra/`, `ai/` (só `__init__.py` — candidatos 
 | ML honesto (E-10) | 🟡 | 🟡 | Base viva de cv_auc (tempo) + decisão do piso MLP 0,55 |
 | Sentimento (E-9) | 🔴 | 🟢 | — |
 | Qualidade/CI (M-1) | 🔴 | 🟢 | — |
-| Segurança operacional | 🟡 | 🟡 | Revogar chave `...P9A2h` (viva no histórico git em `3c0fc70`); IP allowlist na `...6kpYs` |
+| Segurança operacional | 🟡 | 🟢 | **FECHADA em 2026-08-13**: `...P9A2h` (vazada no git) e `...6kpYs` revogadas; chave nova `...A1vz7` endurecida e verificada ao vivo — spot ✓, saque ✗, IP restrito a `170.254.73.32` ✓. De brinde, o `testar_api.py` ganhou o contrato de nomes que o impedia de denunciar chave com saque |
 
 ---
 
