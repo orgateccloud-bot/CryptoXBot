@@ -87,14 +87,22 @@ def diagnosticar() -> int:
         print("\n  VEREDITO: INDETERMINADO — tratando como NAO.")
         return 1
 
-    pode_spot = bool(restr.get("enableSpotAndMarginTrading"))
-    saque = bool(restr.get("enableWithdrawals"))
-    ip_restrito = bool(restr.get("ipRestrict"))
+    # As chaves do dicionario de restricoes_chave() sao em PORTUGUES
+    # (pode_negociar_spot etc.) — este arquivo lia os nomes CRUS da API
+    # (enableSpotAndMarginTrading), que nao existem no dict: bool(None)=False
+    # em TODO campo. No spot/IP o erro era fail-closed (reprovava chave boa);
+    # no SAQUE era o oposto e perigoso — `enableWithdrawals` ausente virava
+    # False e a chave que PODE sacar ganhava "[OK]". Descoberto em 2026-08-13
+    # medindo uma chave real recem-endurecida que o veredito insistia em
+    # chamar de read-only.
+    pode_spot = bool(restr.get("pode_negociar_spot"))
+    saque = bool(restr.get("pode_sacar"))
+    ip_restrito = bool(restr.get("restrito_por_ip"))
 
-    print(_linha("enableSpotAndMarginTrading", pode_spot, ok=pode_spot))
-    print(_linha("enableFutures", restr.get("enableFutures")))
-    print(_linha("enableWithdrawals", saque, ok=not saque))
-    print(_linha("ipRestrict", ip_restrito, ok=ip_restrito))
+    print(_linha("pode_negociar_spot", pode_spot, ok=pode_spot))
+    print(_linha("pode_futures", restr.get("pode_futures")))
+    print(_linha("pode_sacar", saque, ok=not saque))
+    print(_linha("restrito_por_ip", ip_restrito, ok=ip_restrito))
 
     # ── 3. Veredito ───────────────────────────────────────────────
     print("\n" + "=" * 62)
