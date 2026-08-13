@@ -3,9 +3,12 @@
 Bot de trading algorítmico swing/intraday (sinais em 1h/4h) para **Binance Spot**.
 Execução via `/api/v3/order` (spot); indicadores de **funding rate / open
 interest** são lidos de Futures (`fapi.binance.com`) apenas como sentimento.
-**Deploy: serviço 24/7 (Windows NSSM no PC · systemd na VPS) + Supabase.**
-Railway e Docker foram aposentados e removidos do repo (recuperáveis via
-histórico git) — zero acoplamento no código.
+**Deploy: LOCAL-ONLY (decisão de 2026-08-13) — serviços 24/7 via Windows NSSM
+(BXBotWorker, BXBotDashboard, BXBotBook) com SQLite (WAL) como banco de
+produção.** Railway e Docker foram aposentados e removidos do repo; Supabase/
+Postgres é **opção dormente testada** (40 testes contra PG real, migrations
+001–004 prontas), não infraestrutura ativa. Mitigação de máquina única:
+`scripts/backup_local.py` agendado diariamente (Task Scheduler, 03:30).
 
 ## Stack
 
@@ -15,7 +18,7 @@ histórico git) — zero acoplamento no código.
 | Mercado | **Binance Spot** (execução) · Futures só p/ funding/OI (sentimento) |
 | ML/IA | XGBoost (modelo principal) + sklearn MLP, em ensemble |
 | Compute | **NSSM** (Windows, serviço 24/7 no PC) · ou **systemd** na VPS (`deploy/`) |
-| Banco | **Supabase** (Postgres) em produção · SQLite (WAL) local em dev |
+| Banco | **SQLite (WAL) — produção local-only** · Supabase (Postgres) = opção dormente testada · backup diário verificado em `D:\backups\cryptoxbot` |
 | CI | GitHub Actions (`ci.yml`: lint + smoke test + pytest + segurança) |
 | Monitoramento | `dashboard.py` (Flask + SocketIO), `/health`, `/ready`, `/metrics`, Telegram |
 | Secrets | `.env` no servidor (nunca commitado) · `.env.example` documenta as vars |

@@ -177,7 +177,15 @@ fase 3 é meses e é a única que decide.
 **Critério de saída:** os 50 ciclos verdes + 2 drills sem posição órfã. Sem isso, "a execução
 funciona" continua sendo uma opinião.
 
-### Fase 2 — Nuvem (opcional, custo: ~1 dia; o NSSM local já cumpre o papel)
+### Fase 2 — Nuvem · **DECIDIDO em 2026-08-13: NÃO — local-only**
+
+O operador confirmou local-only: NSSM + SQLite são a produção. O caminho
+Postgres fica como **opção dormente testada** (40 testes contra PG 18 real,
+migrations 001–004 prontas, migrador idempotente). A mitigação de máquina
+única deixou de ser "nuvem" e virou **backup diário verificado**
+(`scripts/backup_local.py`, Task Scheduler 03:30, quick_check antes de
+comprimir, rotação de 7). Os passos abaixo ficam registrados apenas para o
+caso de a decisão ser revertida um dia:
 
 1. Rodar `supabase/migrations/002` e `003` no Supabase de produção (**antes** de qualquer migração de
    dados — sem elas o destino não tem as colunas de meta-labeling).
@@ -248,7 +256,10 @@ projetado.
 1. **Telegram mudo até a Fase 0.1** — hoje um evento CRITICAL vira linha em `bot_events` e nada
    chega ao telefone. É o risco operacional nº 1 e custa 5 minutos.
 2. **Máquina única** — o worker vive num PC Windows via NSSM. Queda de energia/disco é indisponível
-   até intervenção manual. Mitigação natural é a Fase 2 (Railway como espelho ou primário).
+   até intervenção manual. **Mitigado em 2026-08-13** com backup diário verificado
+   (`backup_local.py`: snapshot consistente + quick_check + rotação; Task Scheduler 03:30).
+   Downtime continua possível; perda de dados não — e apontar `--destino` para outro disco
+   físico fecha o resto.
 3. ~~**`main.py`/`dashboard.py` crasham em console cp1252**~~ — **fechado em 2026-08-12**: mesma
    guarda dos scripts, aplicada após o bloco de imports dos dois; entra em vigor no próximo
    restart dos serviços.
