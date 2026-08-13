@@ -132,7 +132,7 @@ vazios `core/`, `execution/`, `infra/`, `ai/` (só `__init__.py` — candidatos 
 |---|:---:|:---:|---|
 | **Edge validado** | 🔴 | 🔴 | É o portão. Instrumentos prontos em 2026-08-12 (`micro_lab.py` fail-closed + `coletar_book.py` coletando desde já); primeira medição possível com ~13 dias de coleta contínua; um PASS que hoje não existe |
 | Travas de capital (I-8) | 🔴 | 🟢 | — (DRY_RUN aborta contradição; drawdown total trava; 3 condições + `--real` + PROCEDÊNCIA) |
-| Canal de escalonamento (I-9) | 🔴 | 🟡 | **Token Telegram real** — a detecção funciona (CRITICAL em `bot_events` ao vivo), a entrega segue morta |
+| Canal de escalonamento (I-9) | 🔴 | 🟢 | **FECHADA em 2026-08-13**: token real + chat_id configurados, entrega ponta-a-ponta provada (mensagem no celular do operador), worker/dashboard reiniciados com o token carregado |
 | Execução na exchange (I-10) | 🔴 | 🟡 | Rodar `INTEGRACAO_CICLOS=50` contra testnet (precisa de chaves testnet do operador) |
 | Sinal multi-par (E-7) | 🔴 | 🟢 | — |
 | Contabilidade de paper (E-8) | 🔴 | 🟢 | — (circuito fechado; 1º trade com PnL real em 2026-08-09) |
@@ -253,8 +253,8 @@ projetado.
 
 ## Riscos residuais conhecidos
 
-1. **Telegram mudo até a Fase 0.1** — hoje um evento CRITICAL vira linha em `bot_events` e nada
-   chega ao telefone. É o risco operacional nº 1 e custa 5 minutos.
+1. ~~**Telegram mudo**~~ — **fechado em 2026-08-13**: entrega ponta-a-ponta provada e serviços
+   reiniciados com o token. A primeira entrega orgânica esperada é o relatório diário das 18h.
 2. **Máquina única** — o worker vive num PC Windows via NSSM. Queda de energia/disco é indisponível
    até intervenção manual. **Mitigado em 2026-08-13** com backup diário verificado
    (`backup_local.py`: snapshot consistente + quick_check + rotação; Task Scheduler 03:30).
