@@ -1,6 +1,10 @@
 # Relatório de Produção — Mapeamento, Scorecard e Plano Final
 
-> **Data:** 2026-08-12 · **Sucede:** `RELATORIO_MODULOS.md` (auditoria de 07/2026, nota global 2/10)
+> **Data:** 2026-08-13 (v2 — engenharia CONCLUÍDA) · **Sucede:** `RELATORIO_MODULOS.md` (07/2026, nota 2/10)
+> **v2 (13/08):** entre a v1 e esta versão, TODAS as frentes de engenharia fecharam: I-10 provada
+> em testnet real (50 ciclos), I-9 entregando no Telegram, I-13 completa contra PG real, 004
+> aplicada, purga+vacuum executados (378→162 MB), local-only decidido com backup diário, chave
+> endurecida e verificada, coleta E-11 como serviço. O documento abaixo reflete esse estado.
 > **Método:** notas re-derivadas dos critérios de saída fechados das 12 frentes + gates medidos
 > (flake8/bandit/pytest/CI) + evidência viva do banco e dos serviços — **não** é uma nova auditoria
 > linha-a-linha dos 45 módulos. Onde a nota herda um critério de frente, a evidência citada é o teste
@@ -15,31 +19,34 @@ sistema de gates existe para impedir:
 
 | Sentido de "produção" | Veredicto | Por quê |
 |---|---|---|
-| **Operação 24/7 em paper** (o bot como serviço confiável) | ✅ **JÁ ESTÁ EM PRODUÇÃO** | `BXBotWorker` + `BXBotDashboard` rodando via NSSM, portas 8080/5000 vivas, boot em SIMULAÇÃO registrado em `bot_events` (2026-08-12 00:34), crash-recovery e reconciliação de boot testados |
-| **Capital real** | ❌ **PROIBIDO — e não por engenharia** | Etapa 1 do gate REPROVADA (4 de 5 critérios, retorno −21,25% vs +14,09% B&H); cinco hipóteses de edge reprovadas com critério pré-registrado; FAIL pré-registrado é final |
+| **Operação 24/7 em paper** (o bot como serviço confiável) | ✅ **EM PRODUÇÃO, COMPLETA** | 3 serviços NSSM (worker, dashboard, coletor E-11) + backup diário verificado + Telegram entregando + chave endurecida (spot ✓ · saque ✗ · IP fixo) + cadeia de execução provada em livro real (50 ciclos testnet) |
+| **Capital real ("atividade real")** | ❌ **PROIBIDO — exclusivamente por falta de edge** | Etapa 1 REPROVADA (retorno −21,25% vs +14,09% B&H); cinco hipóteses mortas com critério pré-registrado; FAIL é final. A engenharia deixou de ser desculpa E deixou de ser obstáculo: o único portão que resta é o que deve decidir |
 
-**Nota de engenharia: 3 → 7.** A auditoria de julho deu 2/10 global com três razões em série: sem
+**Nota de engenharia: 3 → 8 (v2).** Na v1 faltavam os critérios de testnet e entrega de alerta;
+ambos fecharam medidos em 13/08. A auditoria de julho deu 2/10 global com três razões em série: sem
 edge, réguas irreproduzíveis, e execução que falharia de forma composta na primeira ordem real. As
 razões 2 e 3 foram **fechadas e provadas por teste** — substrato versionado com sha256, hold-out por
 data, régua única com causalidade provada, cadeia de dia-1 fail-closed, travas que travam. A razão 1
 — **não há edge** — permanece intacta, e é a única que decide capital.
 
-**Nota de edge: 0, inalterada.** Nenhuma quantidade de engenharia move este número. O caminho está
-pré-registrado (`research/METODOLOGIA_MICROESTRUTURA.md`, commitada antes de qualquer medição), o
-laboratório (`micro_lab.py`) ainda não existe.
+**Nota de edge: 0, inalterada — mas o relógio da hipótese nova está correndo.** Metodologia
+pré-registrada, `micro_lab.py` construído fail-closed, e a série do livro coletando como serviço
+desde 12/08 18:07 (1.545 min × 3 pares, 99,9% de cobertura). Primeira medição de pesquisa: ~25/08.
 
 ---
 
 ## Antes → Depois (medido)
 
-| Métrica | 07/2026 (auditoria) | 12/08/2026 | Prova |
+| Métrica | 07/2026 (auditoria) | 13/08/2026 | Prova |
 |---|---|---|---|
 | flake8 | 2.170 achados, `\|\| true` | **0, bloqueante** | CI run 4/4 verde |
-| Testes | ~920 | **1.696 passed, 14 skipped** | `pytest tests/ -q` |
+| Testes | ~920 | **1.740 passed, 14 skipped** | `pytest tests/ -q` |
 | bandit (código ativo) | achados abertos | **0** | `-ll` limpo |
 | CI | não bloqueava nada | **3 checks obrigatórios + branch protection** | push recusado sem checks |
 | Módulos nota ≤ 3 | 31 de 45 (75% do LOC) | **1** entre os re-pontuados (`backtesting/motor.py`); 8 módulos não re-auditados | mapeamento abaixo |
-| Alertas Telegram entregues | 0 de 8, falha silenciosa | falha **detectada e gritada** (`alerta_nao_entregue` CRITICAL) — entrega pendente de token real | `bot_events` 2026-08-11 |
+| Alertas Telegram entregues | 0 de 8, falha silenciosa | **ENTREGANDO** — teste ponta-a-ponta confirmado no celular do operador em 13/08 | foto do chat |
+| Execução real na exchange | 0 execuções do grafo de capital | **50 ciclos em livro real** sem posição desprotegida (testnet, 44 min, ~200 ordens) | `tests/integration/` 4/4 |
+| Chave de API | vazada no git + sem restrição | endurecida: spot ✓ · saque ✗ · IP fixo · 2 chaves antigas revogadas | `testar_api.py` ao vivo |
 | Trades de paper com PnL real | 0 de 5.255 | **1** (circuito fechado em 2026-08-09) | `sinais.pnl_usdt` |
 | Vereditos reproduzíveis | 0 de 5 | snapshot sha256 + hold-out por DATA + `reproduzir.py` | `research/vereditos/` |
 | Scripts destrutivos | 1, que apagava estado legítimo | 3, todos com dry-run, arquivamento verificado e guarda de produção | 26+13 testes |
@@ -55,8 +62,8 @@ Legenda: nota **antiga → nova**. 🟢 ≥6 · 🟡 4–5 · 🔴 ≤3. "Evidê
 
 | | Módulo | LOC | Nota | Evidência da mudança |
 |---|---|---:|---|---|
-| 🟢 | `executor.py` | 2.160 | 3 → **7** | I-10a–h: comissão em ativo-base descontada, `abrir_long` fail-closed sem proteção, reconciliação periódica com a exchange, `fechar_posicao` atômica/idempotente, RLock + escopo de lock, reconciliação de boot. Não é 8 porque o critério testnet (50 ciclos) está escrito e **não rodado** |
-| 🟢 | `main.py` | 1.744 | 3 → **6** | `--real` com `DRY_RUN=true` **aborta o boot** (main.py:1388); invariante stop<preço<target; watchdog; reconciliação. Segue monólito de 1.744 linhas com `→`/`─` no stdout (crasha em console cp1252 — padrão corrigido nos scripts, não aqui) |
+| 🟢 | `executor.py` | 2.160 | 3 → **7** | I-10a–h: comissão em ativo-base descontada, `abrir_long` fail-closed sem proteção, reconciliação periódica com a exchange, `fechar_posicao` atômica/idempotente, RLock + escopo de lock, reconciliação de boot. **v2: 3 → 8** — o critério testnet RODOU em 13/08: 50 ciclos em livro real sem posição desprotegida, 4/4 |
+| 🟢 | `main.py` | 1.744 | 3 → **6** | `--real` com `DRY_RUN=true` **aborta o boot** (main.py:1388); invariante stop<preço<target; watchdog; reconciliação. v2: guarda cp1252 aplicada também aqui (13/08). Segue monólito — dívida de forma, não de risco |
 | 🟢 | `risco.py` | 1.017 | 3 → **7** | `MAX_DRAWDOWN_TOTAL` **comparado e travando** (risco.py:269); Kelly sobre `pnl_usdt` real; `validar_trade` recebe o stop real; gate de CVaR por regime alcançável (P2-3, testes dirigidos) |
 | 🟢 | `binance_conta.py` | 222 | 5 → **6** | `restricoes_chave()` ganhou consumidor real: `testar_api.py` reescrito reprova chave read-only (rodado ao vivo, exit 1) |
 
@@ -115,7 +122,7 @@ Legenda: nota **antiga → nova**. 🟢 ≥6 · 🟡 4–5 · 🔴 ≤3. "Evidê
 | 🟢 | `scripts/migrate_sqlite_to_supabase.py` | 3 → **7** | preserva as 4 colunas de resultado; savepoint por tabela; commit condicional; DSN mascarada; **guarda de destino populado** (o `ON CONFLICT` era inerte em 4 de 6 tabelas — ver memória do projeto); `--help`/`--confirmar` não crasham mais em cp1252 |
 | 🟢 | `scripts/purgar_fixtures_producao.py` | 3 → **6** | parou de casar com toda posição legítima de paper (consulta o modo efetivo); preserva a Etapa 2 |
 | 🟢 | `scripts/purgar_retencao.py` | novo → **7** | dump verificado (relê + sha256) **antes** do DELETE; restauração idempotente validada contra o schema; 26 testes |
-| 🟢 | `testar_api.py` | 3 → **6** | responde a pergunta certa (`restricoes_chave`), reprova read-only ao vivo |
+| 🟢 | `testar_api.py` | 3 → **6** | v2: lia nomes de campo inexistentes (bool(None)=False) — chave com SAQUE ganharia [OK]; corrigido em 13/08 com teste de contrato dos dois lados, verificado contra a chave real |
 | 🟢 | `conftest.py` | — → **7** | guard anti-produção que já pegou 2 defeitos reais nesta rodada (fallback de klines e teste de purga) |
 | — | `_legado/` (9 artefatos) | — | `monitor_fluxo`, `ollama_client`, `motor_otimizado`, `motor_vectorbt`, `settings_template` etc. — aposentados com LEIA-ME e rollback (@Zeta) |
 
@@ -241,6 +248,30 @@ Cenário **otimista** (primeira hipótese passa, ~2 meses de pesquisa): capital 
 **fevereiro/2027**. Cenário realista: mais tarde, ou nunca — e "nunca" é o sistema funcionando,
 não falhando. Um bot que não opera capital sem edge provado está se comportando exatamente como
 projetado.
+
+---
+
+## O caminho finalizado para a ATIVIDADE REAL (v2 — 13/08)
+
+Com a engenharia concluída, "o que falta para operar dinheiro de verdade" tem uma resposta exata,
+curta e sem nenhum item de código:
+
+| # | Portão | Estado | Quando |
+|---|---|---|---|
+| 1 | `micro_lab` — pesquisa (porção de CV) | coleta a 99,9%, medição possível com ~300 barras | **~25/08** |
+| 2 | Hold-out da microestrutura (uso único) | trancado por data | abre **01/12/2026** |
+| 3 | Etapa 1 re-medida (comando congelado B8) | aguarda um PASS da pesquisa | 1 dia após o PASS |
+| 4 | Etapa 2 — 90 dias de paper da estratégia APROVADA | relógio só conta pós-Etapa 1 | +90 dias |
+| 5 | Etapa 3 — capital piloto 30 dias | pré-condições de CONTA ✅ **já satisfeitas** (chave spot ✓ · saque ✗ · IP fixo, verificada) | +30 dias |
+
+A ignição da atividade real continua exigindo, simultaneamente: `DRY_RUN=false` +
+`ALLOW_REAL_TRADING=true` + `ENV=production` + flag `--real` + `PROCEDENCIA` auditada — e cada
+etapa anterior aprovada por escrito. Nada disso se negocia, nada disso se adianta.
+
+**O que mudou com a v2:** antes, "falta engenharia" e "falta edge" se misturavam. Agora a lista
+acima é pura: se um edge passar, não existe mais nenhum trabalho técnico entre o PASS e o piloto —
+só os relógios do gate. E se nenhum edge passar, o sistema seguirá operando paper indefinidamente,
+que é o comportamento projetado para essa realidade.
 
 ### O que NÃO muda, sob nenhuma pressão
 
