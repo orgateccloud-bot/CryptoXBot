@@ -25,6 +25,10 @@ import testar_api
 
 def _rodar_com(restr: dict, capsys) -> tuple[int, str]:
     with (
+        # no CI nao existe .env: a guarda de credencial de diagnosticar()
+        # barraria antes do mock — as chaves falsas mantem o teste hermetico
+        mock.patch.object(testar_api, "API_KEY", "chave-falsa-de-teste"),
+        mock.patch.object(testar_api, "API_SECRET", "segredo-falso-de-teste"),
         mock.patch.object(binance_conta, "restricoes_chave", return_value=restr),
         mock.patch.object(binance_conta, "chave_configurada", return_value=True),
         mock.patch.object(
