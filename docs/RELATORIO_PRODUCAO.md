@@ -133,7 +133,7 @@ vazios `core/`, `execution/`, `infra/`, `ai/` (só `__init__.py` — candidatos 
 | **Edge validado** | 🔴 | 🔴 | É o portão. Instrumentos prontos em 2026-08-12 (`micro_lab.py` fail-closed + `coletar_book.py` coletando desde já); primeira medição possível com ~13 dias de coleta contínua; um PASS que hoje não existe |
 | Travas de capital (I-8) | 🔴 | 🟢 | — (DRY_RUN aborta contradição; drawdown total trava; 3 condições + `--real` + PROCEDÊNCIA) |
 | Canal de escalonamento (I-9) | 🔴 | 🟢 | **FECHADA em 2026-08-13**: token real + chat_id configurados, entrega ponta-a-ponta provada (mensagem no celular do operador), worker/dashboard reiniciados com o token carregado |
-| Execução na exchange (I-10) | 🔴 | 🟡 | Rodar `INTEGRACAO_CICLOS=50` contra testnet (precisa de chaves testnet do operador) |
+| Execução na exchange (I-10) | 🔴 | 🟢 | **FECHADA em 2026-08-13**: 4/4 contra o testnet real — 50 ciclos sem posição desprotegida (44 min, ~200 ordens reais), comissão em base → stop aceito, stop externo detectado, restart reconcilia com a exchange (1 retry por seca de liquidez do livro de teste; `abrir_long` desistiu fail-closed como projetado) |
 | Sinal multi-par (E-7) | 🔴 | 🟢 | — |
 | Contabilidade de paper (E-8) | 🔴 | 🟢 | — (circuito fechado; 1º trade com PnL real em 2026-08-09) |
 | Substrato reproduzível (I-11) | 🔴 | 🟢 | — |
