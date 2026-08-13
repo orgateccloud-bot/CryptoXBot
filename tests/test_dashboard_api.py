@@ -352,3 +352,95 @@ class TestApiBotEvents:
         r = client.get("/api/eventos")
         assert r.status_code == 200
         assert isinstance(r.get_json(), list)
+
+
+# ── /api/lucro e /api/atividade (tema Nebula, 2026-08-13) ─────────
+
+
+def _db_lucro(tmp_path, com_dados=True, com_log=True):
+    """SQLite real em arquivo: cada request abre/fecha a propria conexao."""
+    import json as _json
+    import sqlite3
+
+    caminho = str(tmp_path / "dash.db")
+    con = sqlite3.connect(caminho)
+    con.execute("CREATE TABLE risk_state (name TEXT PRIMARY KEY, updated_at TEXT, data TEXT)")
+    con.execute(
+        "CREATE TABLE sinais (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT,"
+        " symbol TEXT, source TEXT, pnl_usdt REAL, barreira_tocada TEXT)"
+    )
+    if com_log:
+        con.execute(
+            "CREATE TABLE log_avaliacoes (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " timestamp TEXT, symbol TEXT, preco REAL, score INTEGER, decisao TEXT,"
+            " regime TEXT, ml_ensemble REAL, bloqueios TEXT)"
+        )
+    if com_dados:
+        con.execute(
+            "INSERT INTO risk_state VALUES ('default','x',?)",
+            (_json.dumps({"pnl_dia": 4.2}),),
+        )
+        linhas = [
+            ("2026-08-10T10:00:00", "BTCUSDT", "estrategia_otimizada", 10.0, "TARGET"),
+            ("2026-08-11T10:00:00", "BTCUSDT", None, -4.0, "STOP"),
+            ("2026-08-12T10:00:00", "BTCUSDT", "trend", 999.0, "TARGET"),  # excluida
+        ]
+        con.executemany(
+            "INSERT INTO sinais (timestamp, symbol, source, pnl_usdt, barreira_tocada)"
+            " VALUES (?,?,?,?,?)",
+            linhas,
+        )
+        if com_log:
+            con.execute(
+                "INSERT INTO log_avaliacoes (timestamp, symbol, preco, score, decisao,"
+                " regime, ml_ensemble, bloqueios) VALUES"
+                " ('2026-08-13 20:19:44','BTCUSDT',63472.0,39,'AGUARDAR',"
+                "'TENDENCIA_BAIXA',0.165,'')"
+            )
+    con.commit()
+    con.close()
+
+    def conectar():
+        c = sqlite3.connect(caminho)
+        c.row_factory = sqlite3.Row
+        return c
+
+    return conectar
+
+
+class TestApiLucro:
+    def test_agrega_so_a_estrategia_primaria(self, client, tmp_path):
+        _db_mock.conectar = _db_lucro(tmp_path)
+        d = client.get("/api/lucro").get_json()
+        assert d["modo"] == "PAPER"
+        assert d["pnl_dia"] == pytest.approx(4.2)
+        # 999 do trend NAO entra: mesma regua do relatorio_gate
+        assert d["pnl_total"] == pytest.approx(6.0)
+        assert d["trades_fechados"] == 2
+        assert d["win_rate"] == pytest.approx(50.0)
+        assert d["ultimo"]["pnl_usdt"] == pytest.approx(-4.0)
+
+    def test_banco_vazio_da_zeros_nao_500(self, client, tmp_path):
+        _db_mock.conectar = _db_lucro(tmp_path, com_dados=False)
+        r = client.get("/api/lucro")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["pnl_total"] == 0.0 and d["trades_fechados"] == 0
+        assert d["win_rate"] is None and d["ultimo"] is None
+
+
+class TestApiAtividade:
+    def test_devolve_o_pensamento_do_bot(self, client, tmp_path):
+        _db_mock.conectar = _db_lucro(tmp_path)
+        rows = client.get("/api/atividade").get_json()
+        assert len(rows) == 1
+        assert rows[0]["symbol"] == "BTCUSDT"
+        assert rows[0]["decisao"] == "AGUARDAR"
+        assert rows[0]["score"] == 39
+
+    def test_sem_tabela_do_logger_devolve_lista_vazia(self, client, tmp_path):
+        """Banco recem-criado sem o logger: feed vazio, nunca 500."""
+        _db_mock.conectar = _db_lucro(tmp_path, com_log=False)
+        r = client.get("/api/atividade")
+        assert r.status_code == 200
+        assert r.get_json() == []

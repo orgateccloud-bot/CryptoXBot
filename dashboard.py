@@ -714,6 +714,88 @@ def api_risco():
     return jsonify(risco.status())
 
 
+@app.route("/api/lucro")
+def api_lucro():
+    """Campo LUCRO — PnL de PAPER, leitura pura (doutrina E-8e: o dashboard
+    nao escreve). Mesma regua do relatorio_gate: so a estrategia primaria
+    (source NULL conta como primaria, historico pre-disciplina)."""
+    conn = database.conectar()
+    try:
+        row = conn.execute("SELECT data FROM risk_state WHERE name='default'").fetchone()
+        pnl_dia = 0.0
+        if row:
+            try:
+                pnl_dia = float(json.loads(row["data"]).get("pnl_dia", 0.0) or 0.0)
+            except (ValueError, TypeError):
+                pnl_dia = 0.0
+        agg = conn.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(pnl_usdt),0) AS total,"
+            " COALESCE(SUM(pnl_usdt > 0),0) AS ganhos"
+            " FROM sinais WHERE pnl_usdt IS NOT NULL"
+            " AND (source IS NULL OR source = 'estrategia_otimizada')"
+        ).fetchone()
+        ultimo = conn.execute(
+            "SELECT timestamp, symbol, pnl_usdt, barreira_tocada FROM sinais"
+            " WHERE pnl_usdt IS NOT NULL"
+            " AND (source IS NULL OR source = 'estrategia_otimizada')"
+            " ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+        n = int(agg["n"] or 0)
+        return jsonify(
+            {
+                "modo": "PAPER",
+                "pnl_dia": pnl_dia,
+                "pnl_total": float(agg["total"] or 0.0),
+                "trades_fechados": n,
+                "win_rate": (float(agg["ganhos"] or 0) / n * 100) if n else None,
+                "ultimo": (
+                    {
+                        "quando": ultimo["timestamp"],
+                        "symbol": ultimo["symbol"],
+                        "pnl_usdt": ultimo["pnl_usdt"],
+                        "barreira": ultimo["barreira_tocada"],
+                    }
+                    if ultimo
+                    else None
+                ),
+            }
+        )
+    finally:
+        conn.close()
+
+
+@app.route("/api/atividade")
+def api_atividade():
+    """BOT em acao — as ultimas avaliacoes de log_avaliacoes, o 'pensamento'
+    do worker por ciclo. Leitura pura."""
+    conn = database.conectar()
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT timestamp, symbol, preco, score, decisao, regime,"
+                " ml_ensemble, bloqueios FROM log_avaliacoes ORDER BY id DESC LIMIT 14"
+            ).fetchall()
+        except Exception:
+            rows = []  # banco novo sem a tabela do logger: feed vazio, nao 500
+        return jsonify(
+            [
+                {
+                    "quando": r["timestamp"],
+                    "symbol": r["symbol"],
+                    "preco": r["preco"],
+                    "score": r["score"],
+                    "decisao": r["decisao"],
+                    "regime": r["regime"],
+                    "ml": r["ml_ensemble"],
+                    "bloqueios": r["bloqueios"] if isinstance(r["bloqueios"], str) else "",
+                }
+                for r in rows
+            ]
+        )
+    finally:
+        conn.close()
+
+
 @app.route("/api/conexao")
 def api_conexao():
     """Status de conectividade com a Binance: REST spot, REST futures, auth e modo."""

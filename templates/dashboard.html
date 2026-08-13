@@ -10,54 +10,57 @@
   <script src="/vendor/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* TEMA NEBULA (2026-08-13, pedido do operador): violeta = marca,
+       MENTA = vivo/compra/lucro, MAGENTA = venda/perda, ambar = alerta.
+       A doutrina cromo-vs-dado permanece: cromo discreto, dado vivido. */
     :root {
-      --bg:       #0c0c12;
-      --surface:  #101018;
-      --surface2: #14141e;
-      --border:   #1c1c28;
-      --border2:  #2a2a38;
-      --text:     #c0b8d0;
-      --text-hi:  #eae6f4;
-      --muted:    #504860;
-      --cyan:     #00a8ff;
-      --cyan2:    #0088ff;
-      --green:    #00a8ff;
-      --red:      #ff4422;
-      --yellow:   #e09830;
-      --purple:   #9945ff;
-      --accent:   #00a8ff;
-      --copper:   #c87828;
-      --copper2:  #e09830;
-      --copper3:  #a05818;
-      --xblue:    #0088ff;
-      --xblue2:   #00a8ff;
-      --radius:   4px;
+      --bg:       #07060f;
+      --surface:  #0d0b18;
+      --surface2: #131022;
+      --border:   #1e1a30;
+      --border2:  #2c2648;
+      --text:     #b8b4cc;
+      --text-hi:  #f0edfa;
+      --muted:    #55506e;
+      --cyan:     #00e6a0;
+      --cyan2:    #00c88c;
+      --green:    #00e6a0;
+      --red:      #ff3d81;
+      --yellow:   #f5b545;
+      --purple:   #a78bfa;
+      --accent:   #00e6a0;
+      --copper:   #7c5cff;
+      --copper2:  #a78bfa;
+      --copper3:  #5b3df0;
+      --xblue:    #00e6a0;
+      --xblue2:   #34f5c5;
+      --radius:   6px;
       --mono:     'Share Tech Mono', monospace;
       --body:     'Exo 2', 'Rajdhani', sans-serif;
-      --glass-1:  rgba(255,255,255,.04);
-      --glass-2:  rgba(255,255,255,.025);
-      --glass-3:  rgba(255,255,255,.015);
-      --header-glass: rgba(12,12,18,.92);
+      --glass-1:  rgba(167,139,250,.06);
+      --glass-2:  rgba(167,139,250,.035);
+      --glass-3:  rgba(167,139,250,.02);
+      --header-glass: rgba(7,6,15,.9);
     }
 
     /* Tema claro — mesma doutrina cromo-vs-dado (cobre=marca, azul=vivo/compra,
        vermelho=venda, neutro=aguardar), recalibrada para fundo branco. */
     :root[data-theme="light"] {
-      --bg:       #f3f1f7;
+      --bg:       #f4f2fb;
       --surface:  #ffffff;
-      --surface2: #f8f6fb;
-      --border:   #e2dee8;
-      --border2:  #d0c9dc;
-      --text:     #4a4358;
-      --text-hi:  #1c1826;
-      --muted:    #8b839c;
-      --cyan:     #0072d1;
-      --cyan2:    #0068c0;
-      --green:    #0072d1;
-      --red:      #c9331a;
+      --surface2: #f8f6fd;
+      --border:   #e4dff2;
+      --border2:  #cfc6e8;
+      --text:     #47415e;
+      --text-hi:  #1a1430;
+      --muted:    #8b83a4;
+      --cyan:     #0a9d6e;
+      --cyan2:    #08825b;
+      --green:    #0a9d6e;
+      --red:      #d81b60;
       --yellow:   #a8650f;
-      --purple:   #7a3ad1;
-      --accent:   #0072d1;
+      --purple:   #6d4de0;
+      --accent:   #0a9d6e;
       --copper:   #a8641f;
       --copper2:  #a8650f;
       --copper3:  #7d4110;
@@ -95,14 +98,14 @@
     @property --au-op { syntax: '<number>'; inherits: true; initial-value: 0.18; }
 
     :root {
-      --au1: #0D3B8C;
-      --au2: #7B2FBE;
-      --au3: #0EA5E9;
-      --au-op: 0.18;
+      --au1: #5b3df0;
+      --au2: #00e6a0;
+      --au3: #ff3d81;
+      --au-op: 0.13;
     }
 
     #aurora-wrap {
-      display: none; /* fundo morto — aurora desativada (doutrina cromo-vs-dado) */
+      display: block; /* Nebula: aurora VIVA (pedido do operador, 2026-08-13) */
       position: fixed; inset: 0; z-index: 0;
       pointer-events: none; overflow: hidden;
       transition: --au1 4s ease, --au2 4s ease, --au3 4s ease, --au-op 4s ease;
@@ -145,6 +148,22 @@
       70%  { transform: translate(4vw,  6vh)  scale(0.9); }
       100% { transform: translate(-5vw, 2vh)  scale(1.08);}
     }
+    /* Nebula: micro-interacoes */
+    .card { transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease; }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--copper2);
+      box-shadow: 0 8px 28px rgba(124,92,255,.10), 0 0 0 1px rgba(167,139,250,.08);
+    }
+    @keyframes flash-up   { 0% { color: var(--green); text-shadow: 0 0 14px rgba(0,230,160,.7); } 100% { text-shadow: none; } }
+    @keyframes flash-down { 0% { color: var(--red);   text-shadow: 0 0 14px rgba(255,61,129,.7); } 100% { text-shadow: none; } }
+    .flash-up   { animation: flash-up   .9s ease-out; }
+    .flash-down { animation: flash-down .9s ease-out; }
+    @keyframes pulse-viva { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.8); } }
+    .dot-viva { display:inline-block; width:7px; height:7px; border-radius:50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-viva 1.6s ease-in-out infinite; margin-right:6px; vertical-align:1px; }
+    @keyframes entrar { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+    .linha-nova { animation: entrar .35s ease-out; }
+
     @keyframes aurora-drift-3 {
       0%   { transform: translate(0,    0)    scale(1);   }
       30%  { transform: translate(5vw,  -4vh) scale(1.07);}
@@ -215,7 +234,7 @@
       border: 1px solid var(--border2);
     }
     #conn-status.online {
-      background: rgba(0,168,255,.08); color: var(--green);
+      background: rgba(0,230,160,.10); color: var(--green);
       border-color: rgba(0,168,255,.3);
       text-shadow: 0 0 6px rgba(0,168,255,.5);
       box-shadow: 0 0 8px rgba(0,168,255,.15);
@@ -436,6 +455,24 @@
 
     /* ── SCORE BREAKDOWN ── */
     #card-breakdown { grid-column: span 1; }
+
+    /* Nebula: LUCRO (paper) */
+    #card-lucro { grid-column: span 2; }
+    .lucro-hero { font-family: var(--mono); font-size: 40px; letter-spacing: 1px; line-height: 1.1; }
+    .lucro-sub  { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
+    .lucro-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .lucro-item { background: var(--glass-3); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; }
+    .lucro-item .lbl { font-family: var(--mono); font-size: 8px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
+    .lucro-item .val { font-family: var(--mono); font-size: 16px; color: var(--text-hi); margin-top: 3px; }
+
+    /* Nebula: BOT em acao */
+    #card-atividade { grid-column: span 2; }
+    .atv-row { display: grid; grid-template-columns: 56px 70px 44px 1fr 90px; gap: 8px; align-items: center; padding: 4px 10px; border-radius: 3px; font-family: var(--mono); font-size: 10px; background: var(--glass-3); border-left: 2px solid transparent; margin-bottom: 3px; }
+    .atv-row.decide-COMPRA   { border-left-color: var(--green); }
+    .atv-row.decide-AGUARDAR { border-left-color: var(--muted); }
+    .atv-score { text-align: right; color: var(--text-hi); }
+    .atv-dec-COMPRA   { color: var(--green); font-weight: 700; }
+    .atv-dec-AGUARDAR { color: var(--muted); }
     .score-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .score-row .nome { font-family: var(--mono); font-size: 9px; color: var(--muted); width: 68px; flex-shrink: 0; letter-spacing: .5px; }
     .score-bar-bg { flex: 1; background: var(--border); border-radius: 2px; height: 5px; border: 1px solid var(--border); }
@@ -715,6 +752,25 @@
   <div class="card" id="card-breakdown">
     <div class="card-title">SCORE_BREAKDOWN</div>
     <div id="score-breakdown"></div>
+  </div>
+
+  <!-- LUCRO (paper) -->
+  <div class="card" id="card-lucro">
+    <div class="card-title">LUCRO :: PAPER</div>
+    <div class="lucro-hero neu" id="lucro-dia">$0.00</div>
+    <div class="lucro-sub">PNL_DO_DIA &middot; SIMULACAO</div>
+    <div class="lucro-grid">
+      <div class="lucro-item"><div class="lbl">PNL_TOTAL</div><div class="val" id="lucro-total">—</div></div>
+      <div class="lucro-item"><div class="lbl">TRADES</div><div class="val" id="lucro-n">—</div></div>
+      <div class="lucro-item"><div class="lbl">WIN_RATE</div><div class="val" id="lucro-wr">—</div></div>
+    </div>
+    <div class="lucro-sub" id="lucro-ultimo" style="margin-top:10px">&nbsp;</div>
+  </div>
+
+  <!-- BOT EM ACAO -->
+  <div class="card" id="card-atividade">
+    <div class="card-title"><span class="dot-viva"></span>BOT :: ATIVIDADE</div>
+    <div id="atividade-feed"></div>
   </div>
 
   <!-- INDICADORES -->
@@ -1255,6 +1311,65 @@ async function carregarRisco() {
   } catch(e) {}
 }
 
+// ── LUCRO (paper) ─────────────────────────────────────────────
+function flashSe(elId, novoTexto, positivo) {
+  const e = el(elId);
+  if (!e) return;
+  const mudou = e.textContent !== novoTexto;
+  e.textContent = novoTexto;
+  if (mudou) {
+    e.classList.remove('flash-up', 'flash-down');
+    void e.offsetWidth; // reinicia a animacao
+    e.classList.add(positivo ? 'flash-up' : 'flash-down');
+  }
+}
+
+async function carregarLucro() {
+  try {
+    const d = await fetch('/api/lucro').then(r => r.json());
+    const dia = d.pnl_dia || 0;
+    flashSe('lucro-dia', (dia >= 0 ? '+$' : '-$') + Math.abs(dia).toFixed(2), dia >= 0);
+    el('lucro-dia').className = 'lucro-hero ' + (dia > 0 ? 'up' : dia < 0 ? 'down' : 'neu');
+    const tot = d.pnl_total || 0;
+    el('lucro-total').textContent = (tot >= 0 ? '+$' : '-$') + Math.abs(tot).toFixed(2);
+    el('lucro-total').style.color = tot > 0 ? 'var(--green)' : tot < 0 ? 'var(--red)' : '';
+    el('lucro-n').textContent = d.trades_fechados ?? 0;
+    el('lucro-wr').textContent = d.win_rate == null ? '—' : d.win_rate.toFixed(0) + '%';
+    if (d.ultimo) {
+      const u = d.ultimo;
+      const v = (u.pnl_usdt >= 0 ? '+$' : '-$') + Math.abs(u.pnl_usdt).toFixed(2);
+      el('lucro-ultimo').textContent =
+        'ULTIMO: ' + u.symbol + ' ' + v + ' (' + (u.barreira || '?') + ') ' + String(u.quando).slice(5, 16);
+    }
+  } catch(e) {}
+}
+
+// ── BOT EM ACAO ───────────────────────────────────────────────
+let _atvTopo = null;
+async function carregarAtividade() {
+  try {
+    const rows = await fetch('/api/atividade').then(r => r.json());
+    const feed = el('atividade-feed');
+    if (!feed || !rows.length) return;
+    const novoTopo = rows[0].quando + rows[0].symbol;
+    feed.innerHTML = rows.map((r, i) => {
+      const nova = (i === 0 && _atvTopo && novoTopo !== _atvTopo) ? ' linha-nova' : '';
+      const dec = (r.decisao || 'AGUARDAR').toUpperCase();
+      const ml = r.ml == null ? '—' : (r.ml * 100).toFixed(0) + '%';
+      const extra = r.bloqueios ? r.bloqueios : (r.regime || '');
+      return '<div class="atv-row decide-' + dec + nova + '">' +
+        '<span style="color:var(--muted)">' + String(r.quando).slice(11, 19) + '</span>' +
+        '<span style="color:var(--purple)">' + r.symbol + '</span>' +
+        '<span class="atv-score">' + r.score + '</span>' +
+        '<span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+          extra + ' &middot; ML ' + ml + '</span>' +
+        '<span class="atv-dec-' + dec + '" style="text-align:right">' + dec + '</span>' +
+      '</div>';
+    }).join('');
+    _atvTopo = novoTopo;
+  } catch(e) {}
+}
+
 // ── PARES ─────────────────────────────────────────────────────
 async function carregarPares() {
   try {
@@ -1305,6 +1420,8 @@ socket.on('evento', ev => { addEvento(ev); });
 setInterval(carregarSinais, 60000);
 setInterval(carregarRisco,  30000);
 setInterval(carregarPares,  15000);
+setInterval(carregarLucro,     20000); carregarLucro();
+setInterval(carregarAtividade, 15000); carregarAtividade();
 
 atualizarGauge(0);
 renderBreakdown({});
