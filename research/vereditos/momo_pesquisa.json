@@ -1,0 +1,112 @@
+{
+  "lab": "momo",
+  "quando": "2026-08-14T14:46:51",
+  "snapshot": "2026-08-08",
+  "janela_pesquisa": [
+    1712188800000,
+    1753056000000
+  ],
+  "n_dias_pesquisa": 474,
+  "combos": [
+    {
+      "k": 3,
+      "filtro_tsmom": false,
+      "retorno_aa": 0.471,
+      "sharpe": 0.897,
+      "max_dd": 0.4805,
+      "sharpe_bh_btc": 1.101,
+      "dias_avaliados": 470,
+      "pct_em_caixa": 0.0,
+      "trocas": 172,
+      "sobrevive": false
+    },
+    {
+      "k": 3,
+      "filtro_tsmom": true,
+      "retorno_aa": 0.2223,
+      "sharpe": 0.63,
+      "max_dd": 0.4185,
+      "sharpe_bh_btc": 1.101,
+      "dias_avaliados": 470,
+      "pct_em_caixa": 0.323,
+      "trocas": 209,
+      "sobrevive": false
+    },
+    {
+      "k": 7,
+      "filtro_tsmom": false,
+      "retorno_aa": 0.0369,
+      "sharpe": 0.393,
+      "max_dd": 0.5197,
+      "sharpe_bh_btc": 1.073,
+      "dias_avaliados": 466,
+      "pct_em_caixa": 0.0,
+      "trocas": 104,
+      "sobrevive": false
+    },
+    {
+      "k": 7,
+      "filtro_tsmom": true,
+      "retorno_aa": -0.1878,
+      "sharpe": -0.059,
+      "max_dd": 0.5881,
+      "sharpe_bh_btc": 1.073,
+      "dias_avaliados": 466,
+      "pct_em_caixa": 0.285,
+      "trocas": 123,
+      "sobrevive": false
+    },
+    {
+      "k": 14,
+      "filtro_tsmom": false,
+      "retorno_aa": 0.454,
+      "sharpe": 0.904,
+      "max_dd": 0.4944,
+      "sharpe_bh_btc": 1.32,
+      "dias_avaliados": 459,
+      "pct_em_caixa": 0.0,
+      "trocas": 75,
+      "sobrevive": false
+    },
+    {
+      "k": 14,
+      "filtro_tsmom": true,
+      "retorno_aa": -0.0254,
+      "sharpe": 0.22,
+      "max_dd": 0.4308,
+      "sharpe_bh_btc": 1.32,
+      "dias_avaliados": 459,
+      "pct_em_caixa": 0.362,
+      "trocas": 101,
+      "sobrevive": false
+    },
+    {
+      "k": 28,
+      "filtro_tsmom": false,
+      "retorno_aa": 0.4889,
+      "sharpe": 0.935,
+      "max_dd": 0.4053,
+      "sharpe_bh_btc": 1.467,
+      "dias_avaliados": 445,
+      "pct_em_caixa": 0.0,
+      "trocas": 60,
+      "sobrevive": false
+    },
+    {
+      "k": 28,
+      "filtro_tsmom": true,
+      "retorno_aa": 0.319,
+      "sharpe": 0.771,
+      "max_dd": 0.3913,
+      "sharpe_bh_btc": 1.467,
+      "dias_avaliados": 445,
+      "pct_em_caixa": 0.355,
+      "trocas": 72,
+      "sobrevive": false
+    }
+  ],
+  "sobreviventes": 0,
+  "escolhida_para_holdout": null,
+  "veredito_pesquisa": "FAIL",
+  "trials_total": 8
+}

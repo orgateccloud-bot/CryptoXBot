@@ -1,0 +1,286 @@
+{
+  "lab": "volt",
+  "quando": "2026-08-14T14:46:52",
+  "snapshot": "2026-08-08",
+  "janela_pesquisa": [
+    1712188800000,
+    1753056000000
+  ],
+  "n_dias_pesquisa": 474,
+  "combos": [
+    {
+      "w": 10,
+      "sigma_alvo": 0.4,
+      "ativos": [
+        {
+          "symbol": "BTCUSDT",
+          "sharpe_vt": 1.128,
+          "sharpe_bh": 1.252,
+          "delta_sharpe": -0.123,
+          "dd_vt": 0.2463,
+          "dd_bh": 0.2788,
+          "reducao_dd": 0.117,
+          "retorno_aa_vt": 0.4543,
+          "exposicao_media": 0.86,
+          "aprova": false
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sharpe_vt": 0.441,
+          "sharpe_bh": 0.609,
+          "delta_sharpe": -0.168,
+          "dd_vt": 0.5206,
+          "dd_bh": 0.6343,
+          "reducao_dd": 0.179,
+          "retorno_aa_vt": 0.102,
+          "exposicao_media": 0.675,
+          "aprova": false
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sharpe_vt": 0.686,
+          "sharpe_bh": 0.667,
+          "delta_sharpe": 0.019,
+          "dd_vt": 0.3767,
+          "dd_bh": 0.5943,
+          "reducao_dd": 0.366,
+          "retorno_aa_vt": 0.2332,
+          "exposicao_media": 0.557,
+          "aprova": false
+        }
+      ],
+      "ativos_aprovados": 0,
+      "delta_sharpe_medio": -0.091,
+      "sobrevive": false
+    },
+    {
+      "w": 10,
+      "sigma_alvo": 0.6,
+      "ativos": [
+        {
+          "symbol": "BTCUSDT",
+          "sharpe_vt": 1.311,
+          "sharpe_bh": 1.252,
+          "delta_sharpe": 0.059,
+          "dd_vt": 0.2625,
+          "dd_bh": 0.2788,
+          "reducao_dd": 0.058,
+          "retorno_aa_vt": 0.6417,
+          "exposicao_media": 0.972,
+          "aprova": false
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sharpe_vt": 0.599,
+          "sharpe_bh": 0.609,
+          "delta_sharpe": -0.01,
+          "dd_vt": 0.5698,
+          "dd_bh": 0.6343,
+          "reducao_dd": 0.102,
+          "retorno_aa_vt": 0.1993,
+          "exposicao_media": 0.872,
+          "aprova": false
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sharpe_vt": 0.62,
+          "sharpe_bh": 0.667,
+          "delta_sharpe": -0.046,
+          "dd_vt": 0.4871,
+          "dd_bh": 0.5943,
+          "reducao_dd": 0.18,
+          "retorno_aa_vt": 0.212,
+          "exposicao_media": 0.788,
+          "aprova": false
+        }
+      ],
+      "ativos_aprovados": 0,
+      "delta_sharpe_medio": 0.001,
+      "sobrevive": false
+    },
+    {
+      "w": 20,
+      "sigma_alvo": 0.4,
+      "ativos": [
+        {
+          "symbol": "BTCUSDT",
+          "sharpe_vt": 1.129,
+          "sharpe_bh": 1.193,
+          "delta_sharpe": -0.063,
+          "dd_vt": 0.2433,
+          "dd_bh": 0.2788,
+          "reducao_dd": 0.127,
+          "retorno_aa_vt": 0.4549,
+          "exposicao_media": 0.856,
+          "aprova": false
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sharpe_vt": 0.239,
+          "sharpe_bh": 0.52,
+          "delta_sharpe": -0.281,
+          "dd_vt": 0.4834,
+          "dd_bh": 0.6343,
+          "reducao_dd": 0.238,
+          "retorno_aa_vt": 0.0043,
+          "exposicao_media": 0.627,
+          "aprova": false
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sharpe_vt": 0.462,
+          "sharpe_bh": 0.547,
+          "delta_sharpe": -0.085,
+          "dd_vt": 0.3247,
+          "dd_bh": 0.5943,
+          "reducao_dd": 0.454,
+          "retorno_aa_vt": 0.1125,
+          "exposicao_media": 0.524,
+          "aprova": false
+        }
+      ],
+      "ativos_aprovados": 0,
+      "delta_sharpe_medio": -0.143,
+      "sobrevive": false
+    },
+    {
+      "w": 20,
+      "sigma_alvo": 0.6,
+      "ativos": [
+        {
+          "symbol": "BTCUSDT",
+          "sharpe_vt": 1.191,
+          "sharpe_bh": 1.193,
+          "delta_sharpe": -0.002,
+          "dd_vt": 0.2794,
+          "dd_bh": 0.2788,
+          "reducao_dd": -0.002,
+          "retorno_aa_vt": 0.5635,
+          "exposicao_media": 0.984,
+          "aprova": false
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sharpe_vt": 0.461,
+          "sharpe_bh": 0.52,
+          "delta_sharpe": -0.059,
+          "dd_vt": 0.5816,
+          "dd_bh": 0.6343,
+          "reducao_dd": 0.083,
+          "retorno_aa_vt": 0.0978,
+          "exposicao_media": 0.866,
+          "aprova": false
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sharpe_vt": 0.487,
+          "sharpe_bh": 0.547,
+          "delta_sharpe": -0.06,
+          "dd_vt": 0.4415,
+          "dd_bh": 0.5943,
+          "reducao_dd": 0.257,
+          "retorno_aa_vt": 0.1142,
+          "exposicao_media": 0.774,
+          "aprova": false
+        }
+      ],
+      "ativos_aprovados": 0,
+      "delta_sharpe_medio": -0.04,
+      "sobrevive": false
+    },
+    {
+      "w": 30,
+      "sigma_alvo": 0.4,
+      "ativos": [
+        {
+          "symbol": "BTCUSDT",
+          "sharpe_vt": 1.369,
+          "sharpe_bh": 1.324,
+          "delta_sharpe": 0.045,
+          "dd_vt": 0.245,
+          "dd_bh": 0.2788,
+          "reducao_dd": 0.121,
+          "retorno_aa_vt": 0.5932,
+          "exposicao_media": 0.849,
+          "aprova": false
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sharpe_vt": 0.504,
+          "sharpe_bh": 0.564,
+          "delta_sharpe": -0.061,
+          "dd_vt": 0.4238,
+          "dd_bh": 0.6343,
+          "reducao_dd": 0.332,
+          "retorno_aa_vt": 0.1341,
+          "exposicao_media": 0.605,
+          "aprova": false
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sharpe_vt": 0.834,
+          "sharpe_bh": 0.632,
+          "delta_sharpe": 0.202,
+          "dd_vt": 0.2912,
+          "dd_bh": 0.5943,
+          "reducao_dd": 0.51,
+          "retorno_aa_vt": 0.2975,
+          "exposicao_media": 0.51,
+          "aprova": true
+        }
+      ],
+      "ativos_aprovados": 1,
+      "delta_sharpe_medio": 0.062,
+      "sobrevive": false
+    },
+    {
+      "w": 30,
+      "sigma_alvo": 0.6,
+      "ativos": [
+        {
+          "symbol": "BTCUSDT",
+          "sharpe_vt": 1.344,
+          "sharpe_bh": 1.324,
+          "delta_sharpe": 0.019,
+          "dd_vt": 0.2818,
+          "dd_bh": 0.2788,
+          "reducao_dd": -0.011,
+          "retorno_aa_vt": 0.6763,
+          "exposicao_media": 0.99,
+          "aprova": false
+        },
+        {
+          "symbol": "ETHUSDT",
+          "sharpe_vt": 0.568,
+          "sharpe_bh": 0.564,
+          "delta_sharpe": 0.003,
+          "dd_vt": 0.5721,
+          "dd_bh": 0.6343,
+          "reducao_dd": 0.098,
+          "retorno_aa_vt": 0.1756,
+          "exposicao_media": 0.856,
+          "aprova": false
+        },
+        {
+          "symbol": "SOLUSDT",
+          "sharpe_vt": 0.829,
+          "sharpe_bh": 0.632,
+          "delta_sharpe": 0.197,
+          "dd_vt": 0.419,
+          "dd_bh": 0.5943,
+          "reducao_dd": 0.295,
+          "retorno_aa_vt": 0.3815,
+          "exposicao_media": 0.763,
+          "aprova": false
+        }
+      ],
+      "ativos_aprovados": 0,
+      "delta_sharpe_medio": 0.073,
+      "sobrevive": false
+    }
+  ],
+  "sobreviventes": 0,
+  "escolhida_para_holdout": null,
+  "veredito_pesquisa": "FAIL",
+  "trials_total": 6
+}
