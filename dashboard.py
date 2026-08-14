@@ -946,9 +946,7 @@ def api_sistema():
     for nome in ("BXBotWorker", "BXBotDashboard", "BXBotBook"):
         estado = "DESCONHECIDO"
         try:
-            r = subprocess.run(
-                ["sc", "query", nome], capture_output=True, text=True, timeout=4
-            )
+            r = subprocess.run(["sc", "query", nome], capture_output=True, text=True, timeout=4)
             if "RUNNING" in r.stdout:
                 estado = "RODANDO"
             elif "STOPPED" in r.stdout:

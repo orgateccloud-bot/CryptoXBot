@@ -500,7 +500,12 @@ class TestApiGates:
         d = client.get("/api/gates").get_json()
         ids = [e["id"] for e in d["etapas"]]
         assert ids == [
-            "pesquisa_micro", "holdout", "etapa1", "etapa2", "etapa3", "ignicao",
+            "pesquisa_micro",
+            "holdout",
+            "etapa1",
+            "etapa2",
+            "etapa3",
+            "ignicao",
         ]
         por_id = {e["id"]: e for e in d["etapas"]}
         assert por_id["etapa1"]["status"] == "REPROVADA"
