@@ -444,3 +444,103 @@ class TestApiAtividade:
         r = client.get("/api/atividade")
         assert r.status_code == 200
         assert r.get_json() == []
+
+
+# ── /api/equity, /api/gates e /api/sistema (redesign 2026-08-14) ──
+
+
+class TestApiEquity:
+    def test_acumula_em_ordem_e_exclui_trend(self, client, tmp_path):
+        """A curva e a MESMA regua do gate: trend (999) fora, cum trade a trade."""
+        _db_mock.conectar = _db_lucro(tmp_path)
+        d = client.get("/api/equity").get_json()
+        assert d["modo"] == "PAPER"
+        assert d["n"] == 2
+        assert [p["pnl"] for p in d["pontos"]] == [pytest.approx(10.0), pytest.approx(-4.0)]
+        assert [p["cum"] for p in d["pontos"]] == [pytest.approx(10.0), pytest.approx(6.0)]
+        assert d["total"] == pytest.approx(6.0)
+
+    def test_banco_vazio_curva_vazia_nao_500(self, client, tmp_path):
+        _db_mock.conectar = _db_lucro(tmp_path, com_dados=False)
+        r = client.get("/api/equity")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["pontos"] == [] and d["n"] == 0 and d["total"] == 0.0
+
+    def test_limite_corta_o_inicio_mas_preserva_o_acumulado(self, client, tmp_path):
+        """?limite=N devolve os N ultimos pontos com o cum GLOBAL correto —
+        cortar a serie nao pode reiniciar a soma."""
+        _db_mock.conectar = _db_lucro(tmp_path)
+        d = client.get("/api/equity?limite=10").get_json()
+        # limite abaixo do minimo (10) e aceito; com 2 pontos devolve os 2
+        assert d["n"] == 2
+        assert d["pontos"][-1]["cum"] == pytest.approx(6.0)
+
+
+class TestApiGates:
+    """Hermetico por monkeypatch: a rota le DRY_RUN/ALLOW_REAL_TRADING do
+    runtime_settings a cada request, e runtime_settings carrega o .env da
+    MAQUINA — o teste nao pode depender do que o desenvolvedor tem la.
+    (Descoberto na pratica: a copia de .env do worktree estava com as tres
+    flags de ignicao armadas, sobra do trabalho de testnet, e o teste acusou
+    ARMADA — o endpoint estava certo; o ambiente e que estava sujo.)"""
+
+    def _flags(self, monkeypatch, dry_run, allow_real, env):
+        import config.runtime_settings as rs
+
+        monkeypatch.setattr(rs, "DRY_RUN", dry_run)
+        monkeypatch.setattr(rs, "ALLOW_REAL_TRADING", allow_real)
+        monkeypatch.setattr(dashboard, "APP_ENV", env)
+
+    def test_regua_completa_e_honesta(self, client, monkeypatch):
+        """O caminho ao real aparece INTEIRO e sem maquiagem: Etapa 1 segue
+        REPROVADA (FAIL pre-registrado e final) e a ignicao fica bloqueada
+        com o ambiente paper padrao."""
+        self._flags(monkeypatch, dry_run=True, allow_real=False, env="production")
+        d = client.get("/api/gates").get_json()
+        ids = [e["id"] for e in d["etapas"]]
+        assert ids == [
+            "pesquisa_micro", "holdout", "etapa1", "etapa2", "etapa3", "ignicao",
+        ]
+        por_id = {e["id"]: e for e in d["etapas"]}
+        assert por_id["etapa1"]["status"] == "REPROVADA"
+        assert por_id["pesquisa_micro"]["status"] in {"EM_COLETA", "MEDIDA"}
+        assert por_id["ignicao"]["status"] == "BLOQUEADA"
+        assert por_id["ignicao"]["flags"]["dry_run_false"] is False
+
+    def test_ignicao_armada_e_denunciada(self, client, monkeypatch):
+        """Se as tres flags estiverem ligadas, a rota nao esconde: ARMADA.
+        E exatamente este aviso que pega um .env armado por engano."""
+        self._flags(monkeypatch, dry_run=False, allow_real=True, env="production")
+        d = client.get("/api/gates").get_json()
+        ignicao = next(e for e in d["etapas"] if e["id"] == "ignicao")
+        assert ignicao["status"] == "ARMADA"
+        assert all(ignicao["flags"].values())
+
+    def test_holdout_trancado_com_data(self, client):
+        d = client.get("/api/gates").get_json()
+        holdout = next(e for e in d["etapas"] if e["id"] == "holdout")
+        assert holdout["status"] == "TRANCADO"
+        assert holdout["data"] == "2026-12-01"
+
+
+class TestApiSistema:
+    def test_servicos_e_relogios_sem_500(self, client):
+        """Em qualquer ambiente (Windows com/sem servicos, CI Linux sem `sc`)
+        a rota responde 200 com estados do conjunto conhecido."""
+        r = client.get("/api/sistema")
+        assert r.status_code == 200
+        d = r.get_json()
+        nomes = [s["nome"] for s in d["servicos"]]
+        assert nomes == ["BXBotWorker", "BXBotDashboard", "BXBotBook"]
+        estados_validos = {"RODANDO", "PARADO", "AUSENTE", "INDISPONIVEL", "DESCONHECIDO"}
+        assert all(s["estado"] in estados_validos for s in d["servicos"])
+        assert len(d["relogios"]) == 4
+
+    def test_proximos_disparos_no_futuro(self, client):
+        from datetime import datetime as _dt
+
+        d = client.get("/api/sistema").get_json()
+        agora = _dt.fromisoformat(d["agora"])
+        for rel in d["relogios"]:
+            assert _dt.fromisoformat(rel["proximo"]) > agora

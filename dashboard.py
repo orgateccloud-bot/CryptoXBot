@@ -796,6 +796,196 @@ def api_atividade():
         conn.close()
 
 
+@app.route("/api/equity")
+def api_equity():
+    """Curva de equity do PAPER — PnL acumulado trade a trade (E-8e: leitura
+    pura). Mesma regua do relatorio_gate e do /api/lucro: so a estrategia
+    primaria (source NULL conta como primaria, historico pre-disciplina)."""
+    try:
+        limite = max(10, min(int(request.args.get("limite", 500)), 2000))
+    except (TypeError, ValueError):
+        limite = 500
+    conn = database.conectar()
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT timestamp, symbol, pnl_usdt, barreira_tocada FROM sinais"
+                " WHERE pnl_usdt IS NOT NULL"
+                " AND (source IS NULL OR source = 'estrategia_otimizada')"
+                " ORDER BY timestamp ASC"
+            ).fetchall()
+        except Exception:
+            rows = []  # banco novo sem as colunas de meta-labeling: curva vazia
+        pontos = []
+        cum = 0.0
+        for r in rows:
+            pnl = float(r["pnl_usdt"] or 0.0)
+            cum += pnl
+            pontos.append(
+                {
+                    "t": r["timestamp"],
+                    "symbol": r["symbol"],
+                    "pnl": round(pnl, 4),
+                    "cum": round(cum, 4),
+                    "barreira": r["barreira_tocada"],
+                }
+            )
+        return jsonify(
+            {
+                "modo": "PAPER",
+                "pontos": pontos[-limite:],
+                "total": round(cum, 4),
+                "n": len(pontos),
+            }
+        )
+    finally:
+        conn.close()
+
+
+# O caminho ao real e PRE-REGISTRADO (docs/GATE_GO_LIVE.md, research/METODOLOGIA*.md):
+# FAIL nunca e revogado e o hold-out e de uso unico. Este endpoint so EXIBE o
+# estado — nao ha rota que mude gate nenhum, por construcao.
+_HOLDOUT_ABRE = "2026-12-01"
+
+
+@app.route("/api/gates")
+def api_gates():
+    """A regua do caminho ao trading real, sem maquiagem. Leitura pura:
+    constantes pre-registradas + flags vivas do ambiente + arquivos de
+    veredito. O dashboard mostra a verdade; quem gira chave e o operador."""
+    from datetime import date
+
+    from config.runtime_settings import ALLOW_REAL_TRADING, DRY_RUN
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    hoje = date.today()
+    holdout = date(*[int(x) for x in _HOLDOUT_ABRE.split("-")])
+
+    medicao_micro = os.path.exists(
+        os.path.join(raiz, "research", "vereditos", "microestrutura_pesquisa_BTCUSDT.json")
+    )
+    barras = None
+    try:
+        # ultima contagem do vigia diario (barato de ler; a contagem exata
+        # exigiria carregar os bancos de book/tape a cada hit da rota)
+        with open(
+            os.path.join(raiz, "logs", "micro_vigia.log"), encoding="utf-8", errors="replace"
+        ) as f:
+            for linha in f:
+                if "barras completas na pesquisa:" in linha:
+                    barras = linha.rsplit(":", 1)[1].strip()
+    except OSError:
+        pass
+
+    ignicao_flags = {
+        "dry_run_false": not DRY_RUN,
+        "allow_real_true": bool(ALLOW_REAL_TRADING),
+        "env_production": APP_ENV == "production",
+    }
+    etapas = [
+        {
+            "id": "pesquisa_micro",
+            "nome": "Pesquisa microestrutura (E-11)",
+            "status": "MEDIDA" if medicao_micro else "EM_COLETA",
+            "detalhe": (
+                "primeira medicao feita — ver research/vereditos/"
+                if medicao_micro
+                else f"coletando book 24/7 — {barras or 'aguardando contagem do vigia'}"
+            ),
+            "data": "~2026-08-25",
+        },
+        {
+            "id": "holdout",
+            "nome": "Hold-out (uso unico)",
+            "status": "TRANCADO",
+            "detalhe": f"abre em {_HOLDOUT_ABRE} — faltam {max((holdout - hoje).days, 0)} dias",
+            "data": _HOLDOUT_ABRE,
+        },
+        {
+            "id": "etapa1",
+            "nome": "Gate Etapa 1 — edge com expectativa positiva",
+            "status": "REPROVADA",
+            "detalhe": "walk-forward honesto negativo; FAIL pre-registrado e final",
+            "data": None,
+        },
+        {
+            "id": "etapa2",
+            "nome": "Etapa 2 — paper 90d com profit factor",
+            "status": "AGUARDA_ETAPA1",
+            "detalhe": "so abre com Etapa 1 aprovada por uma estrategia nova",
+            "data": None,
+        },
+        {
+            "id": "etapa3",
+            "nome": "Etapa 3 — micro-capital 30d",
+            "status": "AGUARDA_ETAPA2",
+            "detalhe": None,
+            "data": None,
+        },
+        {
+            "id": "ignicao",
+            "nome": "IGNICAO REAL",
+            "status": "BLOQUEADA" if not all(ignicao_flags.values()) else "ARMADA",
+            "detalhe": "DRY_RUN=false + ALLOW_REAL_TRADING=true + ENV=production + --real",
+            "data": None,
+            "flags": ignicao_flags,
+        },
+    ]
+    return jsonify({"etapas": etapas, "hoje": hoje.isoformat()})
+
+
+@app.route("/api/sistema")
+def api_sistema():
+    """Servicos NSSM + relogios agendados — o 'bot esta vivo' verificavel.
+    `sc query` e consulta (nao muda estado); em ambiente sem os servicos a
+    resposta degrada para AUSENTE/INDISPONIVEL em vez de 500."""
+    import subprocess
+    from datetime import timedelta
+
+    servicos = []
+    for nome in ("BXBotWorker", "BXBotDashboard", "BXBotBook"):
+        estado = "DESCONHECIDO"
+        try:
+            r = subprocess.run(
+                ["sc", "query", nome], capture_output=True, text=True, timeout=4
+            )
+            if "RUNNING" in r.stdout:
+                estado = "RODANDO"
+            elif "STOPPED" in r.stdout:
+                estado = "PARADO"
+            elif r.returncode != 0:
+                estado = "AUSENTE"
+        except Exception:
+            estado = "INDISPONIVEL"
+        servicos.append({"nome": nome, "estado": estado})
+
+    agora = datetime.now()
+
+    def _proximo(hh: int, mm: int, dow: int | None = None) -> str:
+        c = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if dow is None:
+            if c <= agora:
+                c += timedelta(days=1)
+        else:
+            while c.weekday() != dow or c <= agora:
+                c = (c + timedelta(days=1)).replace(hour=hh, minute=mm)
+        return c.isoformat(timespec="minutes")
+
+    relogios = [
+        {"nome": "Backup local", "agenda": "03:30 diario", "proximo": _proximo(3, 30)},
+        {"nome": "Vigia micro_lab", "agenda": "08:00 diario", "proximo": _proximo(8, 0)},
+        {"nome": "Relatorio Telegram", "agenda": "18:00 diario", "proximo": _proximo(18, 0)},
+        {"nome": "Retreino ML", "agenda": "domingo 02:00", "proximo": _proximo(2, 0, dow=6)},
+    ]
+    return jsonify(
+        {
+            "servicos": servicos,
+            "relogios": relogios,
+            "agora": agora.isoformat(timespec="seconds"),
+        }
+    )
+
+
 @app.route("/api/conexao")
 def api_conexao():
     """Status de conectividade com a Binance: REST spot, REST futures, auth e modo."""
