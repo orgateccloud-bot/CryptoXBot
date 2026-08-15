@@ -931,7 +931,72 @@ def api_gates():
             "flags": ignicao_flags,
         },
     ]
-    return jsonify({"etapas": etapas, "hoje": hoje.isoformat()})
+    # Funil de hipóteses — a Etapa 1 só reabre por uma família APROVADA.
+    # Históricas: FAIL pré-registrado é final (constantes honestas).
+    # Novas (MOMO/VOLT): lidas dos vereditos que os próprios labs gravam.
+    frentes = [
+        {
+            "nome": "Edge multi-sinal 1h (edge_lab)",
+            "status": "FAIL",
+            "quando": "2026-07",
+            "detalhe": "IC indistinguível de aleatório",
+        },
+        {
+            "nome": "Trend Donchian diário",
+            "status": "FAIL",
+            "quando": "2026-08",
+            "detalhe": "hold-out +5,7% a.a. vs piso 8%",
+        },
+        {
+            "nome": "Carry funding v1",
+            "status": "FAIL",
+            "quando": "2026-08",
+            "detalhe": "hold-out consumido",
+        },
+        {
+            "nome": "Microestrutura OFI/CVD (E-11)",
+            "status": "MEDIDA" if medicao_micro else "EM_COLETA",
+            "quando": "~2026-08-25",
+            "detalhe": barras,
+        },
+    ]
+    for lab, nome in (
+        ("momo", "MOMO — rotação BTC/ETH/SOL"),
+        ("volt", "VOLT — vol-targeting spot"),
+    ):
+        caminho = os.path.join(raiz, "research", "vereditos", f"{lab}_pesquisa.json")
+        try:
+            with open(caminho, encoding="utf-8") as f:
+                v = json.load(f)
+            frentes.append(
+                {
+                    "nome": nome,
+                    "status": v.get("veredito_pesquisa", "?"),
+                    "quando": str(v.get("quando", ""))[:10],
+                    "detalhe": (
+                        f"{v.get('sobreviventes', 0)} sobrevivente(s) em "
+                        f"{len(v.get('combos', []))} trials"
+                    ),
+                }
+            )
+        except (OSError, ValueError):
+            frentes.append(
+                {
+                    "nome": nome,
+                    "status": "NAO_MEDIDA",
+                    "quando": None,
+                    "detalhe": "pré-registrada, ainda sem medição",
+                }
+            )
+    frentes.append(
+        {
+            "nome": "CARRY v2 — funding em janela nova",
+            "status": "AGENDADA",
+            "quando": "2026-11-16",
+            "detalhe": "janela 15/08→15/11; medir antes da data anula o contrato",
+        }
+    )
+    return jsonify({"etapas": etapas, "frentes": frentes, "hoje": hoje.isoformat()})
 
 
 @app.route("/api/sistema")

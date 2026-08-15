@@ -528,6 +528,21 @@ class TestApiGates:
         assert holdout["status"] == "TRANCADO"
         assert holdout["data"] == "2026-12-01"
 
+    def test_funil_de_hipoteses_com_vereditos_reais(self, client):
+        """O funil lista TODAS as famílias com status honesto: as 3
+        históricas FAIL (pré-registro final), MOMO/VOLT lidos dos vereditos
+        que os labs gravaram, e CARRY v2 agendada para 16/11."""
+        d = client.get("/api/gates").get_json()
+        frentes = {f["nome"]: f for f in d["frentes"]}
+        assert len(frentes) == 7
+        assert frentes["Trend Donchian diário"]["status"] == "FAIL"
+        assert frentes["CARRY v2 — funding em janela nova"]["status"] == "AGENDADA"
+        assert frentes["CARRY v2 — funding em janela nova"]["quando"] == "2026-11-16"
+        # MOMO/VOLT: FAIL se o veredito estiver no repo (está, commitado);
+        # NAO_MEDIDA apenas num checkout sem research/vereditos
+        for nome in ("MOMO — rotação BTC/ETH/SOL", "VOLT — vol-targeting spot"):
+            assert frentes[nome]["status"] in {"FAIL", "SOBREVIVE", "NAO_MEDIDA"}
+
 
 class TestApiSistema:
     def test_servicos_e_relogios_sem_500(self, client):

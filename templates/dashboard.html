@@ -275,6 +275,12 @@
     .flags-ignicao { display: flex; gap: 14px; margin-top: 10px; font-family: var(--mono); font-size: 10px; }
     .flag-off { color: var(--ink-3); }
     .flag-on  { color: var(--loss); font-weight: 700; }
+    .funil { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 2px 36px; margin-top: 8px; }
+    .funil-item { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px dotted var(--rule); }
+    .funil-item .fnome { font-family: var(--sans); font-size: 12px; color: var(--ink); white-space: nowrap; }
+    .funil-item .fpontos { flex: 1; border-bottom: 1px dotted var(--rule-2); transform: translateY(-3px); min-width: 12px; }
+    .funil-item .fdata { font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap; }
+    .funil-det { font-family: var(--mono); font-size: 9px; color: var(--ink-3); margin: -2px 0 4px; }
 
     /* ── bloco 5: SISTEMA (expediente) ── */
     .expediente { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 14px; }
@@ -513,6 +519,10 @@
   <div class="gates" id="gates-row">
     <div class="gate"><div class="quando">—</div><div class="nome">Carregando a régua…</div></div>
   </div>
+  <div class="secao-nota" style="margin-top:20px;border-top:1px solid var(--rule);padding-top:10px">
+    FUNIL DE HIPÓTESES — SÓ UMA FAMÍLIA APROVADA REABRE A ETAPA 1
+  </div>
+  <div class="funil" id="funil-row"></div>
 </section>
 
 <!-- ══ 5 · SISTEMA ════════════════════════════════════════════════ -->
@@ -1015,6 +1025,10 @@ const CARIMBO_GATE = {
   AGUARDA_ETAPA2: ['', 'AGUARDA E2'],
   BLOQUEADA: ['', 'BLOQUEADA'],
   ARMADA: ['vermelho', '⚠ ARMADA'],
+  FAIL: ['vermelho', 'FAIL'],
+  SOBREVIVE: ['verde', 'SOBREVIVE'],
+  AGENDADA: ['', 'AGENDADA'],
+  NAO_MEDIDA: ['', 'PRÉ-REG.'],
 };
 async function carregarGates() {
   try {
@@ -1034,6 +1048,18 @@ async function carregarGates() {
         `<div class="nome">${esc(e.nome)}</div>` +
         `<span class="carimbo reto ${cor}" style="font-size:9px;padding:2px 8px">${rot}</span>` +
         (e.detalhe ? `<div class="det">${esc(e.detalhe)}</div>` : '') + flags +
+      `</div>`;
+    }).join('');
+    el('funil-row').innerHTML = (d.frentes || []).map(f => {
+      const [cor, rot] = CARIMBO_GATE[f.status] || ['', esc(f.status)];
+      return `<div>` +
+        `<div class="funil-item">` +
+          `<span class="fnome">${esc(f.nome)}</span>` +
+          `<span class="fpontos"></span>` +
+          `<span class="carimbo reto ${cor}" style="font-size:8px;padding:1px 7px">${rot}</span>` +
+          `<span class="fdata">${esc(f.quando || '·')}</span>` +
+        `</div>` +
+        (f.detalhe ? `<div class="funil-det">${esc(f.detalhe)}</div>` : '') +
       `</div>`;
     }).join('');
   } catch(e) {}
