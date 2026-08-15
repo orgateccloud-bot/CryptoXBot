@@ -308,3 +308,73 @@ que é o comportamento projetado para essa realidade.
 ---
 
 *Gerado sobre: commit `8ae50fa`, suíte 1.696/14, flake8 0, CI 4/4, serviços BXBotWorker/BXBotDashboard RUNNING, banco vivo 375 MB (purga pendente).*
+
+---
+
+## Diário — 2026-08-15 (v2.2): o dia em que o funil ficou visível
+
+Um dia de duas frentes — a tela e a pesquisa — fechadas no mesmo princípio:
+**o que existe num arquivo de veredito está impresso onde o operador vê.**
+
+### Dashboard: tema RAZÃO no ar (redesign total)
+
+- Pedido do operador ("remodele tudo, quero ver os ganhos, quero o bot
+  trabalhando"). Júri de 4 direções × 3 juízes escolheu **RAZÃO — o
+  livro-razão impresso** (ledger 128 · brutalist 114 · aurum 111 ·
+  missioncontrol 108): a única cor da tela pertence ao DADO, a marca é
+  tinta pura, SIMULAÇÃO/REPROVADA são carimbos de borracha.
+- Estrutura nova em 5 blocos: RESULTADO (curva de equity `/api/equity`,
+  manchete de PnL), O BOT AGORA (pipeline + diário de bordo + batimento que
+  denuncia feed parado >90s), MERCADO, CAMINHO AO REAL (`/api/gates`),
+  EXPEDIENTE (`/api/sistema` — serviços NSSM reais via `sc query`).
+- **Funil de hipóteses** impresso abaixo da régua: 7 famílias com carimbo,
+  MOMO/VOLT lidos dos vereditos REAIS de `research/vereditos/` — um futuro
+  SOBREVIVE aparece em verde sem tocar no dashboard.
+- Deploy completo: PR #4 mergeado, CI 4/4 verde, serviço reiniciado com
+  prova de PID, vars CSS agora semânticas (`--ink/--gain/--loss`).
+
+### Pesquisa: 3 frentes novas, 2 FAILs honestos, hold-outs intactos
+
+- **Pré-registro ANTES de qualquer número** (METODOLOGIA_MOMO / _VOLT /
+  _CARRY_V2), família congelada, custos spot, mesma data de hold-out da
+  casa (2025-07-22), trava de uso único com pin de snapshot.
+- **Revisão adversarial antes da medição** (2 céticos independentes) pegou
+  e corrigiu com regressão: off-by-one na fatia de hold-out do VOLT,
+  `max_drawdown` sem o pico inicial (DD é régua no VOLT), hold-out sem pin
+  de substrato. Emendas datadas nos pré-registros.
+- **MOMO (rotação BTC/ETH/SOL): FAIL** — melhor combo +48,9% a.a. /
+  Sharpe 0,94 contra Sharpe 1,47 do buy-and-hold de BTC na mesma janela; a
+  rotação nunca paga o custo de trocar. 0 sobreviventes em 8 trials.
+- **VOLT (vol-targeting spot, teto 1,0): FAIL** — corta drawdown (até −51%
+  no SOL) mas nenhum combo atinge ΔSharpe ≥ +0,20 em ≥2 de 3 ativos.
+  0 sobreviventes em 6 trials.
+- **CARRY v2: AGENDADA** — janela futura 15/08→15/11, medição só em 16/11
+  (única revisita legítima de família com hold-out consumido).
+- Hold-outs **não tocados** (a trava recusa consumir sem sobrevivente);
+  trials (8+6) contados para o deflator DSR.
+
+### Segurança (achado colateral do teste novo)
+
+O teste hermético de `/api/gates` acusou ignição ARMADA: a cópia de `.env`
+do worktree estava com as 3 flags ligadas (sobra do trabalho de testnet).
+**Produção estava segura** (`DRY_RUN=true`). Cópia desarmada; o endpoint
+denuncia exatamente esse estado por design — a lição "edições de credencial
+falham em silêncio; sempre verificar por leitura independente" segue valendo.
+
+### Estado ao fim do dia
+
+| Indicador | Valor |
+|---|---|
+| Suíte | **1.791 passed, 14 skipped** (2min55s) |
+| CI da main | verde (lint + testes + security) sobre `48128f3` |
+| Funil | 5 FAIL · 1 EM COLETA · 1 AGENDADA |
+| Coleta E-11 | **66/300 barras** (~24–26/dia → medição ~24–25/08) |
+| Paper PnL visível | +$0,17 (1 trade, SOLUSDT, circuito fechado 09/08) |
+| Capital real | segue **PROIBIDO pelo gate** — nada mudou, e é isso que o protege |
+
+Próximos eventos, todos autônomos: vigia dispara a primeira medição da
+microestrutura ao cruzar 300 barras (aviso no Telegram, com o lembrete de
+que é retrato da pesquisa, não veredito); hold-out 01/12; CARRY v2 16/11.
+
+*Gerado sobre: commit `48128f3`, suíte 1.791/14, CI 4/4, serviços
+BXBotWorker/BXBotDashboard/BXBotBook RUNNING.*
