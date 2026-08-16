@@ -777,6 +777,88 @@ def iniciar_retreinamento_automatico(pares: list[str]):
 _VIGIA_INTERVALO_S = 30  # criterio de I-9: <= 60s entre o evento e a mensagem
 
 
+_mesa_pausado = threading.Event()
+
+
+def _executar_comando_mesa(cmd: dict) -> tuple[str, str]:
+    """MESA DE OPERAÇÕES (aba 7 do dashboard) — contrato v1: PAPEL SOMENTE.
+
+    Fail-closed por construção: a lista de comandos é fechada, nada aqui
+    altera DRY_RUN/ALLOW_REAL_TRADING nem envia ordem real, e fechar posição
+    RECUSA executor não-simulado. Retorna (status, resultado)."""
+    nome = cmd.get("comando", "")
+    params = cmd.get("params") or {}
+
+    if nome == "pausar_bot":
+        _mesa_pausado.set()
+        return "EXECUTADO", "avaliações suspensas (posições/proteções seguem monitoradas)"
+
+    if nome == "retomar_bot":
+        _mesa_pausado.clear()
+        return "EXECUTADO", "avaliações retomadas"
+
+    if nome == "fechar_posicao_paper":
+        par = str(params.get("symbol", "")).upper()
+        estado = _estado_pares.get(par)
+        ex = estado.get("executor") if estado else None
+        if ex is None:
+            return "FALHOU", f"sem executor ativo para {par}"
+        if not ex.simulacao:
+            return "REJEITADO", "executor em modo REAL — a mesa só fecha posição de papel"
+        if not ex.posicao:
+            return "FALHOU", f"{par} sem posição aberta"
+        preco = ex.get_preco()
+        ex.fechar_posicao(preco, "mesa_operacoes")
+        return "EXECUTADO", f"{par} fechado a mercado ({preco})"
+
+    if nome == "retreinar_ml":
+        threading.Thread(
+            target=_retreinar_modelos, args=(PARES_ATIVOS,), daemon=True, name="mesa-retreino"
+        ).start()
+        return "EXECUTADO", "retreino disparado em thread (resultado em model_metricas)"
+
+    if nome == "testar_telegram":
+        try:
+            import telegram_bot as tb
+
+            ok, detalhe = tb._enviar(
+                "🧾 MESA: teste de entrega solicitado pelo operador.", devolver_detalhe=True
+            )
+            return ("EXECUTADO", "entregue") if ok else ("FALHOU", f"não entregue: {detalhe}")
+        except Exception as e:  # pragma: no cover - defensivo
+            return "FALHOU", f"telegram indisponível: {e}"
+
+    return "REJEITADO", f"comando desconhecido: {nome}"
+
+
+def iniciar_mesa_comandos():
+    """Consumidor da fila `comandos` (10s). Auditoria integral: cada comando
+    processado vira bot_events/mesa_comando com origem e status."""
+
+    def _loop():
+        while not _shutdown_event.is_set():
+            try:
+                cmd = database.proximo_comando_pendente()
+                if cmd:
+                    status, resultado = _executar_comando_mesa(cmd)
+                    database.marcar_comando(cmd["id"], status, resultado)
+                    database.salvar_bot_event(
+                        "mesa_comando",
+                        f"{cmd['comando']} -> {status}: {resultado}",
+                        service="worker",
+                        symbol=(cmd.get("params") or {}).get("symbol"),
+                        severity="INFO" if status == "EXECUTADO" else "WARNING",
+                        data={"id": cmd["id"], "origem": cmd.get("origem")},
+                    )
+                    continue  # pode haver fila — processa sem esperar
+            except Exception as e:
+                print(f"\033[93m[MESA] erro no consumidor: {e}\033[0m")
+            _shutdown_event.wait(10)
+
+    threading.Thread(target=_loop, daemon=True, name="mesa-comandos").start()
+    print("\033[94m[MESA] consumidor de comandos ativo (papel somente).\033[0m")
+
+
 def iniciar_vigia_de_eventos():
     """Thread que da CONSUMO aos bot_events CRITICAL (I-9).
 
@@ -1105,6 +1187,12 @@ def loop_par(par, intervalo_min, simulacao):
             travado, motivo_trava = gestao_risco.esta_travado()
             if travado:
                 print(f"\033[91m[{par}][TRAVADO] {motivo_trava} — avaliacao suspensa.\033[0m")
+                continue
+
+            # MESA: pausa pedida pelo operador — suspende avaliações novas;
+            # monitor/proteções das posições abertas seguem intocados.
+            if _mesa_pausado.is_set():
+                print(f"\033[93m[{par}][MESA] pausado pelo operador — avaliacao suspensa.\033[0m")
                 continue
 
             if MODO_TREND:
@@ -1705,6 +1793,7 @@ def main():
 
     # I-9: vigia que da consumo aos bot_events CRITICAL
     iniciar_vigia_de_eventos()
+    iniciar_mesa_comandos()
 
     # Threads — uma por par
     for par in pares:

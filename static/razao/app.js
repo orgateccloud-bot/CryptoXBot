@@ -13,11 +13,22 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => (
   {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+// Com DASHBOARD_TOKEN setado no servidor, TODO /api/* exige Bearer — o token
+// colado na mesa (sessionStorage, morre com a aba) autentica a página inteira.
+const _fetchNativo = window.fetch.bind(window);
+window.fetch = (url, opts = {}) => {
+  const t = sessionStorage.getItem('bxbot-mesa-token');
+  if (t && typeof url === 'string' && url.startsWith('/api/')) {
+    opts = { ...opts, headers: { ...(opts.headers || {}), 'Authorization': 'Bearer ' + t } };
+  }
+  return _fetchNativo(url, opts);
+};
+
 let parAtivo = localStorage.getItem('bxbot-par') || 'BTCUSDT';
 let dadosPares = {};
 
 // ── ABAS (D-1): hash routing + atalhos 1-6 + init preguiçoso ────
-const ABAS = ['cockpit', 'analise', 'real', 'quant', 'telemetria', 'expediente'];
+const ABAS = ['cockpit', 'analise', 'real', 'quant', 'telemetria', 'expediente', 'mesa'];
 let _abaAtiva = 'cockpit';
 
 const INIT_ABA = {
@@ -27,6 +38,7 @@ const INIT_ABA = {
   quant: () => { carregarQuant(); },
   telemetria: () => {},
   expediente: () => { carregarSistema(); },
+  mesa: () => { carregarMesa(); },
 };
 
 function ativarAba(aba) {
@@ -44,7 +56,7 @@ window.addEventListener('hashchange', () => ativarAba(location.hash.replace('#/'
 document.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea,select') || e.ctrlKey || e.altKey || e.metaKey) return;
   const i = parseInt(e.key, 10);
-  if (i >= 1 && i <= 6) ativarAba(ABAS[i - 1]);
+  if (i >= 1 && i <= 7) ativarAba(ABAS[i - 1]);
 });
 document.querySelectorAll('.aba-btn').forEach(b =>
   b.addEventListener('click', () => ativarAba(b.dataset.aba)));
@@ -769,6 +781,88 @@ async function carregarQuant() {
       : '<div class="micro-linha"><span class="k">—</span><span class="v">sem vereditos gravados</span></div>';
   } catch(e) {}
 }
+
+// ── 7 · MESA DE OPERAÇÕES ───────────────────────────────────────
+// A única ESCRITA do dashboard — e é comando auditado, papel somente.
+// Confirmação dupla: 1º clique arma (5s), 2º envia. Token em sessionStorage
+// (morre com a aba; nunca localStorage).
+const _mesaTokenInput = el('mesa-token');
+if (_mesaTokenInput && sessionStorage.getItem('bxbot-mesa-token')) {
+  _mesaTokenInput.value = sessionStorage.getItem('bxbot-mesa-token');
+}
+if (_mesaTokenInput) {
+  _mesaTokenInput.addEventListener('change', () =>
+    sessionStorage.setItem('bxbot-mesa-token', _mesaTokenInput.value.trim()));
+}
+
+function _mesaAviso(texto, erro) {
+  const av = el('mesa-aviso');
+  av.style.display = texto ? '' : 'none';
+  av.textContent = texto || '';
+  av.style.borderColor = erro ? 'var(--loss)' : 'var(--warn)';
+  av.style.color = erro ? 'var(--loss)' : 'var(--warn)';
+}
+
+let _mesaArmado = null, _mesaDesarma = null;
+async function _mesaEnviar(comando) {
+  const token = (_mesaTokenInput.value || '').trim();
+  if (!token) { _mesaAviso('Cole o DASHBOARD_TOKEN para armar a mesa — sem token ela não existe (fail-closed).', true); return; }
+  const params = comando === 'fechar_posicao_paper' ? { symbol: el('mesa-par').value } : {};
+  try {
+    const r = await fetch('/api/mesa/comando', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ comando, params }),
+    });
+    const d = await r.json();
+    if (!r.ok) { _mesaAviso('Recusado (' + r.status + '): ' + (d.erro || '?'), true); return; }
+    _mesaAviso('Comando #' + d.id + ' (' + comando + ') registrado — o worker responde em até 10s.', false);
+    setTimeout(carregarMesa, 1500);
+    setTimeout(carregarMesa, 11000);
+  } catch (e) {
+    _mesaAviso('Falha de rede ao enviar o comando.', true);
+  }
+}
+
+document.querySelectorAll('.mesa-btn').forEach(b => {
+  const rotulo = b.textContent;
+  b.addEventListener('click', () => {
+    if (_mesaArmado === b) {
+      clearTimeout(_mesaDesarma);
+      _mesaArmado = null;
+      b.classList.remove('armado');
+      b.textContent = rotulo;
+      _mesaEnviar(b.dataset.comando);
+      return;
+    }
+    if (_mesaArmado) { _mesaArmado.classList.remove('armado'); _mesaArmado.textContent = _mesaArmado.dataset.rotulo || _mesaArmado.textContent; }
+    _mesaArmado = b;
+    b.dataset.rotulo = rotulo;
+    b.classList.add('armado');
+    b.textContent = 'CONFIRMAR?';
+    _mesaDesarma = setTimeout(() => {
+      b.classList.remove('armado');
+      b.textContent = rotulo;
+      _mesaArmado = null;
+    }, 5000);
+  });
+});
+
+async function carregarMesa() {
+  try {
+    const rows = await fetch('/api/mesa/comandos').then(r => r.json());
+    if (!Array.isArray(rows) || !rows.length) return;
+    el('mesa-historico').innerHTML = rows.map(c => {
+      const st = esc(c.status || '?');
+      return `<tr><td>#${esc(c.id)}</td>` +
+        `<td>${esc(String(c.criado_em || '').slice(5, 16).replace('T', ' '))}</td>` +
+        `<td class="forte">${esc(c.comando)}${c.params && c.params !== '{}' ? ' <span style="color:var(--ink-3)">' + esc(c.params) + '</span>' : ''}</td>` +
+        `<td class="st-${st}">${st}</td>` +
+        `<td style="color:var(--ink-3)">${esc(c.resultado || '—')}</td></tr>`;
+    }).join('');
+  } catch (e) {}
+}
+setInterval(() => { if (_abaAtiva === 'mesa') carregarMesa(); }, 10000);
 
 // ── 5 · SISTEMA ─────────────────────────────────────────────────
 async function carregarSistema() {

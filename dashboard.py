@@ -1288,6 +1288,58 @@ def api_quant():
     )
 
 
+# MESA DE OPERAÇÕES (aba 7) — a ÚNICA escrita do dashboard, e ela não toca
+# tabela de medição: grava um COMANDO auditado que o worker consome (papel
+# somente por contrato; a lista fechada abaixo não contém nada que altere
+# DRY_RUN/ALLOW_REAL nem envie ordem real).
+COMANDOS_MESA = {
+    "pausar_bot",
+    "retomar_bot",
+    "fechar_posicao_paper",
+    "retreinar_ml",
+    "testar_telegram",
+}
+
+
+@app.route("/api/mesa/comando", methods=["POST"])
+def api_mesa_comando():
+    """Fail-closed: sem DASHBOARD_TOKEN configurado, a mesa NÃO EXISTE (403).
+    Com token, a exigência de Bearer já é imposta pelo _exigir_token_api."""
+    if not _DASHBOARD_TOKEN:
+        return (
+            jsonify(
+                {
+                    "erro": "mesa desabilitada — defina DASHBOARD_TOKEN no .env "
+                    "e reinicie o dashboard (comando exige autenticação)"
+                }
+            ),
+            403,
+        )
+    corpo = request.get_json(silent=True) or {}
+    comando = str(corpo.get("comando", ""))
+    if comando not in COMANDOS_MESA:
+        return jsonify({"erro": "comando inválido", "validos": sorted(COMANDOS_MESA)}), 400
+    params = corpo.get("params") or {}
+    if comando == "fechar_posicao_paper":
+        sym = str(params.get("symbol", "")).upper()
+        if sym not in PARES_ATIVOS:
+            return jsonify({"erro": f"symbol inválido (use um de {PARES_ATIVOS})"}), 400
+        params = {"symbol": sym}
+    else:
+        params = {}
+    novo_id = database.criar_comando(comando, params, origem=request.remote_addr or "?")
+    return jsonify({"id": novo_id, "comando": comando, "status": "PENDENTE"}), 201
+
+
+@app.route("/api/mesa/comandos")
+def api_mesa_comandos():
+    """Histórico da mesa (leitura). O worker responde via status/resultado."""
+    try:
+        return jsonify(database.listar_comandos(limite=20))
+    except Exception:
+        return jsonify([])
+
+
 @app.route("/api/sistema")
 def api_sistema():
     """Servicos NSSM + relogios agendados — o 'bot esta vivo' verificavel.

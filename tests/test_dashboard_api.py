@@ -616,6 +616,70 @@ class TestApiAnalytics:
         assert d["ribbon"]["win_rate"] == pytest.approx(100.0)
 
 
+class TestApiMesa:
+    def test_sem_token_configurado_mesa_nao_existe(self, client, monkeypatch):
+        """Fail-closed: sem DASHBOARD_TOKEN no ambiente, 403 sempre."""
+        monkeypatch.setattr(dashboard, "_DASHBOARD_TOKEN", "")
+        r = client.post("/api/mesa/comando", json={"comando": "pausar_bot"})
+        assert r.status_code == 403
+        assert "DASHBOARD_TOKEN" in r.get_json()["erro"]
+
+    def _com_token(self, client, monkeypatch, corpo):
+        monkeypatch.setattr(dashboard, "_DASHBOARD_TOKEN", "tok-teste")
+        return client.post(
+            "/api/mesa/comando",
+            json=corpo,
+            headers={"Authorization": "Bearer tok-teste"},
+        )
+
+    def test_com_token_cria_comando_pendente(self, client, monkeypatch):
+        _db_mock.criar_comando = MagicMock(return_value=7)
+        r = self._com_token(client, monkeypatch, {"comando": "pausar_bot"})
+        assert r.status_code == 201
+        d = r.get_json()
+        assert d["id"] == 7 and d["status"] == "PENDENTE"
+        _db_mock.criar_comando.assert_called_once()
+        args = _db_mock.criar_comando.call_args
+        assert args.args[0] == "pausar_bot" and args.args[1] == {}
+
+    def test_token_errado_401_pelo_gate_global(self, client, monkeypatch):
+        monkeypatch.setattr(dashboard, "_DASHBOARD_TOKEN", "tok-teste")
+        r = client.post(
+            "/api/mesa/comando",
+            json={"comando": "pausar_bot"},
+            headers={"Authorization": "Bearer errado"},
+        )
+        assert r.status_code == 401
+
+    def test_comando_fora_da_lista_400(self, client, monkeypatch):
+        r = self._com_token(client, monkeypatch, {"comando": "ligar_modo_real"})
+        assert r.status_code == 400
+
+    def test_fechar_posicao_valida_symbol(self, client, monkeypatch):
+        r = self._com_token(
+            client,
+            monkeypatch,
+            {"comando": "fechar_posicao_paper", "params": {"symbol": "DOGEUSDT"}},
+        )
+        assert r.status_code == 400
+        _db_mock.criar_comando = MagicMock(return_value=9)
+        r2 = self._com_token(
+            client,
+            monkeypatch,
+            {"comando": "fechar_posicao_paper", "params": {"symbol": "btcusdt"}},
+        )
+        assert r2.status_code == 201
+        assert _db_mock.criar_comando.call_args.args[1] == {"symbol": "BTCUSDT"}
+
+    def test_historico_e_leitura_simples(self, client):
+        _db_mock.listar_comandos = MagicMock(
+            return_value=[{"id": 1, "comando": "pausar_bot", "status": "EXECUTADO"}]
+        )
+        r = client.get("/api/mesa/comandos")
+        assert r.status_code == 200
+        assert r.get_json()[0]["status"] == "EXECUTADO"
+
+
 class TestApiQuant:
     def _db_quant(self, tmp_path, com_tabelas=True):
         import sqlite3

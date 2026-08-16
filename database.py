@@ -255,6 +255,22 @@ def _inicializar_sqlite() -> None:
         )
         """)
 
+    # MESA DE OPERACOES (2026-08-16): canal de COMANDO dashboard -> worker.
+    # Nao e tabela de medicao (E-8e intacto): o dashboard grava a INTENCAO
+    # auditada, o worker consome e responde. Contrato v1: papel somente.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS comandos (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            criado_em     TEXT NOT NULL,
+            comando       TEXT NOT NULL,
+            params        TEXT,
+            origem        TEXT,
+            status        TEXT NOT NULL DEFAULT 'PENDENTE',
+            resultado     TEXT,
+            processado_em TEXT
+        )
+        """)
+
     _sqlite_add_column(conn, "trades", "symbol", "TEXT DEFAULT 'BTCUSDT'")
     _sqlite_add_column(conn, "trades", "trade_id", "INTEGER")
     _sqlite_add_column(conn, "snapshots_mercado", "symbol", "TEXT DEFAULT 'BTCUSDT'")
@@ -382,6 +398,18 @@ def _inicializar_postgres() -> None:
                 auc         DOUBLE PRECISION,
                 cv_auc_mean DOUBLE PRECISION,
                 cv_auc_std  DOUBLE PRECISION
+            )
+            """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS comandos (
+                id            BIGSERIAL PRIMARY KEY,
+                criado_em     TIMESTAMPTZ NOT NULL DEFAULT now(),
+                comando       TEXT NOT NULL,
+                params        TEXT,
+                origem        TEXT,
+                status        TEXT NOT NULL DEFAULT 'PENDENTE',
+                resultado     TEXT,
+                processado_em TIMESTAMPTZ
             )
             """)
         conn.execute(
@@ -1018,6 +1046,123 @@ def salvar_bot_event(
     )
     conn.commit()
     conn.close()
+
+
+def criar_comando(comando: str, params: dict[str, Any] | None, origem: str) -> int:
+    """MESA: grava a intenção do operador. Quem executa é o worker."""
+    payload = json.dumps(params or {}, default=str)
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            cur = conn.execute(
+                "INSERT INTO comandos (criado_em, comando, params, origem)"
+                " VALUES (%s, %s, %s, %s) RETURNING id",
+                (_utcnow(), comando, payload, origem),
+            )
+            novo_id = int(cur.fetchone()["id"])  # dict_row: sempre por nome
+            conn.commit()
+        return novo_id
+    conn = conectar()
+    cur = conn.execute(
+        "INSERT INTO comandos (criado_em, comando, params, origem) VALUES (?, ?, ?, ?)",
+        (datetime.now().isoformat(), comando, payload, origem),
+    )
+    novo_id = int(cur.lastrowid)
+    conn.commit()
+    conn.close()
+    return novo_id
+
+
+def proximo_comando_pendente() -> dict[str, Any] | None:
+    """Consumidor único (worker): o comando PENDENTE mais antigo, ou None."""
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            cur = conn.execute(
+                "SELECT id, comando, params, origem FROM comandos"
+                " WHERE status = 'PENDENTE' ORDER BY id ASC LIMIT 1"
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        try:
+            params = json.loads(row["params"] or "{}")
+        except ValueError:
+            params = {}
+        return {
+            "id": int(row["id"]),
+            "comando": row["comando"],
+            "params": params,
+            "origem": row["origem"],
+        }
+    conn = conectar()
+    row = conn.execute(
+        "SELECT id, comando, params, origem FROM comandos"
+        " WHERE status = 'PENDENTE' ORDER BY id ASC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        params = json.loads(row["params"] or "{}")
+    except ValueError:
+        params = {}
+    return {
+        "id": int(row["id"]),
+        "comando": row["comando"],
+        "params": params,
+        "origem": row["origem"],
+    }
+
+
+def marcar_comando(comando_id: int, status: str, resultado: str) -> None:
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            conn.execute(
+                "UPDATE comandos SET status = %s, resultado = %s, processado_em = %s"
+                " WHERE id = %s",
+                (status, resultado, _utcnow(), comando_id),
+            )
+            conn.commit()
+        return
+    conn = conectar()
+    conn.execute(
+        "UPDATE comandos SET status = ?, resultado = ?, processado_em = ? WHERE id = ?",
+        (status, resultado, datetime.now().isoformat(), comando_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def listar_comandos(limite: int = 20) -> list[dict[str, Any]]:
+    limite = max(1, min(int(limite), 200))
+    if _backend() == "postgres":
+        with _pg_connection() as conn:
+            cur = conn.execute(
+                "SELECT id, criado_em, comando, params, origem, status, resultado,"
+                " processado_em FROM comandos ORDER BY id DESC LIMIT %s",
+                (limite,),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": int(r["id"]),
+                "criado_em": str(r["criado_em"]),
+                "comando": r["comando"],
+                "params": r["params"],
+                "origem": r["origem"],
+                "status": r["status"],
+                "resultado": r["resultado"],
+                "processado_em": str(r["processado_em"]) if r["processado_em"] else None,
+            }
+            for r in rows
+        ]
+    conn = conectar()
+    rows = conn.execute(
+        "SELECT id, criado_em, comando, params, origem, status, resultado, processado_em"
+        " FROM comandos ORDER BY id DESC LIMIT ?",
+        (limite,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def listar_bot_events(

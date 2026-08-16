@@ -283,6 +283,27 @@
     .duas-tabelas { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 22px; }
     .tabela-scroll { max-height: 300px; overflow-y: auto; }
 
+    /* ── MESA DE OPERAÇÕES ── */
+    .mesa-aviso {
+      font-family: var(--mono); font-size: 11px; padding: 10px 12px; margin-top: 12px;
+      border: 1px solid var(--warn); color: var(--warn);
+    }
+    .mesa-token { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; max-width: 460px; }
+    .mesa-input {
+      background: var(--paper); border: 1px solid var(--rule-2); color: var(--ink);
+      font-family: var(--mono); font-size: 12px; padding: 7px 10px; width: 100%;
+    }
+    .mesa-input:focus { outline: none; border-color: var(--ink-3); }
+    .mesa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px 28px; margin-top: 18px; }
+    .mesa-cmd { border-top: 1px solid var(--rule); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .mc-nome { font-family: var(--serif); font-size: 14px; color: var(--ink); }
+    .mc-desc { font-size: 11px; color: var(--ink-3); line-height: 1.4; min-height: 30px; }
+    .mesa-btn { justify-content: center; }
+    .mesa-btn.armado { border-color: var(--warn); color: var(--warn); }
+    .st-PENDENTE { color: var(--warn); }
+    .st-EXECUTADO { color: var(--gain); }
+    .st-FALHOU, .st-REJEITADO { color: var(--loss); }
+
     /* ── EXPEDIENTE ── */
     .expediente { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 14px; }
     footer {
@@ -373,6 +394,7 @@
   <button class="aba-btn" data-aba="quant"><span class="no">4</span>Quant Lab</button>
   <button class="aba-btn" data-aba="telemetria"><span class="no">5</span>Telemetria</button>
   <button class="aba-btn" data-aba="expediente"><span class="no">6</span>Expediente</button>
+  <button class="aba-btn" data-aba="mesa"><span class="no">7</span>Mesa</button>
 </nav>
 
 <!-- ══ 1 · COCKPIT ═══════════════════════════════════════════════ -->
@@ -661,8 +683,66 @@
   </div>
 </section>
 
+<!-- ══ 7 · MESA DE OPERAÇÕES ═════════════════════════════════════ -->
+<section class="aba-secao" id="aba-mesa">
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">Mesa de operações <span class="carimbo reto" style="font-size:9px;padding:2px 8px;margin-left:10px">PAPEL SOMENTE</span></div>
+      <div class="secao-nota">COMANDO AUDITADO · O WORKER EXECUTA E RESPONDE · NADA AQUI TOCA CAPITAL REAL</div>
+    </div>
+
+    <div class="mesa-aviso" id="mesa-aviso" style="display:none"></div>
+
+    <div class="mesa-token">
+      <span class="secao-nota">TOKEN DA MESA (DASHBOARD_TOKEN do .env — exigido por construção)</span>
+      <input type="password" id="mesa-token" class="mesa-input" placeholder="cole o token para armar a mesa"
+             aria-label="Token de autenticação da mesa" autocomplete="off">
+    </div>
+
+    <div class="mesa-grid">
+      <div class="mesa-cmd">
+        <div class="mc-nome">Pausar o bot</div>
+        <div class="mc-desc">Suspende avaliações novas; posições abertas e proteções seguem monitoradas.</div>
+        <button class="btn-tinta mesa-btn" data-comando="pausar_bot">⏸ PAUSAR BOT</button>
+      </div>
+      <div class="mesa-cmd">
+        <div class="mc-nome">Retomar o bot</div>
+        <div class="mc-desc">Volta a avaliar sinais no próximo ciclo.</div>
+        <button class="btn-tinta mesa-btn" data-comando="retomar_bot">▶ RETOMAR BOT</button>
+      </div>
+      <div class="mesa-cmd">
+        <div class="mc-nome">Fechar posição de papel</div>
+        <div class="mc-desc">Fecha a mercado a posição PAPER do par. Recusa executor em modo real, por construção.</div>
+        <select id="mesa-par" class="mesa-input" aria-label="Par da posição a fechar">
+          <option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option>
+        </select>
+        <button class="btn-tinta mesa-btn" data-comando="fechar_posicao_paper">✕ FECHAR POSIÇÃO</button>
+      </div>
+      <div class="mesa-cmd">
+        <div class="mc-nome">Retreinar o ensemble</div>
+        <div class="mc-desc">Dispara o retreino fora do domingo. Resultado aparece no Quant Lab (model_metricas).</div>
+        <button class="btn-tinta mesa-btn" data-comando="retreinar_ml">⟳ RETREINAR ML</button>
+      </div>
+      <div class="mesa-cmd">
+        <div class="mc-nome">Testar Telegram</div>
+        <div class="mc-desc">Envia mensagem de teste ao chat configurado — prova de entrega ponta a ponta.</div>
+        <button class="btn-tinta mesa-btn" data-comando="testar_telegram">✉ TESTAR TELEGRAM</button>
+      </div>
+    </div>
+
+    <div class="secao-nota" style="margin:18px 0 4px">HISTÓRICO DA MESA — cada comando com status respondido pelo worker</div>
+    <table class="diario" style="margin-top:0">
+      <thead><tr><th style="width:60px">#</th><th style="width:130px">Quando</th><th>Comando</th>
+      <th style="width:100px">Status</th><th>Resultado</th></tr></thead>
+      <tbody id="mesa-historico">
+        <tr><td colspan="5" style="font-style:italic;color:var(--ink-3)">Nenhum comando emitido.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <footer>
-  <span>CryptoXbot · ensemble XGBoost + MLP · Binance Spot · seções 1-6 pelo teclado</span>
+  <span>CryptoXbot · ensemble XGBoost + MLP · Binance Spot · seções 1-7 pelo teclado</span>
   <span id="footer-update">—</span>
 </footer>
 
