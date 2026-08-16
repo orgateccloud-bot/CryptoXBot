@@ -557,6 +557,14 @@ def vendor(filename):
     return send_from_directory("static/vendor", filename)
 
 
+@app.route("/razao/<path:filename>")
+def razao_static(filename):
+    # Terminal RAZAO (D-1): o JS do dashboard sai do inline para arquivo
+    # proprio — mesma origem, CSP 'self', zero CDN. Manutenibilidade sem
+    # abrir mao da doutrina.
+    return send_from_directory("static/razao", filename)
+
+
 @app.route("/health")
 def health():
     return jsonify(
@@ -1154,6 +1162,128 @@ def api_diario():
             "titulo": linhas[0].lstrip("# ").strip(),
             "corpo": "\n".join(linhas[1:]).strip(),
             "fonte": "docs/RELATORIO_PRODUCAO.md",
+        }
+    )
+
+
+@app.route("/api/quant")
+def api_quant():
+    """Quant Lab (D-3) — os artefatos REAIS da régua científica do projeto,
+    em leitura pura: AUC por retreino (`model_metricas`), alertas de drift
+    (`bot_events`), vereditos por combo dos labs (JSONs que os próprios labs
+    gravam), telemetria de execução (gauges do worker em 127.0.0.1:8080) e o
+    arquivo de medições. Qualquer fonte indisponível degrada para vazio/None
+    — nunca um número inventado."""
+    raiz = os.path.dirname(os.path.abspath(__file__))
+
+    # 1) retreinos: AUC/cv_auc por symbol+modelo (domingos 02h)
+    retreinos = []
+    drift = []
+    conn = database.conectar()
+    try:
+        try:
+            retreinos = [
+                {
+                    "quando": str(r["timestamp"]),
+                    "symbol": r["symbol"],
+                    "modelo": r["modelo_tipo"],
+                    "auc": r["auc"],
+                    "cv_auc_mean": r["cv_auc_mean"],
+                    "cv_auc_std": r["cv_auc_std"],
+                }
+                for r in conn.execute(
+                    "SELECT timestamp, symbol, modelo_tipo, auc, cv_auc_mean,"
+                    " cv_auc_std FROM model_metricas ORDER BY id DESC LIMIT 24"
+                ).fetchall()
+            ]
+        except Exception:
+            retreinos = []
+        try:
+            drift = [
+                {
+                    "quando": str(r["timestamp"]),
+                    "symbol": r["symbol"],
+                    "mensagem": r["message"],
+                }
+                for r in conn.execute(
+                    "SELECT timestamp, symbol, message FROM bot_events"
+                    " WHERE event_type LIKE '%drift%' ORDER BY id DESC LIMIT 8"
+                ).fetchall()
+            ]
+        except Exception:
+            drift = []
+    finally:
+        conn.close()
+
+    # 2) labs: os combos POR TRIAL dos vereditos gravados
+    labs = {}
+    for lab in ("momo", "volt"):
+        caminho = os.path.join(raiz, "research", "vereditos", f"{lab}_pesquisa.json")
+        try:
+            with open(caminho, encoding="utf-8") as f:
+                v = json.load(f)
+            labs[lab] = {
+                "quando": v.get("quando"),
+                "veredito": v.get("veredito_pesquisa"),
+                "trials": len(v.get("combos", [])),
+                "combos": v.get("combos", []),
+            }
+        except (OSError, ValueError):
+            labs[lab] = None
+
+    # 3) telemetria de execução: gauges do health server do WORKER (processo
+    #    irmão em 127.0.0.1:8080). Worker fora do ar => None, sem inventar.
+    exec_gauges = None
+    try:
+        r = requests.get("http://127.0.0.1:8080/metrics", timeout=2)
+        if r.status_code == 200:
+            exec_gauges = {}
+            for linha in r.text.splitlines():
+                if linha.startswith("exec_") and " " in linha:
+                    nome, _, valor = linha.rpartition(" ")
+                    try:
+                        exec_gauges[nome.strip()] = float(valor)
+                    except ValueError:
+                        continue
+            if not exec_gauges:
+                exec_gauges = None
+    except requests.RequestException:
+        exec_gauges = None
+
+    # 4) arquivo de medições (D-4): os vereditos gravados, com data — a rota
+    #    de backtest por HTTP segue DESLIGADA (I-12); aqui é só leitura de
+    #    resultado consolidado.
+    arquivo = []
+    dir_vereditos = os.path.join(raiz, "research", "vereditos")
+    try:
+        for nome in sorted(os.listdir(dir_vereditos)):
+            if not nome.endswith(".json") or "trials_count" in nome:
+                continue
+            try:
+                with open(os.path.join(dir_vereditos, nome), encoding="utf-8") as f:
+                    v = json.load(f)
+                arquivo.append(
+                    {
+                        "arquivo": nome,
+                        "quando": v.get("quando") or v.get("data") or None,
+                        "veredito": v.get("veredito_pesquisa")
+                        or v.get("veredito_holdout")
+                        or v.get("veredito")
+                        or "—",
+                    }
+                )
+            except (OSError, ValueError):
+                continue
+    except OSError:
+        pass
+
+    return jsonify(
+        {
+            "retreinos": retreinos,
+            "drift": drift,
+            "labs": labs,
+            "exec_gauges": exec_gauges,
+            "arquivo": arquivo,
         }
     )
 

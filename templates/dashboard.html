@@ -5,30 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoXbot — Razão de Operações</title>
   <!-- P2: libs servidas localmente (/vendor) — sem confianca em CDN externo.
-       RAZAO (2026-08-14): zero fontes externas — so system fonts. -->
+       RAZAO: zero fontes externas, so system fonts. Terminal RAZAO (D-1):
+       o JS da aplicacao vive em /razao/app.js (mesma origem, CSP 'self'). -->
   <script src="/vendor/socket.io.min.js"></script>
   <script src="/vendor/chart.umd.min.js"></script>
   <style>
     /* ══════════════════════════════════════════════════════════════
-       TEMA "RAZÃO" (2026-08-14, redesign total a pedido do operador).
-       O dashboard e uma publicacao financeira impressa: a UNICA cor da
-       tela pertence ao DADO (verde=lucro, vermelho=perda, ambar=alerta);
-       a marca e tinta pura, sem hue. Doutrina cromo-vs-dado levada ao
-       extremo: se algo tem cor, e dinheiro ou estado — nunca decoracao.
-       Nomes de vars agora sao SEMANTICOS (fim da armadilha --copper).
+       TEMA "RAZÃO" (2026-08-14) · ESTRUTURA "TERMINAL RAZÃO" (D-1,
+       2026-08-16): a publicação ganhou SEÇÕES (abas 1-6, atalhos de
+       teclado, deep-link por hash) mantendo a pele editorial. A única
+       cor da tela pertence ao DADO; a marca é tinta pura. Se algo tem
+       cor, é dinheiro ou estado — nunca decoração.
        ══════════════════════════════════════════════════════════════ */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      /* DARK "sala de impressao" — grafite QUENTE, nunca azulado (default:
-         o operador monitora de noite) */
       --bg:      #191817;
       --paper:   #211F1D;
       --rule:    #3A362F;
       --rule-2:  #4A453C;
-      --ink-2:   #B8B2A4;   /* texto corrente */
-      --ink:     #F2EDE3;   /* texto forte / tinta */
-      --ink-3:   #8A8375;   /* neutro / aguardar */
+      --ink-2:   #B8B2A4;
+      --ink:     #F2EDE3;
+      --ink-3:   #8A8375;
       --gain:    #3FBF7F;
       --loss:    #F2604D;
       --warn:    #E8A13C;
@@ -38,7 +36,6 @@
       --mono:    'Cascadia Mono', Consolas, 'SF Mono', ui-monospace, monospace;
     }
     :root[data-theme="light"] {
-      /* LIGHT "papel-jornal" */
       --bg:      #F6F1E7;
       --paper:   #FDFAF3;
       --rule:    #D8D0BF;
@@ -58,12 +55,8 @@
 
     html { background: var(--bg); }
     body {
-      background: var(--bg);
-      color: var(--ink-2);
-      font-family: var(--sans);
-      font-size: 14px;
-      line-height: 1.5;
-      min-height: 100vh;
+      background: var(--bg); color: var(--ink-2); font-family: var(--sans);
+      font-size: 14px; line-height: 1.5; min-height: 100vh;
       font-variant-numeric: tabular-nums;
     }
     .folha { max-width: 1560px; margin: 0 auto; padding: 0 28px 40px; }
@@ -73,68 +66,43 @@
     .neu  { color: var(--ink-2); }
     .num  { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-    /* ── regras de jornal ── */
-    .regra-dupla { border-top: 3px double var(--rule-2); }
-    .regra       { border-top: 1px solid var(--rule); }
-
-    /* ── secoes numeradas (voz editorial) ── */
-    .secao { margin-top: 34px; }
+    .secao { margin-top: 26px; }
     .secao-cab {
       display: flex; align-items: baseline; justify-content: space-between;
-      padding: 8px 0 6px;
-      border-bottom: 1px solid var(--rule);
+      padding: 8px 0 6px; border-bottom: 1px solid var(--rule);
     }
-    .secao-titulo {
-      font-family: var(--serif); font-size: 19px; color: var(--ink);
-      letter-spacing: .2px;
-    }
+    .secao-titulo { font-family: var(--serif); font-size: 19px; color: var(--ink); letter-spacing: .2px; }
     .secao-titulo .no { color: var(--ink-3); font-style: italic; margin-right: 8px; }
     .secao-nota { font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: .08em; }
 
-    /* ── leaders pontilhados (rotulo....valor) ── */
     .leader { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; }
-    .leader .lbl {
-      font-family: var(--sans); font-size: 11px; text-transform: uppercase;
-      letter-spacing: .12em; color: var(--ink-3); white-space: nowrap;
-    }
+    .leader .lbl { font-family: var(--sans); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-3); white-space: nowrap; }
     .leader .pontos { flex: 1; border-bottom: 1px dotted var(--rule-2); transform: translateY(-4px); }
     .leader .val { font-family: var(--mono); font-size: 15px; color: var(--ink); white-space: nowrap; }
 
-    /* ── CARIMBO (assinatura do tema) ── */
     .carimbo {
-      display: inline-block;
-      font-family: var(--sans); font-weight: 700; font-size: 11px;
-      letter-spacing: .22em; text-transform: uppercase;
-      padding: 4px 12px;
+      display: inline-block; font-family: var(--sans); font-weight: 700; font-size: 11px;
+      letter-spacing: .22em; text-transform: uppercase; padding: 4px 12px;
       border: 2px solid currentColor; outline: 1px solid currentColor; outline-offset: 2px;
-      transform: rotate(-6deg);
-      opacity: .85;
-      color: var(--ink-3);
-      user-select: none;
+      transform: rotate(-6deg); opacity: .85; color: var(--ink-3); user-select: none;
     }
     .carimbo.vermelho { color: var(--loss); }
     .carimbo.ambar    { color: var(--warn); }
     .carimbo.verde    { color: var(--gain); }
     .carimbo.reto     { transform: rotate(-3deg); }
 
-    /* ── MASTHEAD ── */
+    /* ── MASTHEAD compacto + SEÇÕES (abas do jornal) ── */
     header {
-      display: flex; align-items: center; justify-content: space-between; gap: 18px;
-      padding: 16px 0 10px;
-      border-bottom: 3px double var(--rule-2);
+      display: flex; align-items: center; justify-content: space-between; gap: 14px;
+      padding: 12px 0 8px; border-bottom: 1px solid var(--rule);
     }
-    .masthead-esq { display: flex; align-items: center; gap: 14px; }
-    .marca-x { width: 34px; height: 34px; flex-shrink: 0; color: var(--ink); }
-    .masthead-nome {
-      font-family: var(--serif); font-size: 27px; color: var(--ink); line-height: 1;
-    }
+    .masthead-esq { display: flex; align-items: center; gap: 12px; }
+    .marca-x { width: 28px; height: 28px; flex-shrink: 0; color: var(--ink); }
+    .masthead-nome { font-family: var(--serif); font-size: 22px; color: var(--ink); line-height: 1; }
     .masthead-nome i { font-style: italic; }
-    .masthead-tag {
-      font-family: var(--mono); font-size: 9px; letter-spacing: .26em;
-      color: var(--ink-3); text-transform: uppercase; margin-top: 4px;
-    }
-    .masthead-dir { display: flex; align-items: center; gap: 16px; }
-    #header-time { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+    .masthead-dir { display: flex; align-items: center; gap: 14px; }
+    #header-time { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+    .hdr-micro { font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: .06em; }
     #conn-status {
       font-family: var(--mono); font-size: 10px; letter-spacing: .18em;
       color: var(--ink-3); border: 1px solid var(--rule); padding: 3px 10px;
@@ -151,7 +119,21 @@
     .conn-dot.warn { background: var(--warn); }
     .conn-dot.err  { background: var(--loss); }
 
-    /* ── batimento (cursor de tinta) ── */
+    nav.abas {
+      display: flex; gap: 2px; border-bottom: 3px double var(--rule-2);
+      overflow-x: auto;
+    }
+    .aba-btn {
+      background: none; border: none; cursor: pointer;
+      font-family: var(--serif); font-size: 14px; color: var(--ink-3);
+      padding: 9px 16px 7px; border-bottom: 2px solid transparent;
+      white-space: nowrap;
+    }
+    .aba-btn .no { font-style: italic; font-size: 11px; margin-right: 5px; color: var(--ink-3); opacity: .7; }
+    .aba-btn:hover { color: var(--ink); }
+    .aba-btn.ativa { color: var(--ink); border-bottom-color: var(--ink); }
+    .aba-secao { display: none; }
+
     .batimento { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: .06em; }
     .cursor-tinta {
       display: inline-block; width: 7px; height: 13px; background: var(--ink);
@@ -161,27 +143,15 @@
     .batimento.parado .cursor-tinta { animation: none; opacity: .25; }
     .batimento.parado { color: var(--loss); }
 
-    /* ── HERO / bloco 1: RESULTADO ── */
-    .hero { display: grid; grid-template-columns: 2fr 1fr; gap: 32px; padding-top: 18px; position: relative; }
-    .hero-grafico { position: relative; min-height: 340px; }
-    .hero-grafico canvas { width: 100% !important; height: 340px !important; }
-    .hero-vazio {
-      position: absolute; inset: 0; display: none;
-      align-items: center; justify-content: center; flex-direction: column; gap: 10px;
-      font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--ink-3);
-      text-align: center;
-    }
+    /* ── COCKPIT ── */
+    .hero { display: grid; grid-template-columns: 2fr 1fr; gap: 32px; padding-top: 16px; position: relative; }
+    .hero-grafico { position: relative; min-height: 300px; }
+    .hero-grafico canvas { width: 100% !important; height: 300px !important; }
     .hero-razao { position: relative; padding-top: 4px; }
-    #pnl-hero {
-      font-family: var(--mono); font-weight: 700; font-size: 62px; line-height: 1;
-      letter-spacing: -1px; color: var(--ink);
-    }
-    .pnl-hero-lbl {
-      font-family: var(--sans); font-size: 11px; letter-spacing: .16em;
-      text-transform: uppercase; color: var(--ink-3); margin-top: 6px;
-    }
+    #pnl-hero { font-family: var(--mono); font-weight: 700; font-size: 54px; line-height: 1; letter-spacing: -1px; color: var(--ink); }
+    .pnl-hero-lbl { font-family: var(--sans); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3); margin-top: 6px; }
     #carimbo-modo { position: absolute; top: -6px; right: 0; }
-    .hero-leaders { margin-top: 20px; border-top: 1px solid var(--rule); }
+    .hero-leaders { margin-top: 16px; border-top: 1px solid var(--rule); }
     @keyframes assentar { from { transform: scale(1.02); } to { transform: scale(1); } }
     .assenta { animation: assentar .28s ease-out; }
     @keyframes secar-verde { from { background: color-mix(in srgb, var(--gain) 16%, transparent); } to { background: transparent; } }
@@ -189,46 +159,15 @@
     .seca-verde    { animation: secar-verde 2s ease-out; }
     .seca-vermelho { animation: secar-vermelho 2s ease-out; }
 
-    /* ── análise do período (bloco 1, IDEIAS 1-5+7 do zip, régua honesta) ── */
-    .analise-cab {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-top: 24px; border-top: 1px solid var(--rule); padding-top: 10px;
-    }
-    .presets { display: flex; gap: 6px; }
-    .btn-tinta.preset { font-size: 10px; padding: 3px 9px; letter-spacing: .08em; }
-    .btn-tinta.preset.ativo { border-color: var(--ink); color: var(--ink); }
-    .analise-vazia {
-      font-family: var(--serif); font-style: italic; font-size: 13px;
-      color: var(--ink-3); padding: 18px 0; text-align: center;
-    }
-    .analise-ribbon {
-      display: flex; flex-wrap: wrap; gap: 4px 26px; margin: 10px 0 14px;
-      font-size: 11px; color: var(--ink-3);
-      border-bottom: 1px dotted var(--rule-2); padding-bottom: 8px;
-    }
-    .analise-ribbon b { color: var(--ink); font-weight: 400; }
-    .analise-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px 32px; }
-    .an-cel canvas { width: 100% !important; height: 170px !important; }
-    .an-cel.an-larga canvas { height: 200px !important; }
-    @media (max-width: 1100px) { .analise-grid { grid-template-columns: 1fr; } }
-
-    /* ── bloco 2: O BOT AGORA ── */
-    .pipeline {
-      display: grid; grid-template-columns: repeat(6, 1fr);
-      border-bottom: 1px solid var(--rule);
-    }
+    .pipeline { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid var(--rule); }
     .estacao { padding: 12px 14px 10px; border-left: 1px dotted var(--rule-2); position: relative; }
     .estacao:first-child { border-left: none; padding-left: 0; }
-    .estacao .rot {
-      font-family: var(--sans); font-size: 10px; letter-spacing: .14em;
-      text-transform: uppercase; color: var(--ink-3);
-    }
+    .estacao .rot { font-family: var(--sans); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
     .estacao .num-val { font-family: var(--mono); font-size: 17px; color: var(--ink); margin-top: 3px; }
     .estacao .sub { font-family: var(--mono); font-size: 9px; color: var(--ink-3); margin-top: 1px; min-height: 12px; }
     .estacao::after {
       content: ''; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 2px;
-      background: var(--ink); transform: scaleX(0); transform-origin: left;
-      transition: transform .2s ease;
+      background: var(--ink); transform: scaleX(0); transform-origin: left; transition: transform .2s ease;
     }
     .estacao:first-child::after { left: 0; }
     .estacao.ativa::after { transform: scaleX(1); }
@@ -239,10 +178,7 @@
       color: var(--ink-3); text-align: left; font-weight: 600;
       padding: 6px 10px; border-bottom: 1px solid var(--rule-2);
     }
-    .diario td {
-      font-family: var(--mono); font-size: 12px; padding: 6px 10px;
-      border-bottom: 1px solid var(--rule); color: var(--ink-2);
-    }
+    .diario td { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
     .diario td.forte { color: var(--ink); }
     .diario td.dec-COMPRA          { color: var(--gain); font-weight: 700; }
     .diario td.dec-OPERAR_CHEIO    { color: var(--gain); font-weight: 700; }
@@ -250,7 +186,6 @@
     .diario td.dec-AGUARDAR        { color: var(--ink-3); }
     .diario .dir-right { text-align: right; }
 
-    /* ── bloco 3: MERCADO ── */
     .mercado-pares { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-bottom: 1px solid var(--rule); }
     .par-col { padding: 14px 18px 12px; border-left: 1px dotted var(--rule-2); cursor: pointer; }
     .par-col:first-child { border-left: none; padding-left: 0; }
@@ -260,8 +195,7 @@
     .par-col .linha2 { font-family: var(--mono); font-size: 11px; margin-top: 2px; display: flex; gap: 12px; }
     .par-col canvas { width: 100% !important; height: 34px !important; margin-top: 8px; opacity: .9; }
 
-    .mercado-detalhe { display: grid; grid-template-columns: 2fr 1fr; gap: 32px; margin-top: 18px; }
-    #precoChart { width: 100% !important; height: 260px !important; }
+    .mercado-detalhe { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 18px; }
     .parecer .leader .val { font-size: 13px; }
     .parecer-sinal { font-family: var(--serif); font-size: 30px; color: var(--ink-3); font-style: italic; line-height: 1.1; }
     .parecer-sinal.compra { color: var(--gain); font-style: normal; }
@@ -270,13 +204,10 @@
     .quadro-micro { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 22px; border-top: 1px solid var(--rule); }
     .micro-col { padding: 12px 16px; border-left: 1px dotted var(--rule-2); }
     .micro-col:first-child { border-left: none; padding-left: 0; }
-    .micro-col h4 {
-      font-family: var(--sans); font-size: 10px; letter-spacing: .14em;
-      text-transform: uppercase; color: var(--ink-3); font-weight: 600; margin-bottom: 8px;
-    }
-    .micro-linha { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; padding: 3px 0; }
-    .micro-linha .k { color: var(--ink-3); }
-    .micro-linha .v { color: var(--ink); }
+    .micro-col h4 { font-family: var(--sans); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; margin-bottom: 8px; }
+    .micro-linha { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; padding: 3px 0; gap: 12px; }
+    .micro-linha .k { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .micro-linha .v { color: var(--ink); white-space: nowrap; }
 
     .breakdown-linha { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
     .breakdown-linha .k { font-family: var(--mono); font-size: 10px; color: var(--ink-3); width: 62px; flex-shrink: 0; }
@@ -285,17 +216,34 @@
       repeating-linear-gradient(45deg, currentColor 0 2px, transparent 2px 5px); opacity: .8; }
     .breakdown-linha .v { font-family: var(--mono); font-size: 10px; width: 32px; text-align: right; }
 
-    .duas-tabelas { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 22px; }
-    .tabela-scroll { max-height: 260px; overflow-y: auto; }
+    /* ── ANÁLISE ── */
+    .analise-cab { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; border-top: 1px solid var(--rule); padding-top: 10px; }
+    .presets { display: flex; gap: 6px; }
+    .btn-tinta.preset { font-size: 10px; padding: 3px 9px; letter-spacing: .08em; }
+    .btn-tinta.preset.ativo { border-color: var(--ink); color: var(--ink); }
+    .analise-vazia { font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--ink-3); padding: 18px 0; text-align: center; }
+    .analise-ribbon {
+      display: flex; flex-wrap: wrap; gap: 4px 26px; margin: 10px 0 14px;
+      font-size: 11px; color: var(--ink-3); border-bottom: 1px dotted var(--rule-2); padding-bottom: 8px;
+    }
+    .analise-ribbon b { color: var(--ink); font-weight: 400; }
+    .analise-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px 32px; }
+    .an-cel canvas { width: 100% !important; height: 170px !important; }
+    .an-cel.an-larga canvas { height: 200px !important; }
+    .hero-vazio {
+      position: absolute; inset: 0; display: none;
+      align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+      font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--ink-3); text-align: center;
+    }
 
-    /* ── bloco 4: CAMINHO AO REAL ── */
+    /* ── CAMINHO AO REAL ── */
     .gates { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: 16px; }
     .gate { padding: 0 14px 8px; border-left: 1px dotted var(--rule-2); position: relative; }
     .gate:first-child { border-left: none; padding-left: 0; }
     .gate .quando { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
     .gate .nome { font-family: var(--serif); font-size: 14px; color: var(--ink); margin: 4px 0 8px; line-height: 1.25; min-height: 36px; }
     .gate .det { font-family: var(--sans); font-size: 11px; color: var(--ink-3); margin-top: 8px; line-height: 1.4; }
-    .flags-ignicao { display: flex; gap: 14px; margin-top: 10px; font-family: var(--mono); font-size: 10px; }
+    .flags-ignicao { display: flex; gap: 14px; margin-top: 10px; font-family: var(--mono); font-size: 10px; flex-wrap: wrap; }
     .flag-off { color: var(--ink-3); }
     .flag-on  { color: var(--loss); font-weight: 700; }
     .funil { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 2px 36px; margin-top: 8px; }
@@ -305,7 +253,6 @@
     .funil-item .fdata { font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap; }
     .funil-det { font-family: var(--mono); font-size: 9px; color: var(--ink-3); margin: -2px 0 4px; }
 
-    /* ── bloco 6: DIÁRIO (coluna editorial) ── */
     .editorial { max-width: 900px; padding-top: 14px; }
     .ed-titulo { font-family: var(--serif); font-size: 17px; color: var(--ink); font-weight: 600; margin-bottom: 10px; }
     .editorial h4 { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink); margin: 16px 0 6px; }
@@ -319,16 +266,32 @@
     .editorial code { font-family: var(--mono); font-size: 11px; color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 0 4px; }
     .editorial em.rodape { font-family: var(--mono); font-style: normal; font-size: 10px; color: var(--ink-3); display: block; margin-top: 12px; }
 
-    /* ── bloco 5: SISTEMA (expediente) ── */
+    /* ── TELEMETRIA: fita de pregão ── */
+    .fita-cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+    .fita-stats { display: flex; gap: 20px; font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+    .fita-stats b { color: var(--ink); font-weight: 400; }
+    #fita-chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0; border-bottom: 1px dotted var(--rule-2); }
+    .fita-chip {
+      background: none; border: 1px solid var(--rule); cursor: pointer;
+      font-family: var(--mono); font-size: 10px; color: var(--ink-2);
+      padding: 4px 9px; white-space: nowrap; flex-shrink: 0;
+    }
+    .fita-chip:hover { border-color: var(--ink-3); }
+    .fita-chip.baleia { border-color: var(--warn); }
+    .fita-chip b { color: var(--ink); font-weight: 400; }
+
+    .duas-tabelas { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 22px; }
+    .tabela-scroll { max-height: 300px; overflow-y: auto; }
+
+    /* ── EXPEDIENTE ── */
     .expediente { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 14px; }
     footer {
-      margin-top: 36px; padding: 12px 0 4px;
-      border-top: 3px double var(--rule-2);
+      margin-top: 36px; padding: 12px 0 4px; border-top: 3px double var(--rule-2);
       font-family: var(--mono); font-size: 10px; color: var(--ink-3);
       display: flex; justify-content: space-between; letter-spacing: .06em;
     }
 
-    /* ── MODAL CONEXAO ── */
+    /* ── MODAL ── */
     #modal-conexao {
       display: none; position: fixed; inset: 0; z-index: 500;
       background: color-mix(in srgb, var(--bg) 72%, transparent);
@@ -342,7 +305,7 @@
     }
     .mc-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 3px double var(--rule-2); }
     .mc-title { font-family: var(--serif); font-size: 15px; color: var(--ink); }
-    .mc-close { cursor: pointer; color: var(--ink-3); font-size: 16px; line-height: 1; }
+    .mc-close { cursor: pointer; color: var(--ink-3); font-size: 16px; line-height: 1; background: none; border: none; }
     .mc-close:hover { color: var(--ink); }
     .mc-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; }
     .mc-section-title { font-family: var(--sans); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--rule); padding-bottom: 4px; margin-bottom: 6px; }
@@ -359,10 +322,10 @@
       .cursor-tinta, .assenta, .seca-verde, .seca-vermelho { animation: none !important; }
     }
     @media (max-width: 1100px) {
-      .hero, .mercado-detalhe, .duas-tabelas { grid-template-columns: 1fr; }
+      .hero, .mercado-detalhe, .duas-tabelas, .analise-grid { grid-template-columns: 1fr; }
       .pipeline, .gates { grid-template-columns: repeat(3, 1fr); }
       .quadro-micro, .expediente { grid-template-columns: repeat(2, 1fr); }
-      #pnl-hero { font-size: 46px; }
+      #pnl-hero { font-size: 44px; }
     }
     @media (max-width: 640px) {
       .folha { padding: 0 14px 30px; }
@@ -372,7 +335,6 @@
     }
   </style>
   <script>
-    // Aplica o tema salvo antes do body renderizar (evita flash do tema errado).
     if (localStorage.getItem('bxbot-tema') === 'light') {
       document.documentElement.setAttribute('data-theme', 'light');
     }
@@ -383,41 +345,47 @@
 
 <header>
   <div class="masthead-esq">
-    <!-- marca em tinta pura (currentColor): o X da casa + circulo ₿ -->
     <svg class="marca-x" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CryptoXbot">
       <path d="M6 6 L34 34 M34 6 L6 34" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
       <circle cx="20" cy="20" r="8.5" fill="var(--bg)" stroke="currentColor" stroke-width="2"/>
       <text x="20" y="24.6" text-anchor="middle" font-size="11" font-weight="700" fill="currentColor" font-family="Georgia, serif">&#8383;</text>
     </svg>
-    <div>
-      <div class="masthead-nome">Crypto<i>Xbot</i> <span style="font-size:15px;color:var(--ink-3)">— Razão de Operações</span></div>
-      <div class="masthead-tag">DIÁRIO DE BORDO DO ROBÔ &middot; BINANCE SPOT &middot; POWERED BY WSTARTUP</div>
-    </div>
+    <div class="masthead-nome">Crypto<i>Xbot</i> <span style="font-size:13px;color:var(--ink-3)">— Razão de Operações</span></div>
   </div>
   <div class="masthead-dir">
     <span class="batimento" id="batimento"><span class="cursor-tinta"></span><span id="batimento-txt">AGUARDANDO CICLO…</span></span>
+    <span class="hdr-micro" id="hdr-fg" title="Fear &amp; Greed real (fear_greed.py)">F&amp;G —</span>
+    <span class="hdr-micro" id="hdr-latencia" title="Latência REST spot medida pelo /api/conexao">—</span>
     <span id="header-modo" class="carimbo reto" style="font-size:9px; padding:2px 8px;">—</span>
     <span id="header-time" class="num">--:--:--</span>
-    <button id="btn-tema" class="btn-tinta" onclick="alternarTema()" title="Alternar papel/impressão noturna">EDIÇÃO</button>
-    <button id="btn-conexao" class="btn-tinta" onclick="abrirModalConexao()" title="Status da conexão Binance">
+    <button id="btn-tema" class="btn-tinta" aria-label="Alternar papel-jornal e impressão noturna">EDIÇÃO</button>
+    <button id="btn-conexao" class="btn-tinta" aria-label="Abrir status da conexão Binance">
       <span class="conn-dot" id="conn-dot-binance"></span> BINANCE
     </button>
     <span id="conn-status">INIT…</span>
   </div>
 </header>
 
-<!-- ══ 1 · RESULTADO ══════════════════════════════════════════════ -->
-<section class="secao" id="sec-resultado">
-  <div class="secao-cab">
-    <div class="secao-titulo"><span class="no">1 ·</span>Resultado — carteira de papel</div>
-    <div class="secao-nota" id="resultado-nota">MESMA RÉGUA DO GATE &middot; SÓ A ESTRATÉGIA PRIMÁRIA</div>
-  </div>
+<nav class="abas" aria-label="Seções do terminal (atalhos 1 a 6)">
+  <button class="aba-btn ativa" data-aba="cockpit"><span class="no">1</span>Cockpit</button>
+  <button class="aba-btn" data-aba="analise"><span class="no">2</span>Análise</button>
+  <button class="aba-btn" data-aba="real"><span class="no">3</span>Caminho ao Real</button>
+  <button class="aba-btn" data-aba="quant"><span class="no">4</span>Quant Lab</button>
+  <button class="aba-btn" data-aba="telemetria"><span class="no">5</span>Telemetria</button>
+  <button class="aba-btn" data-aba="expediente"><span class="no">6</span>Expediente</button>
+</nav>
+
+<!-- ══ 1 · COCKPIT ═══════════════════════════════════════════════ -->
+<section class="aba-secao" id="aba-cockpit" style="display:block">
   <div class="hero">
     <div class="hero-grafico">
-      <canvas id="equityChart"></canvas>
-      <div class="hero-vazio" id="equity-vazio">
-        <div>O razão começa no primeiro trade fechado.</div>
-        <div style="font-family:var(--mono);font-size:11px;font-style:normal">AINDA SEM FECHAMENTOS DA ESTRATÉGIA PRIMÁRIA NESTE BANCO</div>
+      <div class="secao-nota" id="chart-title" style="margin:6px 0 4px">HISTÓRICO DA SESSÃO :: BTCUSDT</div>
+      <canvas id="precoChart"></canvas>
+      <div style="display:flex;gap:18px;margin-top:8px" class="num" id="preco-meta">
+        <span>MAX24 <b id="max24" style="color:var(--ink)">—</b></span>
+        <span>MIN24 <b id="min24" style="color:var(--ink)">—</b></span>
+        <span>VOL24 <b id="vol24" style="color:var(--ink)">—</b></span>
+        <span>FUNDING <b id="funding" style="color:var(--ink)">—</b></span>
       </div>
     </div>
     <div class="hero-razao">
@@ -433,13 +401,109 @@
     </div>
   </div>
 
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">O bot agora</div>
+      <div class="secao-nota" id="bot-ciclo-nota">ÚLTIMO CICLO —</div>
+    </div>
+    <div class="pipeline" id="pipeline">
+      <div class="estacao" data-est="dados"><div class="rot">Dados</div><div class="num-val" id="pl-dados">—</div><div class="sub">última coleta</div></div>
+      <div class="estacao" data-est="indicadores"><div class="rot">Indicadores</div><div class="num-val" id="pl-ind">—</div><div class="sub">RSI 14 · 1h</div></div>
+      <div class="estacao" data-est="ml"><div class="rot">Ensemble ML</div><div class="num-val" id="pl-ml">—</div><div class="sub">prob. de alta · 8h</div></div>
+      <div class="estacao" data-est="score"><div class="rot">Score</div><div class="num-val" id="pl-score">—</div><div class="sub">de 100 · opera ≥60</div></div>
+      <div class="estacao" data-est="risco"><div class="rot">Risco</div><div class="num-val" id="pl-risco">—</div><div class="sub" id="pl-risco-sub">circuit breaker</div></div>
+      <div class="estacao" data-est="decisao"><div class="rot">Decisão</div><div class="num-val" id="pl-dec">—</div><div class="sub" id="pl-dec-sub">&nbsp;</div></div>
+    </div>
+    <table class="diario">
+      <thead><tr>
+        <th style="width:76px">Hora</th><th style="width:86px">Par</th>
+        <th style="width:110px" class="dir-right">Preço</th>
+        <th style="width:64px" class="dir-right">Score</th>
+        <th>Regime / bloqueios</th>
+        <th style="width:64px" class="dir-right">ML</th>
+        <th style="width:150px" class="dir-right">Decisão</th>
+      </tr></thead>
+      <tbody id="diario-corpo">
+        <tr><td colspan="7" style="font-style:italic;color:var(--ink-3)">Aguardando o primeiro registro do diário…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">Mercado</div>
+      <div class="secao-nota" id="update-lbl">—</div>
+    </div>
+    <div class="mercado-pares" id="mercado-pares"></div>
+    <div class="mercado-detalhe">
+      <div class="parecer">
+        <div class="secao-nota" style="margin:4px 0 6px">PARECER DA ESTRATÉGIA</div>
+        <div class="parecer-sinal" id="sinal-badge">aguardar</div>
+        <div class="leader"><span class="lbl">Stop</span><span class="pontos"></span><span class="val" id="stop-val">—</span></div>
+        <div class="leader"><span class="lbl">Alvo</span><span class="pontos"></span><span class="val" id="target-val">—</span></div>
+        <div class="leader"><span class="lbl">Tendência 1h / 4h</span><span class="pontos"></span><span class="val" id="tend-val">—</span></div>
+        <div class="leader"><span class="lbl">Regime</span><span class="pontos"></span><span class="val" id="regime-badge">—</span></div>
+        <div class="leader"><span class="lbl">Fear &amp; Greed</span><span class="pontos"></span><span class="val" id="fg-badge">—</span></div>
+        <div class="leader"><span class="lbl">Parâmetros</span><span class="pontos"></span><span class="val" id="params-strip" style="font-size:10px">—</span></div>
+      </div>
+      <div>
+        <div class="secao-nota" style="margin:4px 0 6px">SCORE <span id="gauge-num" style="color:var(--ink)">0</span>/100 · <span id="score-decisao">AGUARDAR</span></div>
+        <div id="score-breakdown"></div>
+      </div>
+    </div>
+    <div class="quadro-micro">
+      <div class="micro-col"><h4>Indicadores · 1h</h4>
+        <div class="micro-linha"><span class="k">EMA 20</span><span class="v" id="ema20">—</span></div>
+        <div class="micro-linha"><span class="k">EMA 50</span><span class="v" id="ema50">—</span></div>
+        <div class="micro-linha"><span class="k">RSI 14</span><span class="v" id="rsi">—</span></div>
+        <div class="micro-linha"><span class="k">ATR 14</span><span class="v" id="atr">—</span></div>
+      </div>
+      <div class="micro-col"><h4>Ensemble ML</h4>
+        <div class="micro-linha"><span class="k">Conjunto</span><span class="v" id="ml-prob">—</span></div>
+        <div class="micro-linha"><span class="k">XGBoost</span><span class="v" id="ml-xgb">—</span></div>
+        <div class="micro-linha"><span class="k">MLP</span><span class="v" id="ml-lstm">—</span></div>
+        <div class="micro-linha"><span class="k">Confiança</span><span class="v" id="ml-conf">—</span></div>
+      </div>
+      <div class="micro-col"><h4>CVD &amp; Livro · BTC</h4>
+        <div class="micro-linha"><span class="k">CVD sessão</span><span class="v" id="cvd-valor">—</span></div>
+        <div class="micro-linha"><span class="k">Compras</span><span class="v up" id="cvd-c">—</span></div>
+        <div class="micro-linha"><span class="k">Vendas</span><span class="v down" id="cvd-v">—</span></div>
+        <div class="micro-linha"><span class="k">Pressão livro</span><span class="v" id="pressao">—</span></div>
+      </div>
+      <div class="micro-col"><h4>Gestão de risco</h4>
+        <div class="micro-linha"><span class="k">Saldo USDT</span><span class="v" id="r-usdt">—</span></div>
+        <div class="micro-linha"><span class="k">Drawdown dia</span><span class="v" id="r-dd">—</span></div>
+        <div class="micro-linha"><span class="k">Kelly</span><span class="v" id="r-kelly">—</span></div>
+        <div class="micro-linha"><span class="k">Volatilidade 1h</span><span class="v" id="r-vol">—</span></div>
+        <div class="micro-linha"><span class="k">Estado</span><span class="v" id="r-status">—</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 2 · ANÁLISE ═══════════════════════════════════════════════ -->
+<section class="aba-secao" id="aba-analise">
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">Resultado — carteira de papel</div>
+      <div class="secao-nota">MESMA RÉGUA DO GATE &middot; SÓ A ESTRATÉGIA PRIMÁRIA &middot; LÍQUIDA</div>
+    </div>
+    <div class="hero-grafico" style="margin-top:12px">
+      <canvas id="equityChart" style="height:280px !important"></canvas>
+      <div class="hero-vazio" id="equity-vazio">
+        <div>O razão começa no primeiro trade fechado.</div>
+        <div style="font-family:var(--mono);font-size:11px;font-style:normal">AINDA SEM FECHAMENTOS DA ESTRATÉGIA PRIMÁRIA NESTE BANCO</div>
+      </div>
+    </div>
+  </div>
+
   <div class="analise-cab">
-    <span class="secao-nota">ANÁLISE DO PERÍODO — SÓ A ESTRATÉGIA PRIMÁRIA, LÍQUIDA</span>
+    <span class="secao-nota">ANÁLISE DO PERÍODO</span>
     <div class="presets" id="analise-presets">
-      <button class="btn-tinta preset" data-dias="7">7D</button>
-      <button class="btn-tinta preset" data-dias="14">14D</button>
-      <button class="btn-tinta preset" data-dias="30">30D</button>
-      <button class="btn-tinta preset ativo" data-dias="0">TUDO</button>
+      <button class="btn-tinta preset" data-dias="7" aria-label="Período de 7 dias">7D</button>
+      <button class="btn-tinta preset" data-dias="14" aria-label="Período de 14 dias">14D</button>
+      <button class="btn-tinta preset" data-dias="30" aria-label="Período de 30 dias">30D</button>
+      <button class="btn-tinta preset ativo" data-dias="0" aria-label="Período completo">TUDO</button>
     </div>
   </div>
   <div id="analise-vazia" class="analise-vazia" style="display:none">
@@ -468,184 +532,148 @@
   </div>
 </section>
 
-<!-- ══ 2 · O BOT AGORA ════════════════════════════════════════════ -->
-<section class="secao" id="sec-bot">
-  <div class="secao-cab">
-    <div class="secao-titulo"><span class="no">2 ·</span>O bot agora</div>
-    <div class="secao-nota" id="bot-ciclo-nota">ÚLTIMO CICLO —</div>
+<!-- ══ 3 · CAMINHO AO REAL ═══════════════════════════════════════ -->
+<section class="aba-secao" id="aba-real">
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">Caminho ao capital real</div>
+      <div class="secao-nota">PRÉ-REGISTRADO &middot; FAIL É FINAL &middot; HOLD-OUT DE USO ÚNICO</div>
+    </div>
+    <div class="gates" id="gates-row">
+      <div class="gate"><div class="quando">—</div><div class="nome">Carregando a régua…</div></div>
+    </div>
+    <div class="secao-nota" style="margin-top:20px;border-top:1px solid var(--rule);padding-top:10px">
+      FUNIL DE HIPÓTESES — SÓ UMA FAMÍLIA APROVADA REABRE A ETAPA 1
+    </div>
+    <div class="funil" id="funil-row"></div>
   </div>
-  <div class="pipeline" id="pipeline">
-    <div class="estacao" data-est="dados"><div class="rot">Dados</div><div class="num-val" id="pl-dados">—</div><div class="sub">última coleta</div></div>
-    <div class="estacao" data-est="indicadores"><div class="rot">Indicadores</div><div class="num-val" id="pl-ind">—</div><div class="sub">RSI 14 · 1h</div></div>
-    <div class="estacao" data-est="ml"><div class="rot">Ensemble ML</div><div class="num-val" id="pl-ml">—</div><div class="sub">prob. de alta · 8h</div></div>
-    <div class="estacao" data-est="score"><div class="rot">Score</div><div class="num-val" id="pl-score">—</div><div class="sub">de 100 · opera ≥60</div></div>
-    <div class="estacao" data-est="risco"><div class="rot">Risco</div><div class="num-val" id="pl-risco">—</div><div class="sub" id="pl-risco-sub">circuit breaker</div></div>
-    <div class="estacao" data-est="decisao"><div class="rot">Decisão</div><div class="num-val" id="pl-dec">—</div><div class="sub" id="pl-dec-sub">&nbsp;</div></div>
+
+  <div class="secao" id="sec-diario" style="display:none">
+    <div class="secao-cab">
+      <div class="secao-titulo">Diário de produção</div>
+      <div class="secao-nota" id="diario-fonte">DOCS/RELATORIO_PRODUCAO.MD · ÚLTIMA ENTRADA</div>
+    </div>
+    <div class="editorial">
+      <h3 id="diario-titulo" class="ed-titulo">—</h3>
+      <div id="diario-corpo-doc"></div>
+    </div>
   </div>
-  <table class="diario">
-    <thead><tr>
-      <th style="width:76px">Hora</th><th style="width:86px">Par</th>
-      <th style="width:110px" class="dir-right">Preço</th>
-      <th style="width:64px" class="dir-right">Score</th>
-      <th>Regime / bloqueios</th>
-      <th style="width:64px" class="dir-right">ML</th>
-      <th style="width:150px" class="dir-right">Decisão</th>
-    </tr></thead>
-    <tbody id="diario-corpo">
-      <tr><td colspan="7" style="font-style:italic;color:var(--ink-3)">Aguardando o primeiro registro do diário…</td></tr>
-    </tbody>
-  </table>
 </section>
 
-<!-- ══ 3 · MERCADO ════════════════════════════════════════════════ -->
-<section class="secao" id="sec-mercado">
-  <div class="secao-cab">
-    <div class="secao-titulo"><span class="no">3 ·</span>Mercado</div>
-    <div class="secao-nota" id="update-lbl">—</div>
-  </div>
+<!-- ══ 4 · QUANT LAB ═════════════════════════════════════════════ -->
+<section class="aba-secao" id="aba-quant">
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">Quant Lab — a régua científica, ao vivo</div>
+      <div class="secao-nota">ARTEFATOS REAIS &middot; FONTE INDISPONÍVEL VIRA "—", NUNCA NÚMERO INVENTADO</div>
+    </div>
 
-  <div class="mercado-pares" id="mercado-pares"></div>
+    <div class="secao-nota" style="margin:14px 0 4px">RETREINOS DO ENSEMBLE (model_metricas · domingos 02h)</div>
+    <div class="tabela-scroll">
+      <table class="diario" style="margin-top:0">
+        <thead><tr><th>Quando</th><th>Par</th><th>Modelo</th><th class="dir-right">AUC</th><th class="dir-right">CV AUC</th><th class="dir-right">±σ</th></tr></thead>
+        <tbody id="q-retreinos"><tr><td colspan="6" style="font-style:italic;color:var(--ink-3)">Carregando…</td></tr></tbody>
+      </table>
+    </div>
 
-  <div class="mercado-detalhe">
-    <div>
-      <div class="secao-nota" id="chart-title" style="margin:4px 0 6px">HISTÓRICO DA SESSÃO :: BTCUSDT</div>
-      <canvas id="precoChart"></canvas>
-      <div style="display:flex;gap:18px;margin-top:8px" class="num" id="preco-meta">
-        <span>MAX24 <b id="max24" style="color:var(--ink)">—</b></span>
-        <span>MIN24 <b id="min24" style="color:var(--ink)">—</b></span>
-        <span>VOL24 <b id="vol24" style="color:var(--ink)">—</b></span>
-        <span>FUNDING <b id="funding" style="color:var(--ink)">—</b></span>
+    <div class="secao-nota" style="margin:16px 0 4px">ALERTAS DE DRIFT (guard-rail P1-4 — avisa, nunca bloqueia o retreino)</div>
+    <table class="diario" style="margin-top:0"><tbody id="q-drift">
+      <tr><td style="font-style:italic;color:var(--ink-3)">Carregando…</td></tr>
+    </tbody></table>
+
+    <div id="q-labs"></div>
+
+    <div class="duas-tabelas">
+      <div class="micro-col" style="padding-left:0;border-left:none">
+        <h4>Telemetria de execução (gauges do worker · 127.0.0.1:8080)</h4>
+        <div id="q-exec">—</div>
+      </div>
+      <div class="micro-col" style="border-left:none;padding-left:0">
+        <h4>Arquivo de medições (research/vereditos — backtest por HTTP segue DESLIGADO, I-12)</h4>
+        <div id="q-arquivo">—</div>
       </div>
     </div>
-    <div class="parecer">
-      <div class="secao-nota" style="margin:4px 0 6px">PARECER DA ESTRATÉGIA</div>
-      <div class="parecer-sinal" id="sinal-badge">aguardar</div>
-      <div class="leader"><span class="lbl">Stop</span><span class="pontos"></span><span class="val" id="stop-val">—</span></div>
-      <div class="leader"><span class="lbl">Alvo</span><span class="pontos"></span><span class="val" id="target-val">—</span></div>
-      <div class="leader"><span class="lbl">Tendência 1h / 4h</span><span class="pontos"></span><span class="val" id="tend-val">—</span></div>
-      <div class="leader"><span class="lbl">Regime</span><span class="pontos"></span><span class="val" id="regime-badge">—</span></div>
-      <div class="leader"><span class="lbl">Fear &amp; Greed</span><span class="pontos"></span><span class="val" id="fg-badge">—</span></div>
-      <div class="leader"><span class="lbl">Parâmetros</span><span class="pontos"></span><span class="val" id="params-strip" style="font-size:10px">—</span></div>
-      <div style="margin-top:14px">
-        <div class="secao-nota" style="margin-bottom:6px">SCORE <span id="gauge-num" style="color:var(--ink)">0</span>/100 · <span id="score-decisao">AGUARDAR</span></div>
-        <div id="score-breakdown"></div>
+  </div>
+</section>
+
+<!-- ══ 5 · TELEMETRIA ════════════════════════════════════════════ -->
+<section class="aba-secao" id="aba-telemetria">
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">Telemetria</div>
+      <div class="secao-nota">BTC TICK-A-TICK (@aggTrade ≥0,5) &middot; ETH/SOL POR SNAPSHOT 30s</div>
+    </div>
+    <div class="fita-cab">
+      <div class="fita-stats">
+        <span>ORDENS/MIN <b id="fita-txmin">0</b></span>
+        <span>VOL/MIN <b id="fita-volmin">$0.0K</b></span>
+        <span style="opacity:.7">medidos na janela móvel de 60s — sem piso artificial</span>
       </div>
+      <button id="btn-fita-pausa" class="btn-tinta preset" aria-label="Pausar a fita de pregão para inspecionar">⏸ PAUSAR</button>
     </div>
-  </div>
+    <div id="fita-chips" aria-label="Fita de pregão — clique numa ordem para focar o cockpit"></div>
 
-  <div class="quadro-micro">
-    <div class="micro-col"><h4>Indicadores · 1h</h4>
-      <div class="micro-linha"><span class="k">EMA 20</span><span class="v" id="ema20">—</span></div>
-      <div class="micro-linha"><span class="k">EMA 50</span><span class="v" id="ema50">—</span></div>
-      <div class="micro-linha"><span class="k">RSI 14</span><span class="v" id="rsi">—</span></div>
-      <div class="micro-linha"><span class="k">ATR 14</span><span class="v" id="atr">—</span></div>
-    </div>
-    <div class="micro-col"><h4>Ensemble ML</h4>
-      <div class="micro-linha"><span class="k">Conjunto</span><span class="v" id="ml-prob">—</span></div>
-      <div class="micro-linha"><span class="k">XGBoost</span><span class="v" id="ml-xgb">—</span></div>
-      <div class="micro-linha"><span class="k">MLP</span><span class="v" id="ml-lstm">—</span></div>
-      <div class="micro-linha"><span class="k">Confiança</span><span class="v" id="ml-conf">—</span></div>
-    </div>
-    <div class="micro-col"><h4>CVD &amp; Livro · BTC</h4>
-      <div class="micro-linha"><span class="k">CVD sessão</span><span class="v" id="cvd-valor">—</span></div>
-      <div class="micro-linha"><span class="k">Compras</span><span class="v up" id="cvd-c">—</span></div>
-      <div class="micro-linha"><span class="k">Vendas</span><span class="v down" id="cvd-v">—</span></div>
-      <div class="micro-linha"><span class="k">Pressão livro</span><span class="v" id="pressao">—</span></div>
-    </div>
-    <div class="micro-col"><h4>Gestão de risco</h4>
-      <div class="micro-linha"><span class="k">Saldo USDT</span><span class="v" id="r-usdt">—</span></div>
-      <div class="micro-linha"><span class="k">Drawdown dia</span><span class="v" id="r-dd">—</span></div>
-      <div class="micro-linha"><span class="k">Kelly</span><span class="v" id="r-kelly">—</span></div>
-      <div class="micro-linha"><span class="k">Volatilidade 1h</span><span class="v" id="r-vol">—</span></div>
-      <div class="micro-linha"><span class="k">Estado</span><span class="v" id="r-status">—</span></div>
-    </div>
-  </div>
-
-  <div class="duas-tabelas">
-    <div>
-      <div class="secao-nota" style="margin-bottom:6px">PREGÃO — ORDENS GRANDES (BTC, &ge;0,5)</div>
-      <div class="tabela-scroll">
-        <table class="diario" style="margin-top:0"><tbody id="trades-list">
-          <tr><td colspan="5" style="font-style:italic;color:var(--ink-3)">Aguardando fluxo…</td></tr>
+    <div class="duas-tabelas">
+      <div>
+        <div class="secao-nota" style="margin-bottom:6px">PREGÃO — ORDENS GRANDES (BTC, &ge;0,5)</div>
+        <div class="tabela-scroll">
+          <table class="diario" style="margin-top:0"><tbody id="trades-list">
+            <tr><td colspan="5" style="font-style:italic;color:var(--ink-3)">Aguardando fluxo…</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+      <div>
+        <div class="secao-nota" style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+          <span>OCORRÊNCIAS DO SISTEMA <span id="ev-count" style="color:var(--ink-3)"></span></span>
+          <button id="btn-ev-pausa" class="btn-tinta preset" aria-label="Pausar o fluxo de ocorrências">⏸ PAUSAR</button>
+        </div>
+        <div class="tabela-scroll">
+          <table class="diario" style="margin-top:0"><tbody id="eventos-list">
+            <tr><td colspan="3" style="font-style:italic;color:var(--ink-3)">Sem ocorrências nesta sessão…</td></tr>
+          </tbody></table>
+        </div>
+        <div class="secao-nota" style="margin:12px 0 4px">INCIDENTES DO WORKER (bot_events) — clique na linha para inspecionar</div>
+        <table class="diario" style="margin-top:0"><tbody id="incidentes-list">
+          <tr><td style="font-style:italic;color:var(--ink-3)">Sem incidentes registrados.</td></tr>
         </tbody></table>
       </div>
     </div>
-    <div>
-      <div class="secao-nota" style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
-        <span>OCORRÊNCIAS DO SISTEMA <span id="ev-count" style="color:var(--ink-3)"></span></span>
-        <button id="btn-ev-pausa" class="btn-tinta preset" onclick="alternarPausaEventos()">⏸ PAUSAR</button>
-      </div>
-      <div class="tabela-scroll">
-        <table class="diario" style="margin-top:0"><tbody id="eventos-list">
-          <tr><td colspan="3" style="font-style:italic;color:var(--ink-3)">Sem ocorrências nesta sessão…</td></tr>
-        </tbody></table>
-      </div>
-      <div class="secao-nota" style="margin:12px 0 4px">INCIDENTES DO WORKER (bot_events) — clique na linha para inspecionar</div>
-      <table class="diario" style="margin-top:0"><tbody id="incidentes-list">
-        <tr><td style="font-style:italic;color:var(--ink-3)">Sem incidentes registrados.</td></tr>
-      </tbody></table>
+  </div>
+</section>
+
+<!-- ══ 6 · EXPEDIENTE ════════════════════════════════════════════ -->
+<section class="aba-secao" id="aba-expediente">
+  <div class="secao">
+    <div class="secao-cab">
+      <div class="secao-titulo">Expediente — máquina &amp; relógios</div>
+      <div class="secao-nota" id="sistema-agora">—</div>
     </div>
-  </div>
-</section>
-
-<!-- ══ 4 · CAMINHO AO REAL ════════════════════════════════════════ -->
-<section class="secao" id="sec-gates">
-  <div class="secao-cab">
-    <div class="secao-titulo"><span class="no">4 ·</span>Caminho ao capital real</div>
-    <div class="secao-nota">PRÉ-REGISTRADO &middot; FAIL É FINAL &middot; HOLD-OUT DE USO ÚNICO</div>
-  </div>
-  <div class="gates" id="gates-row">
-    <div class="gate"><div class="quando">—</div><div class="nome">Carregando a régua…</div></div>
-  </div>
-  <div class="secao-nota" style="margin-top:20px;border-top:1px solid var(--rule);padding-top:10px">
-    FUNIL DE HIPÓTESES — SÓ UMA FAMÍLIA APROVADA REABRE A ETAPA 1
-  </div>
-  <div class="funil" id="funil-row"></div>
-</section>
-
-<!-- ══ 5 · SISTEMA ════════════════════════════════════════════════ -->
-<section class="secao" id="sec-sistema">
-  <div class="secao-cab">
-    <div class="secao-titulo"><span class="no">5 ·</span>Expediente — máquina &amp; relógios</div>
-    <div class="secao-nota" id="sistema-agora">—</div>
-  </div>
-  <div class="expediente">
-    <div class="micro-col" style="padding-left:0;border-left:none"><h4>Serviços 24/7</h4><div id="exp-servicos">—</div></div>
-    <div class="micro-col"><h4>Relógios</h4><div id="exp-relogios">—</div></div>
-    <div class="micro-col"><h4>Conexões</h4><div id="exp-conexoes">—</div></div>
-    <div class="micro-col"><h4>Edição</h4>
-      <div class="micro-linha"><span class="k">Tema</span><span class="v" id="exp-tema">impressão noturna</span></div>
-      <div class="micro-linha"><span class="k">Banco</span><span class="v" id="exp-banco">—</span></div>
-      <div class="micro-linha"><span class="k">Modo</span><span class="v" id="exp-modo">—</span></div>
+    <div class="expediente">
+      <div class="micro-col" style="padding-left:0;border-left:none"><h4>Serviços 24/7</h4><div id="exp-servicos">—</div></div>
+      <div class="micro-col"><h4>Relógios</h4><div id="exp-relogios">—</div></div>
+      <div class="micro-col"><h4>Conexões</h4><div id="exp-conexoes">—</div></div>
+      <div class="micro-col"><h4>Edição</h4>
+        <div class="micro-linha"><span class="k">Tema</span><span class="v" id="exp-tema">impressão noturna</span></div>
+        <div class="micro-linha"><span class="k">Banco</span><span class="v" id="exp-banco">—</span></div>
+        <div class="micro-linha"><span class="k">Modo</span><span class="v" id="exp-modo">—</span></div>
+      </div>
     </div>
-  </div>
-</section>
-
-<!-- ══ 6 · DIÁRIO DE PRODUÇÃO ═════════════════════════════════════ -->
-<section class="secao" id="sec-diario" style="display:none">
-  <div class="secao-cab">
-    <div class="secao-titulo"><span class="no">6 ·</span>Diário de produção</div>
-    <div class="secao-nota" id="diario-fonte">DOCS/RELATORIO_PRODUCAO.MD · ÚLTIMA ENTRADA</div>
-  </div>
-  <div class="editorial">
-    <h3 id="diario-titulo" class="ed-titulo">—</h3>
-    <div id="diario-corpo-doc"></div>
   </div>
 </section>
 
 <footer>
-  <span>CryptoXbot · ensemble XGBoost + MLP · Binance Spot</span>
+  <span>CryptoXbot · ensemble XGBoost + MLP · Binance Spot · seções 1-6 pelo teclado</span>
   <span id="footer-update">—</span>
 </footer>
 
 </div><!-- /folha -->
 
 <!-- MODAL CONEXÃO BINANCE -->
-<div id="modal-conexao" onclick="if(event.target===this)fecharModalConexao()">
+<div id="modal-conexao">
   <div id="modal-conexao-inner">
     <div class="mc-header">
       <span class="mc-title">Conexão — Binance</span>
-      <span class="mc-close" onclick="fecharModalConexao()">✕</span>
+      <button class="mc-close" id="mc-fechar" aria-label="Fechar">✕</button>
     </div>
     <div class="mc-body">
       <div>
@@ -671,850 +699,11 @@
         <div class="mc-row"><span class="mc-lbl">ALLOW_REAL_TRADING</span><span class="mc-val" id="mc-allow-real">—</span></div>
       </div>
       <div style="font-family:var(--mono);font-size:9px;color:var(--ink-3);text-align:right" id="mc-ts">—</div>
-      <button id="btn-testar" class="btn-tinta" onclick="testarConexao()">▶ TESTAR CONEXÃO</button>
+      <button id="btn-testar" class="btn-tinta">▶ TESTAR CONEXÃO</button>
     </div>
   </div>
 </div>
 
-<script>
-'use strict';
-// ── helpers ──────────────────────────────────────────────────────
-const el  = id => document.getElementById(id);
-const fmt = (n, d=2) => n == null ? '—' : Number(n).toLocaleString('pt-BR', {minimumFractionDigits:d, maximumFractionDigits:d});
-const fmtK = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : `$${(n/1e3).toFixed(1)}K`;
-const sinalNum = (n, d=2, pre='$') => (n >= 0 ? '+' : '−') + pre + fmt(Math.abs(n), d);
-// P2: escapa HTML de qualquer string vinda da API antes de ir para innerHTML
-// (defesa-em-profundidade contra XSS — numeros passam por fmt/Number e sao seguros).
-const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => (
-  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-
-let parAtivo = 'BTCUSDT';
-let dadosPares = {};
-
-// ── TEMA (papel-jornal x impressao noturna) ─────────────────────
-if (localStorage.getItem('bxbot-tema') === 'light') { /* aplicado no <head> */ }
-function alternarTema() {
-  const claro = document.documentElement.getAttribute('data-theme') === 'light';
-  if (claro) {
-    document.documentElement.removeAttribute('data-theme');
-    localStorage.setItem('bxbot-tema', 'dark');
-  } else {
-    document.documentElement.setAttribute('data-theme', 'light');
-    localStorage.setItem('bxbot-tema', 'light');
-  }
-  el('exp-tema').textContent = claro ? 'impressão noturna' : 'papel-jornal';
-  reentintarCharts(); // canvas nao reage a var() sozinho
-}
-
-// ── CHARTS (tinta sobre pauta) ──────────────────────────────────
-Chart.defaults.font.family = "Consolas, 'Cascadia Mono', monospace";
-Chart.defaults.font.size = 10;
-
-// hachura diagonal — assinatura do tema no lugar de gradiente
-function hachura(ctx, cor) {
-  const c = document.createElement('canvas'); c.width = 7; c.height = 7;
-  const x = c.getContext('2d');
-  x.strokeStyle = cor; x.globalAlpha = parseFloat(cssVar('--hatch-a')) || .3; x.lineWidth = 1;
-  x.beginPath(); x.moveTo(-2, 9); x.lineTo(9, -2); x.stroke();
-  x.beginPath(); x.moveTo(-2, 2); x.lineTo(2, -2); x.stroke();
-  x.beginPath(); x.moveTo(2, 9); x.lineTo(9, 2); x.stroke();
-  return ctx.createPattern(c, 'repeat');
-}
-const eixos = () => ({
-  x: { ticks: { color: cssVar('--ink-3'), maxTicksLimit: 9 }, grid: { color: cssVar('--rule'), drawTicks: false }, border: { color: cssVar('--rule-2') } },
-  y: { ticks: { color: cssVar('--ink-3'), callback: v => '$' + Number(v).toLocaleString('pt-BR') }, grid: { color: cssVar('--rule'), drawTicks: false }, border: { color: cssVar('--rule-2') }, position: 'right' },
-});
-
-// 1) curva de equity — traço que muda de tinta ao cruzar o zero
-const eqCtx = el('equityChart').getContext('2d');
-const equityChart = new Chart(eqCtx, {
-  type: 'line',
-  data: { labels: [], datasets: [{
-    data: [], borderWidth: 2, pointRadius: 0, tension: 0,
-    segment: { borderColor: s => (s.p1.parsed.y >= 0 ? cssVar('--gain') : cssVar('--loss')) },
-    borderColor: cssVar('--ink'),
-    fill: { target: 'origin', above: hachura(eqCtx, cssVar('--gain')), below: hachura(eqCtx, cssVar('--loss')) },
-  }]},
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    animation: { duration: 600 },
-    plugins: { legend: { display: false }, tooltip: {
-      displayColors: false,
-      callbacks: { label: c => 'acumulado ' + sinalNum(c.parsed.y) },
-    }},
-    scales: eixos(),
-  }
-});
-
-// 2) historico de preco da sessao — um traço de tinta
-const pCtx = el('precoChart').getContext('2d');
-const precoChart = new Chart(pCtx, {
-  type: 'line',
-  data: { labels: [], datasets: [{ data: [], borderColor: cssVar('--ink'), borderWidth: 1.5, pointRadius: 0, tension: .25 }]},
-  options: {
-    responsive: true, maintainAspectRatio: false, animation: false,
-    plugins: { legend: { display: false } },
-    scales: eixos(),
-  }
-});
-
-// 3) sparklines por par (criadas sob demanda)
-const sparks = {};
-function spark(id) {
-  if (sparks[id]) return sparks[id];
-  const cv = document.getElementById(id);
-  if (!cv) return null;
-  sparks[id] = new Chart(cv.getContext('2d'), {
-    type: 'line',
-    data: { labels: [], datasets: [{ data: [], borderColor: cssVar('--ink-3'), borderWidth: 1, pointRadius: 0, tension: .3 }]},
-    options: { responsive: false, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      scales: { x: { display: false }, y: { display: false } } }
-  });
-  return sparks[id];
-}
-
-function reentintarCharts() {
-  equityChart.options.scales = eixos();
-  equityChart.data.datasets[0].fill = { target: 'origin', above: hachura(eqCtx, cssVar('--gain')), below: hachura(eqCtx, cssVar('--loss')) };
-  equityChart.update('none');
-  precoChart.options.scales = eixos();
-  precoChart.data.datasets[0].borderColor = cssVar('--ink');
-  precoChart.update('none');
-  Object.values(sparks).forEach(s => { s.data.datasets[0].borderColor = cssVar('--ink-3'); s.update('none'); });
-  if (_anData) renderAnalytics(_anData); // recria os gráficos da análise na nova tinta
-}
-
-// ── 1 · RESULTADO ───────────────────────────────────────────────
-function marcarNumero(elId, texto, positivo) {
-  const e = el(elId);
-  if (!e) return;
-  const mudou = e.textContent !== texto;
-  e.textContent = texto;
-  if (mudou) {
-    e.classList.remove('seca-verde', 'seca-vermelho');
-    void e.offsetWidth;
-    e.classList.add(positivo ? 'seca-verde' : 'seca-vermelho');
-  }
-}
-
-async function carregarLucro() {
-  try {
-    const d = await fetch('/api/lucro').then(r => r.json());
-    const tot = d.pnl_total || 0;
-    marcarNumero('pnl-hero', sinalNum(tot), tot >= 0);
-    el('pnl-hero').style.color = tot > 0 ? 'var(--gain)' : tot < 0 ? 'var(--loss)' : 'var(--ink)';
-    const dia = d.pnl_dia || 0;
-    el('lucro-dia').textContent = sinalNum(dia);
-    el('lucro-dia').className = 'val ' + (dia > 0 ? 'up' : dia < 0 ? 'down' : '');
-    el('lucro-n').textContent = d.trades_fechados ?? 0;
-    el('lucro-wr').textContent = d.win_rate == null ? '—' : d.win_rate.toFixed(0) + '%';
-    if (d.ultimo) {
-      const u = d.ultimo;
-      el('lucro-ultimo').textContent =
-        u.symbol + ' ' + sinalNum(u.pnl_usdt) + ' · ' + (u.barreira || '?') + ' · ' + String(u.quando).slice(5, 16);
-      el('lucro-ultimo').className = 'val ' + (u.pnl_usdt >= 0 ? 'up' : 'down');
-      el('lucro-ultimo').style.fontSize = '11px';
-    }
-  } catch(e) {}
-}
-
-async function carregarEquity() {
-  try {
-    const d = await fetch('/api/equity').then(r => r.json());
-    const pts = d.pontos || [];
-    el('equity-vazio').style.display = pts.length ? 'none' : 'flex';
-    equityChart.data.labels = pts.map(p => String(p.t).slice(5, 10));
-    equityChart.data.datasets[0].data = pts.map(p => p.cum);
-    equityChart.update();
-  } catch(e) {}
-}
-
-// ── ANÁLISE DO PERÍODO (IDEIAS 1-5+7 da análise do zip, régua honesta) ──
-let _anDias = 0, _anData = null;
-const _anCharts = {};
-
-function _anDestroi() {
-  for (const k of Object.keys(_anCharts)) { _anCharts[k].destroy(); delete _anCharts[k]; }
-}
-
-function renderAnalytics(d) {
-  _anData = d;
-  const vazio = !d || !d.ribbon || d.ribbon.n_trades === 0;
-  el('analise-vazia').style.display = vazio ? '' : 'none';
-  el('analise-corpo').style.display = vazio ? 'none' : '';
-  if (vazio) { _anDestroi(); return; }
-
-  const r = d.ribbon, ref = d.referencias || {};
-  const pfPiso = ref.pf_piso_etapa2 || 1.3;
-  const pfOk = r.profit_factor != null && r.profit_factor > pfPiso;
-  el('analise-ribbon').innerHTML =
-    `<span>TRADES <b>${r.n_trades}</b></span>` +
-    `<span>PNL <b class="${r.pnl_total >= 0 ? 'up' : 'down'}">${sinalNum(r.pnl_total)}</b></span>` +
-    `<span>WIN RATE <b>${r.win_rate == null ? '—' : r.win_rate.toFixed(0) + '%'}</b></span>` +
-    `<span>PF <b class="${r.profit_factor == null ? '' : (pfOk ? 'up' : 'down')}">${r.profit_factor == null ? '—' : r.profit_factor.toFixed(2)}</b> <span style="opacity:.7">piso E2 ${pfPiso.toFixed(1)}</span></span>` +
-    `<span>DIAS C/ TRADE <b>${r.dias_com_trade}</b></span>` +
-    `<span>DIAS POSITIVOS <b>${r.pct_dias_positivos == null ? '—' : r.pct_dias_positivos.toFixed(0) + '%'}</b></span>` +
-    (r.melhor_dia ? `<span>MELHOR <b class="up">${sinalNum(r.melhor_dia.pnl)}</b> <span style="opacity:.7">${esc(r.melhor_dia.dia.slice(5))}</span></span>` : '') +
-    (r.pior_dia ? `<span>PIOR <b class="${r.pior_dia.pnl >= 0 ? 'up' : 'down'}">${sinalNum(r.pior_dia.pnl)}</b> <span style="opacity:.7">${esc(r.pior_dia.dia.slice(5))}</span></span>` : '');
-
-  _anDestroi();
-  const GAIN = cssVar('--gain'), LOSS = cssVar('--loss'), INK = cssVar('--ink'), INK3 = cssVar('--ink-3');
-  const ex = { ticks: { color: INK3, maxTicksLimit: 8 }, grid: { display: false }, border: { color: cssVar('--rule-2') } };
-  const ey = { ticks: { color: INK3 }, grid: { color: cssVar('--rule'), drawTicks: false }, border: { display: false } };
-
-  // IDEIA #1+#7: PnL diário em barras × capital acumulado em linha, tooltip com o dia inteiro
-  _anCharts.diario = new Chart(el('chartDiario').getContext('2d'), {
-    data: { labels: d.diario.map(x => x.dia.slice(5)), datasets: [
-      { type: 'bar', data: d.diario.map(x => x.pnl), backgroundColor: d.diario.map(x => x.pnl >= 0 ? GAIN : LOSS), yAxisID: 'y', order: 2 },
-      { type: 'line', data: d.diario.map(x => x.cum), borderColor: INK, borderWidth: 2, pointRadius: 0, tension: 0, yAxisID: 'y2', order: 1 },
-    ]},
-    options: { responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
-        title: c => d.diario[c[0].dataIndex].dia,
-        label: c => { const x = d.diario[c.dataIndex]; return [
-          'dia ' + sinalNum(x.pnl), x.n + ' trade(s) · ' + x.wins + 'W/' + (x.n - x.wins) + 'L',
-          'capital acumulado ' + sinalNum(x.cum)]; },
-      }}},
-      scales: { x: ex, y: ey, y2: { position: 'right', ticks: { color: INK3 }, grid: { display: false }, border: { display: false } } } },
-  });
-
-  // IDEIA #2: win rate móvel × equilíbrio pré-registrado da barreira 2:1
-  const wrRef = ref.wr_equilibrio_barreira || 33.3;
-  _anCharts.wr = new Chart(el('chartWinRate').getContext('2d'), {
-    type: 'line',
-    data: { labels: d.win_movel.map((x, i) => i + 1), datasets: [
-      { data: d.win_movel.map(x => x.wr), borderColor: INK, borderWidth: 2, pointRadius: 3,
-        pointBackgroundColor: d.win_movel.map(x => x.pnl >= 0 ? GAIN : LOSS), tension: 0 },
-      { data: d.win_movel.map(() => wrRef), borderColor: LOSS, borderWidth: 1, borderDash: [4, 4], pointRadius: 0 },
-    ]},
-    options: { responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
-        title: c => 'trade #' + (c[0].dataIndex + 1),
-        label: c => { const x = d.win_movel[c.dataIndex]; return [
-          x.symbol + ' ' + sinalNum(x.pnl), 'win rate móvel ' + x.wr.toFixed(1) + '%', String(x.t).slice(0, 16)]; },
-      }}},
-      scales: { x: ex, y: { ...ey, min: 0, max: 100, ticks: { color: INK3, callback: v => v + '%' } } } },
-  });
-
-  // IDEIA #3: PnL por janela horária — horas sem trade ficam vazias mesmo
-  _anCharts.hora = new Chart(el('chartHora').getContext('2d'), {
-    type: 'bar',
-    data: { labels: d.por_hora.map(x => String(x.hora).padStart(2, '0')),
-      datasets: [{ data: d.por_hora.map(x => x.pnl), backgroundColor: d.por_hora.map(x => x.pnl >= 0 ? GAIN : LOSS) }] },
-    options: { responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
-        label: c => { const x = d.por_hora[c.dataIndex]; return sinalNum(x.pnl) + ' em ' + x.n + ' trade(s)'; } } } },
-      scales: { x: ex, y: ey } },
-  });
-
-  // IDEIA #4: PnL por par (BTC ensemble completo vs ETH/SOL só-XGB)
-  _anCharts.par = new Chart(el('chartPar').getContext('2d'), {
-    type: 'bar',
-    data: { labels: d.por_par.map(x => x.symbol.replace('USDT', '')),
-      datasets: [{ data: d.por_par.map(x => x.pnl), backgroundColor: d.por_par.map(x => x.pnl >= 0 ? GAIN : LOSS) }] },
-    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
-        label: c => { const x = d.por_par[c.dataIndex]; return sinalNum(x.pnl) + ' · ' + x.n + ' trade(s) · WR ' + (x.n ? Math.round(x.wins / x.n * 100) : 0) + '%'; } } } },
-      scales: { x: ey, y: ex } },
-  });
-}
-
-async function carregarAnalytics() {
-  try {
-    const d = await fetch('/api/analytics' + (_anDias ? '?dias=' + _anDias : '')).then(r => r.json());
-    renderAnalytics(d);
-  } catch (e) {}
-}
-
-document.querySelectorAll('#analise-presets .preset').forEach(b => {
-  b.addEventListener('click', () => {
-    _anDias = parseInt(b.dataset.dias, 10) || 0;
-    document.querySelectorAll('#analise-presets .preset').forEach(x => x.classList.toggle('ativo', x === b));
-    carregarAnalytics();
-  });
-});
-
-// ── 2 · O BOT AGORA ─────────────────────────────────────────────
-let _cicloTs = null;       // ultimo registro do diario
-let _feedTs  = Date.now(); // ultimo update do socket
-
-function varrerPipeline() {
-  const estacoes = [...document.querySelectorAll('.estacao')];
-  estacoes.forEach(e => e.classList.remove('ativa'));
-  estacoes.forEach((e, i) => {
-    setTimeout(() => e.classList.add('ativa'), i * 130);
-  });
-  setTimeout(() => estacoes.forEach(e => e.classList.remove('ativa')), estacoes.length * 130 + 900);
-}
-
-let _atvTopo = null;
-async function carregarAtividade() {
-  try {
-    const rows = await fetch('/api/atividade').then(r => r.json());
-    if (!rows.length) return;
-    const corpo = el('diario-corpo');
-    const novoTopo = rows[0].quando + rows[0].symbol;
-    const primeira = _atvTopo && novoTopo !== _atvTopo;
-    corpo.innerHTML = rows.map((r, i) => {
-      const dec = esc((r.decisao || 'AGUARDAR').toUpperCase());
-      const ml = r.ml == null ? '—' : (r.ml * 100).toFixed(0) + '%';
-      const extra = esc(r.bloqueios ? r.bloqueios : (r.regime || ''));
-      const cls = (i === 0 && primeira) ? ' class="assenta"' : '';
-      return `<tr${cls}>` +
-        `<td>${esc(String(r.quando).slice(11, 19))}</td>` +
-        `<td class="forte">${esc(r.symbol)}</td>` +
-        `<td class="dir-right">$${fmt(r.preco)}</td>` +
-        `<td class="dir-right forte">${r.score == null ? '—' : esc(r.score)}</td>` +
-        `<td>${extra}</td>` +
-        `<td class="dir-right">${ml}</td>` +
-        `<td class="dir-right dec-${dec}">${dec}</td>` +
-      `</tr>`;
-    }).join('');
-    _atvTopo = novoTopo;
-    _cicloTs = rows[0].quando;
-    el('bot-ciclo-nota').textContent = 'ÚLTIMO CICLO ' + String(_cicloTs).slice(11, 19);
-  } catch(e) {}
-}
-
-// batimento: cursor de tinta piscando = feed vivo; parado = denuncia
-setInterval(() => {
-  const seg = Math.round((Date.now() - _feedTs) / 1000);
-  const bat = el('batimento');
-  if (seg > 90) {
-    bat.classList.add('parado');
-    el('batimento-txt').textContent = `FEED PARADO HÁ ${seg}s`;
-  } else {
-    bat.classList.remove('parado');
-    el('batimento-txt').textContent = _cicloTs
-      ? 'ESCREVENDO — CICLO ' + String(_cicloTs).slice(11, 16)
-      : 'ESCREVENDO…';
-  }
-}, 5000);
-
-// ── 3 · MERCADO ─────────────────────────────────────────────────
-function renderParesMini(pares) {
-  const row = el('mercado-pares');
-  const existentes = row.children.length;
-  if (!existentes) {
-    row.innerHTML = pares.map(p => {
-      const sym = esc(String(p.symbol).replace('USDT', ''));
-      return `<div class="par-col" data-symbol="${esc(p.symbol)}" onclick="trocarPar('${esc(p.symbol)}')">` +
-        `<div class="sym">${sym} / USDT</div>` +
-        `<div class="preco num" id="pp-${esc(p.symbol)}">—</div>` +
-        `<div class="linha2"><span id="pv-${esc(p.symbol)}">—</span>` +
-        `<span style="color:var(--ink-3)" id="pt-${esc(p.symbol)}">—</span>` +
-        `<span style="color:var(--ink-3)" id="psc-${esc(p.symbol)}">—</span></div>` +
-        `<canvas id="spark-${esc(p.symbol)}" width="380" height="34"></canvas>` +
-      `</div>`;
-    }).join('');
-  }
-  pares.forEach(p => {
-    const preco = el('pp-' + p.symbol), varr = el('pv-' + p.symbol);
-    if (!preco) return;
-    preco.textContent = '$' + fmt(p.preco);
-    const vp = p.variacao_24h || 0;
-    varr.innerHTML = (vp >= 0 ? '&#9650; ' : '&#9660; ') + fmt(Math.abs(vp)) + '%';
-    varr.className = vp > 0 ? 'up' : vp < 0 ? 'down' : '';
-    el('pt-' + p.symbol).textContent = (p.tend_4h || '—') + ' · RSI ' + fmt(p.rsi, 0);
-    el('psc-' + p.symbol).textContent = 'SCORE ' + (p.score || 0) + ' · ' + (p.sinal || '—');
-  });
-  document.querySelectorAll('.par-col').forEach(d =>
-    d.classList.toggle('ativo', d.dataset.symbol === parAtivo));
-}
-
-function trocarPar(symbol) {
-  parAtivo = symbol;
-  document.querySelectorAll('.par-col').forEach(d =>
-    d.classList.toggle('ativo', d.dataset.symbol === symbol));
-  const d = dadosPares[symbol];
-  if (d) aplicarDados(d);
-  else fetch('/api/estado/' + symbol).then(r => r.json()).then(x => { dadosPares[x.symbol] = x; aplicarDados(x); });
-}
-
-const PESOS = { regime:25, mtf:20, ml:15, ema:10, fear_greed:10, rsi:8, vwap:5, volume:4, atr:3 };
-const NOMES = { regime:'REGIME', mtf:'MTF 4H', ml:'ML', ema:'EMA', fear_greed:'F&G', rsi:'RSI', vwap:'VWAP', volume:'VOL', atr:'ATR' };
-function renderBreakdown(detail) {
-  const wrap = el('score-breakdown');
-  wrap.innerHTML = Object.entries(PESOS).map(([k, peso]) => {
-    const val = detail && detail[k] != null ? detail[k] : 0;
-    const contrib = (val * peso / 100).toFixed(1);
-    const cor = val >= 70 ? 'var(--gain)' : val >= 40 ? 'var(--warn)' : 'var(--loss)';
-    return `<div class="breakdown-linha">` +
-      `<span class="k">${NOMES[k]}</span>` +
-      `<div class="breakdown-barra"><div class="breakdown-fill" style="width:${Math.min(val,100)}%;color:${cor}"></div></div>` +
-      `<span class="v" style="color:${cor}">${contrib}</span>` +
-    `</div>`;
-  }).join('');
-}
-
-function aplicarDados(d) {
-  if (!d) return;
-
-  // pipeline (bloco 2) — o pensamento do ciclo mais recente do par ativo
-  el('pl-dados').textContent = d.ultima_atualizacao || '—';
-  el('pl-ind').textContent = fmt(d.rsi, 1);
-  const mlP = d.ml_ensemble ?? d.ml_prob;
-  el('pl-ml').textContent = mlP != null ? (mlP * 100).toFixed(0) + '%' : '—';
-  el('pl-score').textContent = d.score || 0;
-  const dec = d.score_decisao || d.sinal || 'AGUARDAR';
-  el('pl-dec').textContent = dec === 'OPERAR_CHEIO' ? 'OPERAR' : dec === 'OPERAR_REDUZIDO' ? 'REDUZIDO' : dec;
-  el('pl-dec').style.color = dec.startsWith('OPERAR') || dec === 'COMPRA' ? 'var(--gain)' : 'var(--ink-3)';
-  el('pl-dec-sub').textContent = d.symbol || '';
-
-  // mercado detalhe
-  el('chart-title').textContent = 'HISTÓRICO DA SESSÃO :: ' + d.symbol;
-  el('max24').textContent = '$' + fmt(d.maximo_24h);
-  el('min24').textContent = '$' + fmt(d.minimo_24h);
-  el('vol24').textContent = fmt(d.volume_24h, 0) + ' ' + d.symbol.replace('USDT', '');
-  const fr = d.funding;
-  el('funding').textContent = fr != null ? (fr >= 0 ? '+' : '−') + fmt(Math.abs(fr), 4) + '%' : '—';
-
-  const sb = el('sinal-badge');
-  sb.textContent = (d.sinal || 'aguardar').toLowerCase();
-  sb.className = 'parecer-sinal ' + (d.sinal === 'COMPRA' ? 'compra' : d.sinal === 'VENDA' ? 'venda' : '');
-  el('stop-val').textContent   = d.stop_loss   ? '$' + fmt(d.stop_loss)   : '—';
-  el('stop-val').className    = 'val' + (d.stop_loss ? ' down' : '');
-  el('target-val').textContent = d.take_profit ? '$' + fmt(d.take_profit) : '—';
-  el('target-val').className  = 'val' + (d.take_profit ? ' up' : '');
-  el('tend-val').textContent = (d.tendencia || '—') + ' / ' + (d.tend_4h || '—');
-  el('regime-badge').textContent = (d.regime || '—').replace('TENDENCIA_', '').replace('_', ' ');
-  el('fg-badge').textContent = (d.fear_greed || 0) + ' — ' + (d.fear_greed_pt || '—');
-  if (d.params && Object.keys(d.params).length) {
-    el('params-strip').textContent =
-      'stop ' + (d.params.stop_pct * 100).toFixed(1) + '% · alvo ' + (d.params.target_pct * 100).toFixed(1) +
-      '% · RSI ' + d.params.rsi_min + '–' + d.params.rsi_max;
-  }
-
-  const score = d.score || 0;
-  el('gauge-num').textContent = score;
-  el('gauge-num').style.color = score >= 70 ? 'var(--gain)' : score >= 60 ? 'var(--warn)' : 'var(--ink)';
-  const sd = el('score-decisao');
-  sd.textContent = dec;
-  sd.style.color = dec === 'OPERAR_CHEIO' ? 'var(--gain)' : dec === 'OPERAR_REDUZIDO' ? 'var(--warn)' : 'var(--ink-3)';
-  renderBreakdown(d.score_detail);
-
-  // micro colunas
-  el('ema20').textContent = '$' + fmt(d.ema20);
-  el('ema50').textContent = '$' + fmt(d.ema50);
-  el('rsi').textContent = fmt(d.rsi, 1) + (d.rsi > 70 ? ' · sobrecomprado' : d.rsi < 30 ? ' · sobrevendido' : '');
-  el('atr').textContent = fmt(d.atr);
-  el('ml-prob').textContent = mlP != null ? (mlP * 100).toFixed(1) + '%' : '—';
-  el('ml-prob').style.color = mlP >= 0.6 ? 'var(--gain)' : mlP >= 0.45 ? 'var(--warn)' : 'var(--loss)';
-  el('ml-xgb').textContent  = d.ml_xgb  != null ? (d.ml_xgb * 100).toFixed(0) + '%' : '—';
-  el('ml-lstm').textContent = d.ml_lstm != null ? (d.ml_lstm * 100).toFixed(0) + '%' : '—';
-  el('ml-conf').textContent = d.ml_confianca || '—';
-
-  const cvd = d.cvd || 0;
-  el('cvd-valor').textContent = sinalNum(cvd, 3, '') + ' BTC';
-  el('cvd-valor').style.color = cvd >= 0 ? 'var(--gain)' : 'var(--loss)';
-  el('cvd-c').textContent = fmt(d.compras || 0, 2);
-  el('cvd-v').textContent = fmt(d.vendas || 0, 2);
-  const lc = d.liq_compra || 0, lv = d.liq_venda || 0, tot = lc + lv || 1;
-  el('pressao').textContent = (d.pressao_ob || '—') + ' · ' + ((lc / tot) * 100).toFixed(0) + '/' + ((lv / tot) * 100).toFixed(0);
-  el('pressao').style.color = d.pressao_ob === 'COMPRA' ? 'var(--gain)' : d.pressao_ob === 'VENDA' ? 'var(--loss)' : 'var(--ink-2)';
-
-  if (d.preco_historico && d.preco_historico.length) {
-    precoChart.data.labels = d.preco_historico.map(p => p.t);
-    precoChart.data.datasets[0].data = d.preco_historico.map(p => p.v);
-    precoChart.update('none');
-    const s = spark('spark-' + d.symbol);
-    if (s) {
-      s.data.labels = d.preco_historico.map(p => p.t);
-      s.data.datasets[0].data = d.preco_historico.map(p => p.v);
-      s.update('none');
-    }
-  }
-
-  el('update-lbl').textContent = 'ATUALIZADO ' + (d.ultima_atualizacao || '—');
-  el('footer-update').textContent = 'edição contínua · ' + (d.ultima_atualizacao || '—');
-}
-
-async function carregarPares() {
-  try {
-    const pares = await fetch('/api/pares').then(r => r.json());
-    renderParesMini(pares);
-  } catch(e) {}
-}
-
-async function carregarSparks() {
-  for (const s of ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']) {
-    try {
-      const d = await fetch('/api/estado/' + s).then(r => r.json());
-      dadosPares[s] = d;
-      const sp = spark('spark-' + s);
-      if (sp && d.preco_historico) {
-        sp.data.labels = d.preco_historico.map(p => p.t);
-        sp.data.datasets[0].data = d.preco_historico.map(p => p.v);
-        sp.update('none');
-      }
-    } catch(e) {}
-  }
-}
-
-// ── pregão + ocorrências ────────────────────────────────────────
-let primeiroTrade = true;
-function addTrade(t) {
-  const list = el('trades-list');
-  if (primeiroTrade) { list.innerHTML = ''; primeiroTrade = false; }
-  const compra = t.direcao === 'COMPRA';
-  const tr = document.createElement('tr');
-  tr.innerHTML =
-    `<td>${esc(t.hora)}</td>` +
-    `<td class="${compra ? 'dec-COMPRA' : ''}" style="${compra ? '' : 'color:var(--loss);font-weight:700'}">${t.baleia ? '◉ ' : ''}${esc(t.direcao)}</td>` +
-    `<td class="dir-right forte">$${fmt(t.preco)}</td>` +
-    `<td class="dir-right">${esc(t.volume)}</td>` +
-    `<td class="dir-right" style="color:var(--ink-3)">${fmtK(t.valor_usdt)}</td>`;
-  list.insertBefore(tr, list.firstChild);
-  while (list.children.length > 60) list.removeChild(list.lastChild);
-}
-
-// IDEIA #6: pausa DE VERDADE — pausado, os eventos entram numa fila e só
-// aparecem no retomar (o anti-exemplo do zip tinha badge PAUSADO decorativo).
-let _evPausado = false;
-const _evFila = [];
-function alternarPausaEventos() {
-  _evPausado = !_evPausado;
-  const btn = el('btn-ev-pausa');
-  if (_evPausado) {
-    btn.textContent = '▶ RETOMAR';
-  } else {
-    while (_evFila.length) addEvento(_evFila.shift());
-    btn.textContent = '⏸ PAUSAR';
-  }
-}
-
-let primeiroEvento = true, totalEventos = 0;
-function addEvento(ev) {
-  if (_evPausado) {
-    _evFila.push(ev);
-    el('btn-ev-pausa').textContent = '▶ RETOMAR (' + _evFila.length + ')';
-    return;
-  }
-  const list = el('eventos-list');
-  if (primeiroEvento) { list.innerHTML = ''; primeiroEvento = false; }
-  totalEventos++;
-  el('ev-count').textContent = '· ' + totalEventos;
-  const tr = document.createElement('tr');
-  tr.innerHTML =
-    `<td style="width:70px">${esc(ev.ts)}</td>` +
-    `<td style="width:80px;color:var(--ink-3)">${esc(ev.tipo)}</td>` +
-    `<td><span class="forte" style="color:var(--ink)">${esc(ev.titulo)}</span>` +
-    (ev.mensagem ? ` <span style="color:var(--ink-3)">${esc(ev.mensagem)}</span>` : '') + `</td>`;
-  list.insertBefore(tr, list.firstChild);
-  while (list.children.length > 80) list.removeChild(list.lastChild);
-}
-async function carregarEventos() {
-  try {
-    const evs = await fetch('/api/eventos').then(r => r.json());
-    if (evs.length) evs.reverse().forEach(addEvento);
-  } catch(e) {}
-}
-
-// IDEIA #6: incidentes reais do worker (tabela bot_events), inspecionáveis
-async function carregarIncidentes() {
-  try {
-    const d = await fetch('/api/bot_events?limite=6').then(r => r.json());
-    const evs = d.eventos || [];
-    if (!evs.length) return;
-    el('incidentes-list').innerHTML = evs.map((e, i) => {
-      const sev = esc(e.severity || 'INFO');
-      const cor = sev === 'CRITICAL' ? 'var(--loss)' : sev === 'WARNING' ? 'var(--warn)' : 'var(--ink-3)';
-      const detalhe = esc(typeof e.data === 'string' ? e.data : JSON.stringify(e.data || '')) || '—';
-      return `<tr style="cursor:pointer" onclick="var x=el('inc-det-${i}');x.style.display=x.style.display==='none'?'':'none'">` +
-        `<td style="width:110px">${esc(String(e.timestamp || '').slice(5, 16))}</td>` +
-        `<td style="width:80px;color:${cor}">${sev}</td>` +
-        `<td class="forte">${esc(e.event_type || '')}</td>` +
-        `<td>${esc(e.message || '')}</td>` +
-      `</tr>` +
-      `<tr id="inc-det-${i}" style="display:none"><td colspan="4" style="font-size:10px;color:var(--ink-3);word-break:break-all">${detalhe}</td></tr>`;
-    }).join('');
-  } catch(e) {}
-}
-
-// ── risco ───────────────────────────────────────────────────────
-async function carregarRisco() {
-  try {
-    const d = await fetch('/api/risco').then(r => r.json());
-    el('r-usdt').textContent = '$' + fmt(d.saldo_usdt);
-    const dd = d['drawdown_dia_%'] || 0;
-    el('r-dd').textContent = dd.toFixed(2) + '%';
-    el('r-dd').className = 'v ' + (dd <= -3 ? 'down' : '');
-    el('r-kelly').textContent = (d['kelly_%'] || 0) + '%';
-    el('r-vol').textContent = (d['volatilidade_%'] || 0).toFixed(2) + '%';
-    const bloq = d.bloqueado;
-    el('r-status').textContent = bloq ? 'BLOQUEADO' : 'OPERANDO';
-    el('r-status').className = 'v ' + (bloq ? 'down' : 'up');
-    el('pl-risco').textContent = bloq ? 'BLOQ' : 'OK';
-    el('pl-risco').style.color = bloq ? 'var(--loss)' : 'var(--ink)';
-    el('pl-risco-sub').textContent = 'kelly ' + (d['kelly_%'] || 0) + '% · dd ' + dd.toFixed(1) + '%';
-  } catch(e) {}
-}
-
-// ── 4 · CAMINHO AO REAL ─────────────────────────────────────────
-const CARIMBO_GATE = {
-  REPROVADA: ['vermelho', 'REPROVADA'],
-  TRANCADO: ['', 'TRANCADO'],
-  EM_COLETA: ['ambar', 'EM COLETA'],
-  MEDIDA: ['verde', 'MEDIDA'],
-  AGUARDA_ETAPA1: ['', 'AGUARDA E1'],
-  AGUARDA_ETAPA2: ['', 'AGUARDA E2'],
-  BLOQUEADA: ['', 'BLOQUEADA'],
-  ARMADA: ['vermelho', '⚠ ARMADA'],
-  FAIL: ['vermelho', 'FAIL'],
-  SOBREVIVE: ['verde', 'SOBREVIVE'],
-  AGENDADA: ['', 'AGENDADA'],
-  NAO_MEDIDA: ['', 'PRÉ-REG.'],
-};
-async function carregarGates() {
-  try {
-    const d = await fetch('/api/gates').then(r => r.json());
-    el('gates-row').innerHTML = (d.etapas || []).map(e => {
-      const [cor, rot] = CARIMBO_GATE[e.status] || ['', esc(e.status)];
-      let flags = '';
-      if (e.flags) {
-        flags = `<div class="flags-ignicao">` +
-          `<span class="${e.flags.dry_run_false ? 'flag-on' : 'flag-off'}">${e.flags.dry_run_false ? '●' : '○'} DRY_RUN=false</span>` +
-          `<span class="${e.flags.allow_real_true ? 'flag-on' : 'flag-off'}">${e.flags.allow_real_true ? '●' : '○'} ALLOW_REAL</span>` +
-          `<span class="${e.flags.env_production ? 'flag-on' : 'flag-off'}">${e.flags.env_production ? '●' : '○'} ENV=prod</span>` +
-        `</div>`;
-      }
-      return `<div class="gate">` +
-        `<div class="quando">${esc(e.data || '·')}</div>` +
-        `<div class="nome">${esc(e.nome)}</div>` +
-        `<span class="carimbo reto ${cor}" style="font-size:9px;padding:2px 8px">${rot}</span>` +
-        (e.detalhe ? `<div class="det">${esc(e.detalhe)}</div>` : '') + flags +
-      `</div>`;
-    }).join('');
-    el('funil-row').innerHTML = (d.frentes || []).map(f => {
-      const [cor, rot] = CARIMBO_GATE[f.status] || ['', esc(f.status)];
-      return `<div>` +
-        `<div class="funil-item">` +
-          `<span class="fnome">${esc(f.nome)}</span>` +
-          `<span class="fpontos"></span>` +
-          `<span class="carimbo reto ${cor}" style="font-size:8px;padding:1px 7px">${rot}</span>` +
-          `<span class="fdata">${esc(f.quando || '·')}</span>` +
-        `</div>` +
-        (f.detalhe ? `<div class="funil-det">${esc(f.detalhe)}</div>` : '') +
-      `</div>`;
-    }).join('');
-  } catch(e) {}
-}
-
-// ── 6 · DIÁRIO DE PRODUÇÃO ──────────────────────────────────────
-// Conversor mínimo do subconjunto de markdown que o relatório usa.
-// SEGURANÇA: o texto inteiro passa por esc() ANTES de qualquer marcação —
-// o que vira HTML aqui é só o que este conversor emite.
-function mdParaHtml(md) {
-  const linhas = esc(md).split('\n');
-  const saida = [];
-  let ul = false, tabela = null, par = [];
-  const inline = s => s
-    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>');
-  const fechaPar = () => { if (par.length) { saida.push('<p>' + inline(par.join(' ')) + '</p>'); par = []; } };
-  const fechaUl = () => { if (ul) { saida.push('</ul>'); ul = false; } };
-  const fechaTabela = () => {
-    if (!tabela) return;
-    const [cab, ...corpo] = tabela;
-    saida.push('<table><thead><tr>' + cab.map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>' +
-      corpo.map(l => '<tr>' + l.map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>');
-    tabela = null;
-  };
-  for (const bruta of linhas) {
-    const l = bruta.trim();
-    if (l.startsWith('|')) {
-      fechaPar(); fechaUl();
-      const celulas = l.split('|').slice(1, -1).map(c => c.trim());
-      if (celulas.every(c => /^:?-{2,}:?$/.test(c))) continue; // separador
-      (tabela = tabela || []).push(celulas);
-      continue;
-    }
-    fechaTabela();
-    if (l.startsWith('### ')) { fechaPar(); fechaUl(); saida.push('<h4>' + inline(l.slice(4)) + '</h4>'); }
-    else if (l.startsWith('- ')) { fechaPar(); if (!ul) { saida.push('<ul>'); ul = true; } saida.push('<li>' + inline(l.slice(2)) + '</li>'); }
-    else if (l.startsWith('*') && l.endsWith('*') && l.length > 2 && !l.startsWith('**')) { fechaPar(); fechaUl(); saida.push('<em class="rodape">' + inline(l.slice(1, -1)) + '</em>'); }
-    else if (l === '---' || l === '') { fechaPar(); fechaUl(); }
-    else { fechaUl(); par.push(l); }
-  }
-  fechaPar(); fechaUl(); fechaTabela();
-  return saida.join('');
-}
-
-async function carregarDiario() {
-  try {
-    const d = await fetch('/api/diario').then(r => r.json());
-    if (!d.titulo) return;
-    el('sec-diario').style.display = '';
-    el('diario-titulo').textContent = d.titulo;
-    el('diario-corpo-doc').innerHTML = mdParaHtml(d.corpo || '');
-  } catch(e) {}
-}
-
-// ── 5 · SISTEMA ─────────────────────────────────────────────────
-async function carregarSistema() {
-  try {
-    const d = await fetch('/api/sistema').then(r => r.json());
-    el('exp-servicos').innerHTML = (d.servicos || []).map(s => {
-      const cor = s.estado === 'RODANDO' ? 'var(--gain)' : s.estado === 'PARADO' ? 'var(--loss)' : 'var(--ink-3)';
-      return `<div class="micro-linha"><span class="k">${esc(s.nome)}</span>` +
-        `<span class="v" style="color:${cor}">${esc(s.estado)}</span></div>`;
-    }).join('');
-    el('exp-relogios').innerHTML = (d.relogios || []).map(r =>
-      `<div class="micro-linha"><span class="k">${esc(r.nome)}</span>` +
-      `<span class="v" title="${esc(r.agenda)}">${esc(String(r.proximo).slice(5, 16).replace('T', ' '))}</span></div>`
-    ).join('');
-    el('sistema-agora').textContent = 'IMPRESSO ÀS ' + String(d.agora).slice(11, 19);
-  } catch(e) {}
-}
-
-async function carregarSaude() {
-  try {
-    const h = await fetch('/health').then(r => r.json());
-    const db = h.database || {};
-    el('exp-banco').textContent = (db.backend || '—') + (db.db_path ? ' · local' : '');
-  } catch(e) {}
-}
-
-// ── conexao Binance (modal + expediente) ────────────────────────
-let _conexaoCache = null;
-function abrirModalConexao() {
-  el('modal-conexao').classList.add('open');
-  if (!_conexaoCache) testarConexao(); else _renderConexao(_conexaoCache);
-}
-function fecharModalConexao() { el('modal-conexao').classList.remove('open'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModalConexao(); });
-
-async function testarConexao() {
-  const btn = el('btn-testar');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="mc-spinner">↻</span> TESTANDO…';
-  try {
-    const d = await fetch('/api/conexao').then(r => r.json());
-    _conexaoCache = d;
-    _renderConexao(d);
-  } catch(e) {
-    btn.innerHTML = '✕ FALHA — sem resposta do servidor';
-  } finally {
-    btn.disabled = false;
-    if (btn.innerHTML.includes('TESTANDO')) btn.innerHTML = '▶ TESTAR CONEXÃO';
-  }
-}
-
-function _renderConexao(d) {
-  const rs = d.rest_spot || {}, rf = d.rest_fut || {}, auth = d.auth || {}, modo = d.modo || {};
-  el('mc-rest-spot').textContent = rs.ok ? `✓ ${rs.latencia_ms} ms` : `✕ ${rs.erro || 'timeout'}`;
-  el('mc-rest-spot').className = 'mc-val ' + (rs.ok ? 'ok' : 'err');
-  el('mc-rest-fut').textContent = rf.ok ? `✓ ${rf.latencia_ms} ms` : `✕ ${rf.erro || 'timeout'}`;
-  el('mc-rest-fut').className = 'mc-val ' + (rf.ok ? 'ok' : 'err');
-
-  el('mc-pares-list').innerHTML = (d.pares || []).map(p => {
-    const age = p.ultima_atualizacao && p.ultima_atualizacao !== '—' ? p.ultima_atualizacao : 'sem dados';
-    return `<div class="mc-row"><span class="mc-lbl">${esc(p.symbol)}</span>` +
-      `<span class="mc-val ${age === 'sem dados' ? 'muted' : 'ok'}">${age !== 'sem dados' ? '✓' : '○'} ${esc(age)}` +
-      `${p.preco ? ' · $' + Number(p.preco).toLocaleString('pt-BR') : ''}</span></div>`;
-  }).join('');
-
-  el('mc-chave').textContent = auth.chave_configurada ? '✓ Configurada' : '✕ Não configurada';
-  el('mc-chave').className = 'mc-val ' + (auth.chave_configurada ? 'ok' : 'err');
-  el('mc-auth').textContent = auth.autenticado ? '✓ Autenticado' : auth.chave_configurada ? '✕ Falhou' : '— N/A';
-  el('mc-auth').className = 'mc-val ' + (auth.autenticado ? 'ok' : auth.chave_configurada ? 'err' : 'muted');
-  if (auth.saldo_usdt != null) {
-    el('mc-saldo-row').style.display = '';
-    el('mc-saldo').textContent = '$' + Number(auth.saldo_usdt).toFixed(2);
-  } else el('mc-saldo-row').style.display = 'none';
-  if (auth.erro) {
-    el('mc-auth-err-row').style.display = '';
-    el('mc-auth-err').textContent = auth.erro;
-  } else el('mc-auth-err-row').style.display = 'none';
-
-  el('mc-modo-badge').textContent = modo.label || '—';
-  el('mc-modo-badge').className = 'mc-val ' + (modo.label === 'REAL' ? 'err' : 'warn');
-  el('mc-dry-run').textContent = modo.dry_run ? '✓ Ativo' : '✕ Desativado';
-  el('mc-dry-run').className = 'mc-val ' + (modo.dry_run ? 'warn' : 'ok');
-  el('mc-allow-real').textContent = modo.allow_real ? '✓ Permitido' : '✕ Bloqueado';
-  el('mc-allow-real').className = 'mc-val ' + (modo.allow_real ? 'err' : 'muted');
-  if (d.timestamp) el('mc-ts').textContent = 'Atualizado: ' + new Date(d.timestamp).toLocaleTimeString('pt-BR');
-
-  // carimbo de modo no masthead + expediente — REAL grita, SIMULAÇÃO carimba
-  const hdr = el('header-modo');
-  if (modo.label) {
-    const real = modo.label === 'REAL';
-    hdr.textContent = real ? '⚠ REAL' : 'SIMULAÇÃO';
-    hdr.className = 'carimbo reto' + (real ? ' vermelho' : '');
-    el('carimbo-modo').textContent = real ? '⚠ CAPITAL REAL' : 'SIMULAÇÃO';
-    el('carimbo-modo').className = 'carimbo' + (real ? ' vermelho' : '');
-    el('exp-modo').textContent = real ? 'CAPITAL REAL' : 'paper trading';
-    el('exp-modo').style.color = real ? 'var(--loss)' : '';
-  }
-
-  const dot = el('conn-dot-binance');
-  if (!rs.ok && !rf.ok) dot.className = 'conn-dot err';
-  else if (!auth.chave_configurada || !auth.autenticado) dot.className = 'conn-dot warn';
-  else dot.className = 'conn-dot ok';
-
-  el('btn-testar').innerHTML = '↺ ATUALIZAR';
-
-  // expediente · conexões
-  el('exp-conexoes').innerHTML =
-    `<div class="micro-linha"><span class="k">REST spot</span><span class="v" style="color:${rs.ok ? 'var(--gain)' : 'var(--loss)'}">${rs.ok ? rs.latencia_ms + ' ms' : 'falha'}</span></div>` +
-    `<div class="micro-linha"><span class="k">REST futures</span><span class="v" style="color:${rf.ok ? 'var(--gain)' : 'var(--loss)'}">${rf.ok ? rf.latencia_ms + ' ms' : 'falha'}</span></div>` +
-    `<div class="micro-linha"><span class="k">Autenticação</span><span class="v" style="color:${auth.autenticado ? 'var(--gain)' : 'var(--warn)'}">${auth.autenticado ? 'ok' : 'pendente'}</span></div>`;
-}
-
-async function _conexaoSilenciosa() {
-  try {
-    const d = await fetch('/api/conexao').then(r => r.json());
-    _conexaoCache = d;
-    _renderConexao(d);
-  } catch(e) {}
-}
-
-// ── relogio + socket ────────────────────────────────────────────
-setInterval(() => { el('header-time').textContent = new Date().toLocaleTimeString('pt-BR'); }, 1000);
-
-const socket = io();
-socket.on('connect', () => {
-  el('conn-status').textContent = 'ONLINE';
-  el('conn-status').className = 'online';
-  carregarPares();
-  fetch('/api/estado/' + parAtivo).then(r => r.json()).then(d => {
-    dadosPares[d.symbol] = d;
-    if (d.symbol === parAtivo) aplicarDados(d);
-  });
-  fetch('/api/trades').then(r => r.json()).then(ts => ts.slice(0, 30).reverse().forEach(addTrade)).catch(() => {});
-  carregarEventos();
-  carregarRisco();
-});
-socket.on('disconnect', () => {
-  el('conn-status').textContent = 'OFFLINE';
-  el('conn-status').className = '';
-});
-socket.on('update', d => {
-  _feedTs = Date.now();
-  dadosPares[d.symbol] = d;
-  if (d.symbol === parAtivo) { aplicarDados(d); varrerPipeline(); }
-});
-socket.on('trade', t => { _feedTs = Date.now(); addTrade(t); });
-socket.on('evento', ev => addEvento(ev));
-
-// ── ciclos de leitura ───────────────────────────────────────────
-setInterval(carregarPares,     15000);
-setInterval(carregarRisco,     30000);
-setInterval(carregarLucro,     20000); carregarLucro();
-setInterval(carregarEquity,    60000); carregarEquity();
-setInterval(carregarAtividade, 15000); carregarAtividade();
-setInterval(carregarGates,    300000); carregarGates();
-setInterval(carregarDiario,   600000); carregarDiario();
-setInterval(carregarAnalytics, 60000); carregarAnalytics();
-setInterval(carregarIncidentes, 60000); carregarIncidentes();
-setInterval(carregarSistema,   60000); carregarSistema();
-setInterval(carregarSparks,    60000); carregarSparks();
-setInterval(_conexaoSilenciosa, 60000); setTimeout(_conexaoSilenciosa, 2500);
-carregarSaude();
-renderBreakdown({});
-if (localStorage.getItem('bxbot-tema') === 'light') el('exp-tema').textContent = 'papel-jornal';
-</script>
+<script src="/razao/app.js"></script>
 </body>
 </html>

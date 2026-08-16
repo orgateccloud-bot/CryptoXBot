@@ -616,6 +616,75 @@ class TestApiAnalytics:
         assert d["ribbon"]["win_rate"] == pytest.approx(100.0)
 
 
+class TestApiQuant:
+    def _db_quant(self, tmp_path, com_tabelas=True):
+        import sqlite3
+
+        caminho = str(tmp_path / "quant.db")
+        con = sqlite3.connect(caminho)
+        if com_tabelas:
+            con.execute(
+                "CREATE TABLE model_metricas (id INTEGER PRIMARY KEY, timestamp TEXT,"
+                " symbol TEXT, modelo_tipo TEXT, auc REAL, cv_auc_mean REAL, cv_auc_std REAL)"
+            )
+            con.execute(
+                "CREATE TABLE bot_events (id INTEGER PRIMARY KEY, timestamp TEXT,"
+                " service TEXT, symbol TEXT, event_type TEXT, severity TEXT,"
+                " message TEXT, data TEXT)"
+            )
+            con.execute(
+                "INSERT INTO model_metricas (timestamp, symbol, modelo_tipo, auc,"
+                " cv_auc_mean, cv_auc_std) VALUES"
+                " ('2026-08-10T02:00:00', 'BTCUSDT', 'xgboost', 0.61, 0.585, 0.02)"
+            )
+            con.execute(
+                "INSERT INTO bot_events (timestamp, symbol, event_type, severity, message)"
+                " VALUES ('2026-08-10T02:01:00', 'BTCUSDT', 'model_drift', 'WARNING',"
+                " 'AUC caiu 2 sigma vs historico')"
+            )
+        con.commit()
+        con.close()
+
+        def conectar():
+            c = sqlite3.connect(caminho)
+            c.row_factory = sqlite3.Row
+            return c
+
+        return conectar
+
+    def test_artefatos_reais_do_banco_e_dos_vereditos(self, client, tmp_path, monkeypatch):
+        _db_mock.conectar = self._db_quant(tmp_path)
+        # worker fora do ar: gauges viram None, jamais numero inventado
+        monkeypatch.setattr(
+            dashboard.requests,
+            "get",
+            lambda *a, **k: (_ for _ in ()).throw(dashboard.requests.RequestException()),
+        )
+        d = client.get("/api/quant").get_json()
+        assert d["retreinos"][0]["symbol"] == "BTCUSDT"
+        assert d["retreinos"][0]["auc"] == pytest.approx(0.61)
+        assert d["drift"][0]["mensagem"].startswith("AUC caiu")
+        assert d["exec_gauges"] is None
+        # labs lidos dos vereditos REAIS commitados no repo
+        assert d["labs"]["momo"]["veredito"] in {"FAIL", "SOBREVIVE"}
+        assert d["labs"]["momo"]["trials"] == 8
+        assert d["labs"]["volt"]["trials"] == 6
+        arquivos = [a["arquivo"] for a in d["arquivo"]]
+        assert "momo_pesquisa.json" in arquivos and "volt_pesquisa.json" in arquivos
+
+    def test_banco_sem_tabelas_degrada_sem_500(self, client, tmp_path, monkeypatch):
+        _db_mock.conectar = self._db_quant(tmp_path, com_tabelas=False)
+        monkeypatch.setattr(
+            dashboard.requests,
+            "get",
+            lambda *a, **k: (_ for _ in ()).throw(dashboard.requests.RequestException()),
+        )
+        r = client.get("/api/quant")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["retreinos"] == [] and d["drift"] == []
+
+
 class TestApiDiario:
     def test_devolve_a_ultima_entrada_do_relatorio(self, client):
         """A fonte é o arquivo versionado do repo — a v2.2 (ou mais nova)
