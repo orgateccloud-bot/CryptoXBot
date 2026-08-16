@@ -842,6 +842,130 @@ def api_equity():
         conn.close()
 
 
+@app.route("/api/analytics")
+def api_analytics():
+    """Análises do PAPER sobre trades fechados da estratégia primária —
+    mesma régua do gate (E-8e: leitura pura). `?dias=7|14|30` filtra o
+    período; ausente ou 0 = tudo. Sem dados, devolve estruturas VAZIAS —
+    nunca um número inventado (doutrina RAZÃO; o anti-exemplo está
+    documentado na análise do cryptoxbot.zip de 2026-08-16)."""
+    from datetime import timedelta
+
+    try:
+        dias = max(0, min(int(request.args.get("dias", 0)), 3650))
+    except (TypeError, ValueError):
+        dias = 0
+
+    conn = database.conectar()
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT timestamp, symbol, pnl_usdt FROM sinais"
+                " WHERE pnl_usdt IS NOT NULL"
+                " AND (source IS NULL OR source = 'estrategia_otimizada')"
+                " ORDER BY timestamp ASC"
+            ).fetchall()
+        except Exception:
+            rows = []
+    finally:
+        conn.close()
+
+    trades = [
+        {"t": str(r["timestamp"]), "symbol": r["symbol"], "pnl": float(r["pnl_usdt"] or 0.0)}
+        for r in rows
+    ]
+    if dias:
+        corte = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+        trades = [t for t in trades if t["t"][:10] >= corte]
+
+    # diário: barras de PnL + capital acumulado (a curva composta da IDEIA #1)
+    por_dia: dict[str, dict] = {}
+    for t in trades:
+        d = por_dia.setdefault(t["t"][:10], {"pnl": 0.0, "n": 0, "wins": 0})
+        d["pnl"] += t["pnl"]
+        d["n"] += 1
+        d["wins"] += 1 if t["pnl"] > 0 else 0
+    diario = []
+    cum = 0.0
+    for dia in sorted(por_dia):
+        d = por_dia[dia]
+        cum += d["pnl"]
+        diario.append(
+            {
+                "dia": dia,
+                "pnl": round(d["pnl"], 4),
+                "cum": round(cum, 4),
+                "n": d["n"],
+                "wins": d["wins"],
+            }
+        )
+
+    # win rate móvel trade a trade (IDEIA #2 — referência: pisos pré-registrados)
+    win_movel = []
+    wins = 0
+    for i, t in enumerate(trades):
+        wins += 1 if t["pnl"] > 0 else 0
+        win_movel.append(
+            {
+                "t": t["t"],
+                "symbol": t["symbol"],
+                "pnl": round(t["pnl"], 4),
+                "wr": round(wins / (i + 1) * 100, 1),
+            }
+        )
+
+    # PnL por janela horária (IDEIA #3) e por par (IDEIA #4)
+    por_hora = [{"hora": h, "pnl": 0.0, "n": 0} for h in range(24)]
+    for t in trades:
+        try:
+            h = int(t["t"][11:13])
+        except (ValueError, IndexError):
+            continue
+        if 0 <= h <= 23:
+            por_hora[h]["pnl"] = round(por_hora[h]["pnl"] + t["pnl"], 4)
+            por_hora[h]["n"] += 1
+
+    pares: dict[str, dict] = {}
+    for t in trades:
+        p = pares.setdefault(t["symbol"], {"pnl": 0.0, "n": 0, "wins": 0})
+        p["pnl"] = round(p["pnl"] + t["pnl"], 4)
+        p["n"] += 1
+        p["wins"] += 1 if t["pnl"] > 0 else 0
+    por_par = [{"symbol": s, **v} for s, v in sorted(pares.items())]
+
+    # ribbon do período (IDEIA #5) — profit factor NULO sem perdas, jamais sentinela
+    ganho_bruto = sum(t["pnl"] for t in trades if t["pnl"] > 0)
+    perda_bruta = -sum(t["pnl"] for t in trades if t["pnl"] < 0)
+    dias_pos = sum(1 for d in diario if d["pnl"] > 0)
+    ribbon = {
+        "n_trades": len(trades),
+        "win_rate": round(wins / len(trades) * 100, 1) if trades else None,
+        "pnl_total": round(sum(t["pnl"] for t in trades), 4),
+        "dias_com_trade": len(diario),
+        "media_por_dia": round(sum(t["pnl"] for t in trades) / len(diario), 4) if diario else None,
+        "pct_dias_positivos": round(dias_pos / len(diario) * 100, 1) if diario else None,
+        "melhor_dia": max(diario, key=lambda d: d["pnl"]) if diario else None,
+        "pior_dia": min(diario, key=lambda d: d["pnl"]) if diario else None,
+        "profit_factor": round(ganho_bruto / perda_bruta, 2) if perda_bruta > 0 else None,
+    }
+    return jsonify(
+        {
+            "modo": "PAPER",
+            "dias_filtro": dias,
+            "diario": diario,
+            "win_movel": win_movel,
+            "por_hora": por_hora,
+            "por_par": por_par,
+            "ribbon": ribbon,
+            # referências HONESTAS: pisos pré-registrados, não benchmark inventado
+            "referencias": {
+                "pf_piso_etapa2": 1.3,  # GATE_GO_LIVE.md, Etapa 2
+                "wr_equilibrio_barreira": 33.3,  # barreira 2:1 (alvo 2×stop)
+            },
+        }
+    )
+
+
 # O caminho ao real e PRE-REGISTRADO (docs/GATE_GO_LIVE.md, research/METODOLOGIA*.md):
 # FAIL nunca e revogado e o hold-out e de uso unico. Este endpoint so EXIBE o
 # estado — nao ha rota que mude gate nenhum, por construcao.

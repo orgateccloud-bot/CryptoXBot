@@ -189,6 +189,29 @@
     .seca-verde    { animation: secar-verde 2s ease-out; }
     .seca-vermelho { animation: secar-vermelho 2s ease-out; }
 
+    /* ── análise do período (bloco 1, IDEIAS 1-5+7 do zip, régua honesta) ── */
+    .analise-cab {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 24px; border-top: 1px solid var(--rule); padding-top: 10px;
+    }
+    .presets { display: flex; gap: 6px; }
+    .btn-tinta.preset { font-size: 10px; padding: 3px 9px; letter-spacing: .08em; }
+    .btn-tinta.preset.ativo { border-color: var(--ink); color: var(--ink); }
+    .analise-vazia {
+      font-family: var(--serif); font-style: italic; font-size: 13px;
+      color: var(--ink-3); padding: 18px 0; text-align: center;
+    }
+    .analise-ribbon {
+      display: flex; flex-wrap: wrap; gap: 4px 26px; margin: 10px 0 14px;
+      font-size: 11px; color: var(--ink-3);
+      border-bottom: 1px dotted var(--rule-2); padding-bottom: 8px;
+    }
+    .analise-ribbon b { color: var(--ink); font-weight: 400; }
+    .analise-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px 32px; }
+    .an-cel canvas { width: 100% !important; height: 170px !important; }
+    .an-cel.an-larga canvas { height: 200px !important; }
+    @media (max-width: 1100px) { .analise-grid { grid-template-columns: 1fr; } }
+
     /* ── bloco 2: O BOT AGORA ── */
     .pipeline {
       display: grid; grid-template-columns: repeat(6, 1fr);
@@ -409,6 +432,40 @@
       </div>
     </div>
   </div>
+
+  <div class="analise-cab">
+    <span class="secao-nota">ANÁLISE DO PERÍODO — SÓ A ESTRATÉGIA PRIMÁRIA, LÍQUIDA</span>
+    <div class="presets" id="analise-presets">
+      <button class="btn-tinta preset" data-dias="7">7D</button>
+      <button class="btn-tinta preset" data-dias="14">14D</button>
+      <button class="btn-tinta preset" data-dias="30">30D</button>
+      <button class="btn-tinta preset ativo" data-dias="0">TUDO</button>
+    </div>
+  </div>
+  <div id="analise-vazia" class="analise-vazia" style="display:none">
+    — sem trades fechados no período · o razão registra quando houver —
+  </div>
+  <div id="analise-corpo">
+    <div class="analise-ribbon num" id="analise-ribbon"></div>
+    <div class="analise-grid">
+      <div class="an-cel an-larga">
+        <div class="secao-nota" style="margin-bottom:4px">PNL DIÁRIO × CAPITAL ACUMULADO</div>
+        <canvas id="chartDiario"></canvas>
+      </div>
+      <div class="an-cel an-larga">
+        <div class="secao-nota" style="margin-bottom:4px">WIN RATE MÓVEL × EQUILÍBRIO DA BARREIRA (~33%)</div>
+        <canvas id="chartWinRate"></canvas>
+      </div>
+      <div class="an-cel">
+        <div class="secao-nota" style="margin-bottom:4px">PNL POR JANELA HORÁRIA</div>
+        <canvas id="chartHora"></canvas>
+      </div>
+      <div class="an-cel">
+        <div class="secao-nota" style="margin-bottom:4px">PNL POR PAR</div>
+        <canvas id="chartPar"></canvas>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- ══ 2 · O BOT AGORA ════════════════════════════════════════════ -->
@@ -514,12 +571,19 @@
       </div>
     </div>
     <div>
-      <div class="secao-nota" style="margin-bottom:6px">OCORRÊNCIAS DO SISTEMA <span id="ev-count" style="color:var(--ink-3)"></span></div>
+      <div class="secao-nota" style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+        <span>OCORRÊNCIAS DO SISTEMA <span id="ev-count" style="color:var(--ink-3)"></span></span>
+        <button id="btn-ev-pausa" class="btn-tinta preset" onclick="alternarPausaEventos()">⏸ PAUSAR</button>
+      </div>
       <div class="tabela-scroll">
         <table class="diario" style="margin-top:0"><tbody id="eventos-list">
           <tr><td colspan="3" style="font-style:italic;color:var(--ink-3)">Sem ocorrências nesta sessão…</td></tr>
         </tbody></table>
       </div>
+      <div class="secao-nota" style="margin:12px 0 4px">INCIDENTES DO WORKER (bot_events) — clique na linha para inspecionar</div>
+      <table class="diario" style="margin-top:0"><tbody id="incidentes-list">
+        <tr><td style="font-style:italic;color:var(--ink-3)">Sem incidentes registrados.</td></tr>
+      </tbody></table>
     </div>
   </div>
 </section>
@@ -719,6 +783,7 @@ function reentintarCharts() {
   precoChart.data.datasets[0].borderColor = cssVar('--ink');
   precoChart.update('none');
   Object.values(sparks).forEach(s => { s.data.datasets[0].borderColor = cssVar('--ink-3'); s.update('none'); });
+  if (_anData) renderAnalytics(_anData); // recria os gráficos da análise na nova tinta
 }
 
 // ── 1 · RESULTADO ───────────────────────────────────────────────
@@ -765,6 +830,111 @@ async function carregarEquity() {
     equityChart.update();
   } catch(e) {}
 }
+
+// ── ANÁLISE DO PERÍODO (IDEIAS 1-5+7 da análise do zip, régua honesta) ──
+let _anDias = 0, _anData = null;
+const _anCharts = {};
+
+function _anDestroi() {
+  for (const k of Object.keys(_anCharts)) { _anCharts[k].destroy(); delete _anCharts[k]; }
+}
+
+function renderAnalytics(d) {
+  _anData = d;
+  const vazio = !d || !d.ribbon || d.ribbon.n_trades === 0;
+  el('analise-vazia').style.display = vazio ? '' : 'none';
+  el('analise-corpo').style.display = vazio ? 'none' : '';
+  if (vazio) { _anDestroi(); return; }
+
+  const r = d.ribbon, ref = d.referencias || {};
+  const pfPiso = ref.pf_piso_etapa2 || 1.3;
+  const pfOk = r.profit_factor != null && r.profit_factor > pfPiso;
+  el('analise-ribbon').innerHTML =
+    `<span>TRADES <b>${r.n_trades}</b></span>` +
+    `<span>PNL <b class="${r.pnl_total >= 0 ? 'up' : 'down'}">${sinalNum(r.pnl_total)}</b></span>` +
+    `<span>WIN RATE <b>${r.win_rate == null ? '—' : r.win_rate.toFixed(0) + '%'}</b></span>` +
+    `<span>PF <b class="${r.profit_factor == null ? '' : (pfOk ? 'up' : 'down')}">${r.profit_factor == null ? '—' : r.profit_factor.toFixed(2)}</b> <span style="opacity:.7">piso E2 ${pfPiso.toFixed(1)}</span></span>` +
+    `<span>DIAS C/ TRADE <b>${r.dias_com_trade}</b></span>` +
+    `<span>DIAS POSITIVOS <b>${r.pct_dias_positivos == null ? '—' : r.pct_dias_positivos.toFixed(0) + '%'}</b></span>` +
+    (r.melhor_dia ? `<span>MELHOR <b class="up">${sinalNum(r.melhor_dia.pnl)}</b> <span style="opacity:.7">${esc(r.melhor_dia.dia.slice(5))}</span></span>` : '') +
+    (r.pior_dia ? `<span>PIOR <b class="${r.pior_dia.pnl >= 0 ? 'up' : 'down'}">${sinalNum(r.pior_dia.pnl)}</b> <span style="opacity:.7">${esc(r.pior_dia.dia.slice(5))}</span></span>` : '');
+
+  _anDestroi();
+  const GAIN = cssVar('--gain'), LOSS = cssVar('--loss'), INK = cssVar('--ink'), INK3 = cssVar('--ink-3');
+  const ex = { ticks: { color: INK3, maxTicksLimit: 8 }, grid: { display: false }, border: { color: cssVar('--rule-2') } };
+  const ey = { ticks: { color: INK3 }, grid: { color: cssVar('--rule'), drawTicks: false }, border: { display: false } };
+
+  // IDEIA #1+#7: PnL diário em barras × capital acumulado em linha, tooltip com o dia inteiro
+  _anCharts.diario = new Chart(el('chartDiario').getContext('2d'), {
+    data: { labels: d.diario.map(x => x.dia.slice(5)), datasets: [
+      { type: 'bar', data: d.diario.map(x => x.pnl), backgroundColor: d.diario.map(x => x.pnl >= 0 ? GAIN : LOSS), yAxisID: 'y', order: 2 },
+      { type: 'line', data: d.diario.map(x => x.cum), borderColor: INK, borderWidth: 2, pointRadius: 0, tension: 0, yAxisID: 'y2', order: 1 },
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
+        title: c => d.diario[c[0].dataIndex].dia,
+        label: c => { const x = d.diario[c.dataIndex]; return [
+          'dia ' + sinalNum(x.pnl), x.n + ' trade(s) · ' + x.wins + 'W/' + (x.n - x.wins) + 'L',
+          'capital acumulado ' + sinalNum(x.cum)]; },
+      }}},
+      scales: { x: ex, y: ey, y2: { position: 'right', ticks: { color: INK3 }, grid: { display: false }, border: { display: false } } } },
+  });
+
+  // IDEIA #2: win rate móvel × equilíbrio pré-registrado da barreira 2:1
+  const wrRef = ref.wr_equilibrio_barreira || 33.3;
+  _anCharts.wr = new Chart(el('chartWinRate').getContext('2d'), {
+    type: 'line',
+    data: { labels: d.win_movel.map((x, i) => i + 1), datasets: [
+      { data: d.win_movel.map(x => x.wr), borderColor: INK, borderWidth: 2, pointRadius: 3,
+        pointBackgroundColor: d.win_movel.map(x => x.pnl >= 0 ? GAIN : LOSS), tension: 0 },
+      { data: d.win_movel.map(() => wrRef), borderColor: LOSS, borderWidth: 1, borderDash: [4, 4], pointRadius: 0 },
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
+        title: c => 'trade #' + (c[0].dataIndex + 1),
+        label: c => { const x = d.win_movel[c.dataIndex]; return [
+          x.symbol + ' ' + sinalNum(x.pnl), 'win rate móvel ' + x.wr.toFixed(1) + '%', String(x.t).slice(0, 16)]; },
+      }}},
+      scales: { x: ex, y: { ...ey, min: 0, max: 100, ticks: { color: INK3, callback: v => v + '%' } } } },
+  });
+
+  // IDEIA #3: PnL por janela horária — horas sem trade ficam vazias mesmo
+  _anCharts.hora = new Chart(el('chartHora').getContext('2d'), {
+    type: 'bar',
+    data: { labels: d.por_hora.map(x => String(x.hora).padStart(2, '0')),
+      datasets: [{ data: d.por_hora.map(x => x.pnl), backgroundColor: d.por_hora.map(x => x.pnl >= 0 ? GAIN : LOSS) }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
+        label: c => { const x = d.por_hora[c.dataIndex]; return sinalNum(x.pnl) + ' em ' + x.n + ' trade(s)'; } } } },
+      scales: { x: ex, y: ey } },
+  });
+
+  // IDEIA #4: PnL por par (BTC ensemble completo vs ETH/SOL só-XGB)
+  _anCharts.par = new Chart(el('chartPar').getContext('2d'), {
+    type: 'bar',
+    data: { labels: d.por_par.map(x => x.symbol.replace('USDT', '')),
+      datasets: [{ data: d.por_par.map(x => x.pnl), backgroundColor: d.por_par.map(x => x.pnl >= 0 ? GAIN : LOSS) }] },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
+        label: c => { const x = d.por_par[c.dataIndex]; return sinalNum(x.pnl) + ' · ' + x.n + ' trade(s) · WR ' + (x.n ? Math.round(x.wins / x.n * 100) : 0) + '%'; } } } },
+      scales: { x: ey, y: ex } },
+  });
+}
+
+async function carregarAnalytics() {
+  try {
+    const d = await fetch('/api/analytics' + (_anDias ? '?dias=' + _anDias : '')).then(r => r.json());
+    renderAnalytics(d);
+  } catch (e) {}
+}
+
+document.querySelectorAll('#analise-presets .preset').forEach(b => {
+  b.addEventListener('click', () => {
+    _anDias = parseInt(b.dataset.dias, 10) || 0;
+    document.querySelectorAll('#analise-presets .preset').forEach(x => x.classList.toggle('ativo', x === b));
+    carregarAnalytics();
+  });
+});
 
 // ── 2 · O BOT AGORA ─────────────────────────────────────────────
 let _cicloTs = null;       // ultimo registro do diario
@@ -1000,8 +1170,28 @@ function addTrade(t) {
   while (list.children.length > 60) list.removeChild(list.lastChild);
 }
 
+// IDEIA #6: pausa DE VERDADE — pausado, os eventos entram numa fila e só
+// aparecem no retomar (o anti-exemplo do zip tinha badge PAUSADO decorativo).
+let _evPausado = false;
+const _evFila = [];
+function alternarPausaEventos() {
+  _evPausado = !_evPausado;
+  const btn = el('btn-ev-pausa');
+  if (_evPausado) {
+    btn.textContent = '▶ RETOMAR';
+  } else {
+    while (_evFila.length) addEvento(_evFila.shift());
+    btn.textContent = '⏸ PAUSAR';
+  }
+}
+
 let primeiroEvento = true, totalEventos = 0;
 function addEvento(ev) {
+  if (_evPausado) {
+    _evFila.push(ev);
+    el('btn-ev-pausa').textContent = '▶ RETOMAR (' + _evFila.length + ')';
+    return;
+  }
   const list = el('eventos-list');
   if (primeiroEvento) { list.innerHTML = ''; primeiroEvento = false; }
   totalEventos++;
@@ -1019,6 +1209,27 @@ async function carregarEventos() {
   try {
     const evs = await fetch('/api/eventos').then(r => r.json());
     if (evs.length) evs.reverse().forEach(addEvento);
+  } catch(e) {}
+}
+
+// IDEIA #6: incidentes reais do worker (tabela bot_events), inspecionáveis
+async function carregarIncidentes() {
+  try {
+    const d = await fetch('/api/bot_events?limite=6').then(r => r.json());
+    const evs = d.eventos || [];
+    if (!evs.length) return;
+    el('incidentes-list').innerHTML = evs.map((e, i) => {
+      const sev = esc(e.severity || 'INFO');
+      const cor = sev === 'CRITICAL' ? 'var(--loss)' : sev === 'WARNING' ? 'var(--warn)' : 'var(--ink-3)';
+      const detalhe = esc(typeof e.data === 'string' ? e.data : JSON.stringify(e.data || '')) || '—';
+      return `<tr style="cursor:pointer" onclick="var x=el('inc-det-${i}');x.style.display=x.style.display==='none'?'':'none'">` +
+        `<td style="width:110px">${esc(String(e.timestamp || '').slice(5, 16))}</td>` +
+        `<td style="width:80px;color:${cor}">${sev}</td>` +
+        `<td class="forte">${esc(e.event_type || '')}</td>` +
+        `<td>${esc(e.message || '')}</td>` +
+      `</tr>` +
+      `<tr id="inc-det-${i}" style="display:none"><td colspan="4" style="font-size:10px;color:var(--ink-3);word-break:break-all">${detalhe}</td></tr>`;
+    }).join('');
   } catch(e) {}
 }
 
@@ -1296,6 +1507,8 @@ setInterval(carregarEquity,    60000); carregarEquity();
 setInterval(carregarAtividade, 15000); carregarAtividade();
 setInterval(carregarGates,    300000); carregarGates();
 setInterval(carregarDiario,   600000); carregarDiario();
+setInterval(carregarAnalytics, 60000); carregarAnalytics();
+setInterval(carregarIncidentes, 60000); carregarIncidentes();
 setInterval(carregarSistema,   60000); carregarSistema();
 setInterval(carregarSparks,    60000); carregarSparks();
 setInterval(_conexaoSilenciosa, 60000); setTimeout(_conexaoSilenciosa, 2500);

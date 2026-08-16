@@ -544,6 +544,78 @@ class TestApiGates:
             assert frentes[nome]["status"] in {"FAIL", "SOBREVIVE", "NAO_MEDIDA"}
 
 
+class TestApiAnalytics:
+    def test_agregacoes_com_regua_do_gate(self, client, tmp_path):
+        """Diário, win-rate móvel, hora e par — trend (999) fora, como no gate."""
+        _db_mock.conectar = _db_lucro(tmp_path)
+        d = client.get("/api/analytics").get_json()
+        assert d["modo"] == "PAPER"
+        assert [x["pnl"] for x in d["diario"]] == [pytest.approx(10.0), pytest.approx(-4.0)]
+        assert d["diario"][-1]["cum"] == pytest.approx(6.0)
+        assert [x["wr"] for x in d["win_movel"]] == [pytest.approx(100.0), pytest.approx(50.0)]
+        assert d["por_hora"][10]["n"] == 2  # ambos às 10:00
+        assert len(d["por_par"]) == 1 and d["por_par"][0]["symbol"] == "BTCUSDT"
+        r = d["ribbon"]
+        assert r["n_trades"] == 2 and r["win_rate"] == pytest.approx(50.0)
+        assert r["profit_factor"] == pytest.approx(2.5)  # 10 / 4
+        assert r["melhor_dia"]["pnl"] == pytest.approx(10.0)
+        assert r["pior_dia"]["pnl"] == pytest.approx(-4.0)
+        assert r["pct_dias_positivos"] == pytest.approx(50.0)
+
+    def test_referencias_sao_os_pisos_pre_registrados(self, client, tmp_path):
+        """A linha de referência vem do GATE (PF 1,3) e da barreira 2:1 —
+        nunca um benchmark inventado (anti-exemplo: zip analisado 16/08)."""
+        _db_mock.conectar = _db_lucro(tmp_path)
+        d = client.get("/api/analytics").get_json()
+        assert d["referencias"]["pf_piso_etapa2"] == pytest.approx(1.3)
+        assert d["referencias"]["wr_equilibrio_barreira"] == pytest.approx(33.3)
+
+    def test_filtro_de_periodo_estreito_devolve_vazio_honesto(self, client, tmp_path):
+        """Trades de 2026-08-10/11 não entram numa janela de 1 dia: estruturas
+        vazias e profit_factor NULO — jamais número inventado ou sentinela."""
+        _db_mock.conectar = _db_lucro(tmp_path)
+        d = client.get("/api/analytics?dias=1").get_json()
+        assert d["ribbon"]["n_trades"] == 0
+        assert d["diario"] == [] and d["win_movel"] == []
+        assert d["ribbon"]["profit_factor"] is None
+        assert d["ribbon"]["win_rate"] is None
+
+    def test_banco_vazio_sem_500(self, client, tmp_path):
+        _db_mock.conectar = _db_lucro(tmp_path, com_dados=False)
+        r = client.get("/api/analytics")
+        assert r.status_code == 200
+        assert r.get_json()["ribbon"]["n_trades"] == 0
+
+    def test_so_ganhos_profit_factor_nulo_nao_sentinela(self, client, tmp_path):
+        """Sem perdas, PF é matematicamente indefinido → None (o zip devolvia
+        9,99 de sentinela — exatamente o que não fazemos)."""
+        import sqlite3
+
+        caminho = str(tmp_path / "dash2.db")
+        con = sqlite3.connect(caminho)
+        con.execute(
+            "CREATE TABLE sinais (id INTEGER PRIMARY KEY, timestamp TEXT,"
+            " symbol TEXT, source TEXT, pnl_usdt REAL, barreira_tocada TEXT)"
+        )
+        con.execute("CREATE TABLE risk_state (name TEXT PRIMARY KEY, updated_at TEXT, data TEXT)")
+        con.execute(
+            "INSERT INTO sinais (timestamp, symbol, source, pnl_usdt, barreira_tocada)"
+            " VALUES ('2026-08-10T10:00:00', 'BTCUSDT', NULL, 5.0, 'TARGET')"
+        )
+        con.commit()
+        con.close()
+
+        def conectar():
+            c = sqlite3.connect(caminho)
+            c.row_factory = sqlite3.Row
+            return c
+
+        _db_mock.conectar = conectar
+        d = client.get("/api/analytics").get_json()
+        assert d["ribbon"]["profit_factor"] is None
+        assert d["ribbon"]["win_rate"] == pytest.approx(100.0)
+
+
 class TestApiDiario:
     def test_devolve_a_ultima_entrada_do_relatorio(self, client):
         """A fonte é o arquivo versionado do repo — a v2.2 (ou mais nova)
