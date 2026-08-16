@@ -378,3 +378,72 @@ que é retrato da pesquisa, não veredito); hold-out 01/12; CARRY v2 16/11.
 
 *Gerado sobre: commit `48128f3`, suíte 1.791/14, CI 4/4, serviços
 BXBotWorker/BXBotDashboard/BXBotBook RUNNING.*
+
+---
+
+## Diário — 2026-08-16 (v2.3): o terminal que a demo do Google não conseguiu ser
+
+O dia começou com um zip de fora e terminou com o dashboard reestruturado —
+pelo caminho, uma aula sobre a diferença entre parecer e ser.
+
+### A análise do "projeto do Google" (cryptoxbot.zip)
+
+- Export de app do **Google AI Studio**: dashboard-demo TypeScript/Express
+  ("CryptoX Terminal Pro v3.0") gerado por LLM, semeado com docs reais do
+  repo (estados heterogêneos 22/07→13/08) para parecer o projeto.
+- **Sem caminho de ordem real** (verificado linha a linha: zero HMAC, zero
+  `/api/v3/order`, `BINANCE_API_SECRET` jamais lido) — mas com telemetria
+  **fabricada em escala**: track record hardcoded (win rate 69%, Sharpe
+  2,45, +$4.175/30 dias — servido por um processo de 60s de vida), backtest
+  por `Math.random()`, order book sintético alimentando o prompt do LLM
+  como "dados em tempo real", "XGBoost/LSTM" = `prob ± 0.02`.
+- **"Zero-Loss Guardian"**: promessa matematicamente falsa + fail-open (sem
+  chave Gemini, um rule-engine raso APROVA ordens assinando como IA) + LLM
+  dimensionando posição sem teto + endpoints sem auth em 0.0.0.0.
+- Método: 4 leitores independentes + execução em sandbox (sem chaves,
+  derrubado ao fim). Relatório completo entregue ao operador.
+
+### O que o zip rendeu de bom (implementado com régua honesta)
+
+- **`/api/analytics` + faixa ANÁLISE DO PERÍODO**: PnL diário × capital
+  acumulado, win rate móvel com referência nos pisos PRÉ-REGISTRADOS
+  (PF>1,3 da Etapa 2; equilíbrio da barreira 2:1 ~33%), PnL por hora e por
+  par, ribbon com presets 7D/14D/30D. Sem dados = "—"; PF sem perdas =
+  NULO (o zip devolvia sentinela 9,99).
+- **Diário de produção impresso no dashboard**: `/api/diario` lê a última
+  entrada DESTE arquivo e a renderiza como coluna editorial — sem cópia
+  que possa divergir.
+
+### Terminal RAZÃO (D-1..D-6) — a reestruturação
+
+- **6 seções** (Cockpit · Análise · Caminho ao Real · Quant Lab ·
+  Telemetria · Expediente) com hash routing deep-linkável, atalhos 1-6 e
+  init preguiçoso de gráficos; JS extraído para `static/razao/app.js`
+  (mesma origem, zero CDN).
+- **Quant Lab (`/api/quant`)**: o que a demo fingia, aqui é banco — 18
+  retreinos reais com AUC (XGB BTC 0,609-0,625; MLP 0,577-0,580), zero
+  alertas de drift, os 14 combos dos labs com números por trial, gauges
+  `exec_*` do worker (None honesto até a primeira execução) e o arquivo de
+  medições (backtest por HTTP segue DESLIGADO — I-12).
+- **Fita de pregão medida**: só o @aggTrade real de BTC, tx/min e vol/min
+  de janela móvel de 60s, pausa com fila, limitação declarada no rótulo.
+- Fora por contrato: botão de ordem (E-8e), LLM guardian, fallback que
+  inventa número, CDN, gerador sintético.
+
+### Estado ao fim do dia
+
+| Indicador | Valor |
+|---|---|
+| Suíte | **1.801 passed, 14 skipped** |
+| CI da main | verde sobre `b9bcb93` (deploy verificado por PID) |
+| Coleta E-11 | **84/300 barras** (16:52) — medição ~24-25/08 no prazo |
+| Funil | 5 FAIL · 1 EM COLETA · 1 AGENDADA (16/11) |
+| Paper PnL | +$0,17 (1 trade) — impresso com carimbo SIMULAÇÃO |
+| Capital real | **PROIBIDO pelo gate** — inalterado |
+
+A frase do dia, para constar: a demo inventava 30 dias de lucro; o terminal
+imprime 18 retreinos, 5 FAILs e um trade de +$0,17 — e é por isso que só um
+dos dois serve para decidir alguma coisa.
+
+*Gerado sobre: commit `b9bcb93`, suíte 1.801/14, CI 4/4, serviços
+BXBotWorker/BXBotDashboard/BXBotBook RUNNING, dashboard PID 16180.*
