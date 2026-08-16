@@ -544,6 +544,30 @@ class TestApiGates:
             assert frentes[nome]["status"] in {"FAIL", "SOBREVIVE", "NAO_MEDIDA"}
 
 
+class TestApiDiario:
+    def test_devolve_a_ultima_entrada_do_relatorio(self, client):
+        """A fonte é o arquivo versionado do repo — a v2.2 (ou mais nova)
+        tem que vir com título e corpo não-vazios."""
+        d = client.get("/api/diario").get_json()
+        assert d["titulo"] and d["titulo"].startswith("Diário —")
+        assert d["corpo"] and "###" in d["corpo"]
+        assert d["fonte"] == "docs/RELATORIO_PRODUCAO.md"
+
+    def test_sem_arquivo_devolve_vazio_nao_500(self, client, monkeypatch, tmp_path):
+        monkeypatch.setattr(dashboard, "_RELATORIO_PRODUCAO", str(tmp_path / "nao_existe.md"))
+        r = client.get("/api/diario")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["titulo"] is None and d["corpo"] is None
+
+    def test_arquivo_sem_secao_de_diario_devolve_vazio(self, client, monkeypatch, tmp_path):
+        doc = tmp_path / "rel.md"
+        doc.write_text("# Relatorio\n\n## Veredicto\ntexto\n", encoding="utf-8")
+        monkeypatch.setattr(dashboard, "_RELATORIO_PRODUCAO", str(doc))
+        d = client.get("/api/diario").get_json()
+        assert d["titulo"] is None
+
+
 class TestApiSistema:
     def test_servicos_e_relogios_sem_500(self, client):
         """Em qualquer ambiente (Windows com/sem servicos, CI Linux sem `sc`)

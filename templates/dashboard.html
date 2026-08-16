@@ -282,6 +282,20 @@
     .funil-item .fdata { font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap; }
     .funil-det { font-family: var(--mono); font-size: 9px; color: var(--ink-3); margin: -2px 0 4px; }
 
+    /* ── bloco 6: DIÁRIO (coluna editorial) ── */
+    .editorial { max-width: 900px; padding-top: 14px; }
+    .ed-titulo { font-family: var(--serif); font-size: 17px; color: var(--ink); font-weight: 600; margin-bottom: 10px; }
+    .editorial h4 { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink); margin: 16px 0 6px; }
+    .editorial p { font-size: 13px; margin: 8px 0; }
+    .editorial ul { margin: 6px 0 6px 18px; font-size: 13px; }
+    .editorial li { margin: 3px 0; }
+    .editorial table { border-collapse: collapse; margin: 10px 0; font-family: var(--mono); font-size: 11px; }
+    .editorial th { text-align: left; color: var(--ink-3); font-weight: 600; padding: 4px 14px 4px 0; border-bottom: 1px solid var(--rule-2); }
+    .editorial td { padding: 4px 14px 4px 0; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
+    .editorial b { color: var(--ink); }
+    .editorial code { font-family: var(--mono); font-size: 11px; color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 0 4px; }
+    .editorial em.rodape { font-family: var(--mono); font-style: normal; font-size: 10px; color: var(--ink-3); display: block; margin-top: 12px; }
+
     /* ── bloco 5: SISTEMA (expediente) ── */
     .expediente { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 14px; }
     footer {
@@ -540,6 +554,18 @@
       <div class="micro-linha"><span class="k">Banco</span><span class="v" id="exp-banco">—</span></div>
       <div class="micro-linha"><span class="k">Modo</span><span class="v" id="exp-modo">—</span></div>
     </div>
+  </div>
+</section>
+
+<!-- ══ 6 · DIÁRIO DE PRODUÇÃO ═════════════════════════════════════ -->
+<section class="secao" id="sec-diario" style="display:none">
+  <div class="secao-cab">
+    <div class="secao-titulo"><span class="no">6 ·</span>Diário de produção</div>
+    <div class="secao-nota" id="diario-fonte">DOCS/RELATORIO_PRODUCAO.MD · ÚLTIMA ENTRADA</div>
+  </div>
+  <div class="editorial">
+    <h3 id="diario-titulo" class="ed-titulo">—</h3>
+    <div id="diario-corpo-doc"></div>
   </div>
 </section>
 
@@ -1065,6 +1091,56 @@ async function carregarGates() {
   } catch(e) {}
 }
 
+// ── 6 · DIÁRIO DE PRODUÇÃO ──────────────────────────────────────
+// Conversor mínimo do subconjunto de markdown que o relatório usa.
+// SEGURANÇA: o texto inteiro passa por esc() ANTES de qualquer marcação —
+// o que vira HTML aqui é só o que este conversor emite.
+function mdParaHtml(md) {
+  const linhas = esc(md).split('\n');
+  const saida = [];
+  let ul = false, tabela = null, par = [];
+  const inline = s => s
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  const fechaPar = () => { if (par.length) { saida.push('<p>' + inline(par.join(' ')) + '</p>'); par = []; } };
+  const fechaUl = () => { if (ul) { saida.push('</ul>'); ul = false; } };
+  const fechaTabela = () => {
+    if (!tabela) return;
+    const [cab, ...corpo] = tabela;
+    saida.push('<table><thead><tr>' + cab.map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>' +
+      corpo.map(l => '<tr>' + l.map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>');
+    tabela = null;
+  };
+  for (const bruta of linhas) {
+    const l = bruta.trim();
+    if (l.startsWith('|')) {
+      fechaPar(); fechaUl();
+      const celulas = l.split('|').slice(1, -1).map(c => c.trim());
+      if (celulas.every(c => /^:?-{2,}:?$/.test(c))) continue; // separador
+      (tabela = tabela || []).push(celulas);
+      continue;
+    }
+    fechaTabela();
+    if (l.startsWith('### ')) { fechaPar(); fechaUl(); saida.push('<h4>' + inline(l.slice(4)) + '</h4>'); }
+    else if (l.startsWith('- ')) { fechaPar(); if (!ul) { saida.push('<ul>'); ul = true; } saida.push('<li>' + inline(l.slice(2)) + '</li>'); }
+    else if (l.startsWith('*') && l.endsWith('*') && l.length > 2 && !l.startsWith('**')) { fechaPar(); fechaUl(); saida.push('<em class="rodape">' + inline(l.slice(1, -1)) + '</em>'); }
+    else if (l === '---' || l === '') { fechaPar(); fechaUl(); }
+    else { fechaUl(); par.push(l); }
+  }
+  fechaPar(); fechaUl(); fechaTabela();
+  return saida.join('');
+}
+
+async function carregarDiario() {
+  try {
+    const d = await fetch('/api/diario').then(r => r.json());
+    if (!d.titulo) return;
+    el('sec-diario').style.display = '';
+    el('diario-titulo').textContent = d.titulo;
+    el('diario-corpo-doc').innerHTML = mdParaHtml(d.corpo || '');
+  } catch(e) {}
+}
+
 // ── 5 · SISTEMA ─────────────────────────────────────────────────
 async function carregarSistema() {
   try {
@@ -1219,6 +1295,7 @@ setInterval(carregarLucro,     20000); carregarLucro();
 setInterval(carregarEquity,    60000); carregarEquity();
 setInterval(carregarAtividade, 15000); carregarAtividade();
 setInterval(carregarGates,    300000); carregarGates();
+setInterval(carregarDiario,   600000); carregarDiario();
 setInterval(carregarSistema,   60000); carregarSistema();
 setInterval(carregarSparks,    60000); carregarSparks();
 setInterval(_conexaoSilenciosa, 60000); setTimeout(_conexaoSilenciosa, 2500);

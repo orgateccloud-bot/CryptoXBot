@@ -999,6 +999,41 @@ def api_gates():
     return jsonify({"etapas": etapas, "frentes": frentes, "hoje": hoje.isoformat()})
 
 
+_RELATORIO_PRODUCAO = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "docs", "RELATORIO_PRODUCAO.md"
+)
+
+
+@app.route("/api/diario")
+def api_diario():
+    """Última entrada de diário do RELATORIO_PRODUCAO.md — leitura pura.
+
+    O razão imprime o próprio editorial: a fonte é o arquivo versionado no
+    repositório, sem cópia que possa divergir. Sem arquivo ou sem seção de
+    diário, devolve vazio (nunca 500)."""
+    try:
+        with open(_RELATORIO_PRODUCAO, encoding="utf-8") as f:
+            texto = f.read()
+    except OSError:
+        return jsonify({"titulo": None, "corpo": None})
+    marcador = "\n## Diário —"
+    pos = texto.rfind(marcador)
+    if pos == -1:
+        return jsonify({"titulo": None, "corpo": None})
+    trecho = texto[pos + 1 :]
+    fim = trecho.find("\n## ", 1)
+    if fim != -1:
+        trecho = trecho[:fim]
+    linhas = trecho.splitlines()
+    return jsonify(
+        {
+            "titulo": linhas[0].lstrip("# ").strip(),
+            "corpo": "\n".join(linhas[1:]).strip(),
+            "fonte": "docs/RELATORIO_PRODUCAO.md",
+        }
+    )
+
+
 @app.route("/api/sistema")
 def api_sistema():
     """Servicos NSSM + relogios agendados — o 'bot esta vivo' verificavel.
