@@ -853,7 +853,15 @@ document.querySelectorAll('.mesa-btn').forEach(b => {
 
 async function carregarMesa() {
   try {
-    const rows = await fetch('/api/mesa/comandos').then(r => r.json());
+    const r = await fetch('/api/mesa/comandos');
+    if (r.status === 401 || r.status === 403) {
+      // Estado honesto: sem token o histórico é ILEGÍVEL, não "vazio".
+      el('mesa-historico').innerHTML =
+        '<tr><td colspan="5" style="font-style:italic;color:var(--ink-3)">' +
+        'Mesa desarmada — cole o token acima para ler o histórico.</td></tr>';
+      return;
+    }
+    const rows = await r.json();
     if (!Array.isArray(rows) || !rows.length) return;
     el('mesa-historico').innerHTML = rows.map(c => {
       const st = esc(c.status || '?');
