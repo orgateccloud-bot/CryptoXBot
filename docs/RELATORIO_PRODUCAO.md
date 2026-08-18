@@ -447,3 +447,75 @@ dos dois serve para decidir alguma coisa.
 
 *Gerado sobre: commit `b9bcb93`, suíte 1.801/14, CI 4/4, serviços
 BXBotWorker/BXBotDashboard/BXBotBook RUNNING, dashboard PID 16180.*
+
+---
+
+## Diário — 2026-08-17/18 (v2.4): a mesa, seu batismo, e o canal que voltou dos mortos
+
+O dashboard ganhou a primeira ESCRITA da sua história — e o primeiro comando
+real dela encontrou um incidente que ninguém sabia que existia.
+
+### MESA DE OPERAÇÕES (aba 7, commit `225e756`)
+
+- **Arquitetura**: o dashboard grava um COMANDO auditado na tabela nova
+  `comandos`; o WORKER consome (poller 10s), executa e responde
+  EXECUTADO/FALHOU/REJEITADO + trilha em `bot_events/mesa_comando`. Nada
+  escreve em tabela de medição — o espírito do E-8e permanece.
+- **Contrato v1, papel somente POR CONSTRUÇÃO**: lista fechada (pausar,
+  retomar, fechar posição paper, retreinar ML, testar Telegram); fechar
+  posição RECUSA executor não-simulado; **prova estática por AST** de que o
+  código da mesa não conhece DRY_RUN/ALLOW_REAL/abrir_long; fail-closed —
+  sem `DASHBOARD_TOKEN` no `.env`, a mesa não existe (403).
+- UI com confirmação dupla e histórico vivo; token em sessionStorage
+  autentica a página inteira (gate global de Bearer ativo).
+- 17 testes novos; suíte **1.817 passed, 14 skipped**.
+
+### A saga do token (a lição de sempre, 3ª ocorrência)
+
+Duas tentativas de configurar `DASHBOARD_TOKEN` "salvas" pelo operador —
+e o `.env` de produção intocado desde 13/08 19:17 (a edição ia para outro
+lugar). Resolvido eliminando o editor da equação: comando que gera, grava
+por caminho absoluto e copia para o clipboard. Verificação independente
+depois: linha presente, gate respondendo 401 sem Bearer.
+
+### O batismo que pagou a mesa: Telegram morto desde 13/08
+
+O comando #1 (`testar_telegram`) respondeu FALHOU com HTTP 404 — e o
+diagnóstico revelou: o token do bot no `.env` estava **truncado** (35
+chars, sem o prefixo `dígitos:`) desde a edição de 13/08 19:17. Ou seja,
+**os relatórios das 18h de 14-16/08 nunca chegaram, em silêncio** — falha
+de entrega só aparece quando algo tenta enviar e alguém olha a resposta.
+Conserto: token completo do BotFather (46 chars) + restart do worker
+DEPOIS da gravação (token vive na memória do processo — a ordem importa).
+Prova: `getMe` ok, envio direto entregue, e o comando #3 da mesa fechando
+o circuito completo dashboard → banco → worker → celular: **EXECUTADO,
+"entregue"**.
+
+### Bateria completa (comandos #4-#7)
+
+| # | Comando | Resposta do worker |
+|---|---|---|
+| 4 | pausar_bot | EXECUTADO — avaliações suspensas; proteções seguem |
+| 5 | fechar_posicao_paper BTC | **FALHOU — "sem posição aberta"** (o "não" honesto) |
+| 6 | retreinar_ml | EXECUTADO — retreino real disparado (→ model_metricas) |
+| 7 | retomar_bot | EXECUTADO — avaliações retomadas |
+
+7 comandos na vida da mesa: 4 EXECUTADO, 3 FALHOU com motivo verdadeiro,
+0 REJEITADO. Auditoria íntegra em bot_events.
+
+### Estado
+
+| Indicador | Valor |
+|---|---|
+| Suíte | **1.817 passed, 14 skipped** |
+| Coleta E-11 | **125/300 barras** (18/08 09:47) — medição ~24-25/08 |
+| Telegram | **restaurado** — relatório das 18h volta a chegar |
+| Funil | 5 FAIL · 1 EM COLETA · 1 AGENDADA (16/11) |
+| Capital real | **PROIBIDO pelo gate** — a mesa não tem, por construção, como mudar isso |
+
+O terminal fecha seu ciclo: vê, entende e AGE — no papel, com trilha. A
+porta do capital real continua onde sempre esteve: atrás do primeiro
+SOBREVIVE do funil.
+
+*Gerado sobre: commit `225e756`, suíte 1.817/14, serviços worker/dashboard/
+book RUNNING, mesa armada com 7 comandos auditados.*
