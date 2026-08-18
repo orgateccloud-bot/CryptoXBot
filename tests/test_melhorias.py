@@ -132,19 +132,56 @@ class TestRelatorioDiarioAutomatico(unittest.TestCase):
             "score_medio",
             "sinais_gerados",
             "trades_dia",
+            "ganhos_dia",
             "win_rate",
             "pnl_usdt",
             "pnl_pct",
         ):
             self.assertIn(campo, d, f"Campo '{campo}' ausente em dados_relatorio_diario")
 
-    def test_dados_relatorio_diario_sem_trades_win_rate_zero(self):
-        """Sem nenhum trade fechado hoje, win_rate deve ser 0.0 (nao ZeroDivisionError)."""
+    def test_dados_relatorio_diario_sem_trades_win_rate_none(self):
+        """Sem nenhum trade fechado hoje, win_rate e None — 0/0 nao e 0%.
+        (Ate 2026-08-18 devolvia 0.0 e o alerta das 18h imprimia
+        'Win Rate: 0.0%', afirmando derrota total sem nenhuma medicao.)"""
         from logger import logger as logger_singleton
 
         d = logger_singleton.dados_relatorio_diario("SYMBOL_INEXISTENTE_XYZ")
         self.assertEqual(d["trades_dia"], 0)
-        self.assertEqual(d["win_rate"], 0.0)
+        self.assertIsNone(d["win_rate"])
+
+    def test_relatorio_telegram_honesto_sem_trades_e_sem_saldo(self):
+        """A mensagem das 18h nunca inventa numero: win_rate None vira '—',
+        erro de saldo vira 'sem leitura' (nunca $0.00), marca e CryptoXbot."""
+        import telegram_bot
+
+        capturadas = []
+        original = telegram_bot._enviar
+        telegram_bot._enviar = lambda msg: capturadas.append(msg) or True
+        try:
+            telegram_bot.relatorio_diario(0.0, 0, None, None, saldo_erro="timeout na API")
+        finally:
+            telegram_bot._enviar = original
+        msg = capturadas[0]
+        self.assertIn("CryptoXbot", msg)
+        self.assertNotIn("BotBinance", msg)
+        self.assertIn("Win Rate:</b> —", msg)
+        self.assertIn("sem leitura", msg)
+        self.assertNotIn("$0.00\n", msg.split("Saldo")[1])
+
+    def test_relatorio_telegram_com_dados_reais_formata_numeros(self):
+        import telegram_bot
+
+        capturadas = []
+        original = telegram_bot._enviar
+        telegram_bot._enviar = lambda msg: capturadas.append(msg) or True
+        try:
+            telegram_bot.relatorio_diario(12.5, 4, 350.0, 75.0)
+        finally:
+            telegram_bot._enviar = original
+        msg = capturadas[0]
+        self.assertIn("+$12.50", msg)
+        self.assertIn("Win Rate:</b> 75.0%", msg)
+        self.assertIn("$350.00", msg)
 
 
 # ══════════════════════════════════════════════════════════════

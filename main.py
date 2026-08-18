@@ -891,10 +891,18 @@ def iniciar_vigia_de_eventos():
     print(f"[VIGIA] Vigia de bot_events CRITICAL ativo (varredura a cada {_VIGIA_INTERVALO_S}s).")
 
 
-def iniciar_relatorio_diario(symbol: str):
+def iniciar_relatorio_diario(pares: str | list[str]):
     """Thread que dispara o relatorio diario (Telegram) 1x por dia às
     _RELATORIO_HORA. Não bloqueia o loop principal. (P2-5: telegram_bot.
-    relatorio_diario() existia pronta mas nunca era chamada em produção.)"""
+    relatorio_diario() existia pronta mas nunca era chamada em produção.)
+
+    Agrega TODOS os pares — até 2026-08-18 recebia só pares[0], então um
+    trade fechado em ETH/SOL não aparecia no "Trades: 0" das 18h, rotulado
+    como se fosse global. Saldo via binance_conta.saldo() para distinguir
+    conta zerada de leitura que falhou (o get_saldo_usdt devolve 0.0 para
+    os dois casos — ambiguidade que a auditoria de 2026-07-26 matou em todo
+    lugar, menos aqui)."""
+    lista_pares = [pares] if isinstance(pares, str) else list(pares)
 
     def _loop_relatorio():
         ultimo_relatorio = None
@@ -906,10 +914,22 @@ def iniciar_relatorio_diario(symbol: str):
 
             if hora_certa and not ja_relatou_hoje:
                 try:
-                    d = logger.dados_relatorio_diario(symbol)
-                    saldo_atual = gestao_risco.get_saldo_usdt()
+                    import binance_conta
+
+                    pnl_total, trades_total, ganhos_total = 0.0, 0, 0
+                    for s in lista_pares:
+                        d = logger.dados_relatorio_diario(s)
+                        pnl_total += d["pnl_usdt"]
+                        trades_total += d["trades_dia"]
+                        ganhos_total += d.get("ganhos_dia", 0)
+                    win_rate = ganhos_total / trades_total * 100 if trades_total > 0 else None
+                    saldo_atual, saldo_erro = binance_conta.saldo("USDT")
                     telegram_bot.relatorio_diario(
-                        d["pnl_usdt"], d["trades_dia"], saldo_atual, d["win_rate"]
+                        pnl_total,
+                        trades_total,
+                        None if saldo_erro else saldo_atual,
+                        win_rate,
+                        saldo_erro=saldo_erro,
                     )
                 except Exception as e:
                     print(f"\033[91m[RELATORIO] Falha ao enviar relatorio diario: {e}\033[0m")
@@ -1788,8 +1808,8 @@ def main():
     # Thread de retreinamento automático semanal
     iniciar_retreinamento_automatico(pares)
 
-    # Thread de relatorio diario via Telegram (P2-5)
-    iniciar_relatorio_diario(pares[0])
+    # Thread de relatorio diario via Telegram (P2-5) — TODOS os pares
+    iniciar_relatorio_diario(pares)
 
     # I-9: vigia que da consumo aos bot_events CRITICAL
     iniciar_vigia_de_eventos()

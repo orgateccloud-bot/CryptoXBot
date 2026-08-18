@@ -224,24 +224,33 @@ def alerta_persistencia_falhou(symbol, tipo, preco, tamanho_btc):
     return _enviar(msg)
 
 
-def relatorio_diario(pnl_dia, trades_dia, saldo_atual, win_rate):
+def relatorio_diario(pnl_dia, trades_dia, saldo_atual, win_rate, saldo_erro=None):
+    """Relatório das 18h. Régua RAZÃO: 0/0 não é 0% (win_rate None → '—') e
+    saldo ilegível não é saldo zero (saldo_erro → 'sem leitura')."""
     emoji = "📈" if pnl_dia >= 0 else "📉"
     sinal = "+" if pnl_dia >= 0 else ""
+    wr_txt = "—" if win_rate is None else f"{win_rate:.1f}%"
+    if saldo_erro:
+        saldo_txt = "sem leitura (erro na conta)"
+    elif saldo_atual is None:
+        saldo_txt = "—"
+    else:
+        saldo_txt = f"${saldo_atual:.2f}"
     msg = (
-        f"{emoji} <b>RELATÓRIO DIÁRIO — BotBinance</b>\n"
+        f"{emoji} <b>RELATÓRIO DIÁRIO — CryptoXbot</b>\n"
         f"📅 {datetime.now().strftime('%d/%m/%Y')}\n\n"
         f"💰 <b>PnL do Dia:</b> {sinal}${pnl_dia:.2f}\n"
-        f"📊 <b>Trades:</b> {trades_dia}\n"
-        f"🎯 <b>Win Rate:</b> {win_rate:.1f}%\n"
-        f"💼 <b>Saldo Atual:</b> ${saldo_atual:.2f}\n\n"
-        f"<i>Gerado automaticamente pelo BotBinance</i>"
+        f"📊 <b>Trades fechados:</b> {trades_dia}\n"
+        f"🎯 <b>Win Rate:</b> {wr_txt}\n"
+        f"💼 <b>Saldo USDT (conta spot):</b> {saldo_txt}\n\n"
+        f"<i>Paper trading — gerado automaticamente pelo CryptoXbot</i>"
     )
     return _enviar(msg)
 
 
 def testar_conexao():
     msg = (
-        f"✅ <b>BotBinance conectado!</b>\n"
+        f"✅ <b>CryptoXbot conectado!</b>\n"
         f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
         f"🤖 Alertas Telegram ativos e funcionando."
     )

@@ -547,13 +547,18 @@ class LoggerBot:
             conn.close()
 
         trades_dia = trades[0] or 0
-        win_rate = (trades[1] or 0) / trades_dia * 100 if trades_dia > 0 else 0.0
+        ganhos_dia = trades[1] or 0
+        # 0/0 nao e 0%: sem trades nao ha win rate MEDIDO — None, nunca um
+        # numero sentinela (mesma regua do PF=None do gate; o 0.0 antigo saia
+        # como "Win Rate: 0.0%" no alerta das 18h, afirmando derrota total).
+        win_rate = ganhos_dia / trades_dia * 100 if trades_dia > 0 else None
         return {
             "hoje": hoje,
             "avaliacoes": avals[0] or 0,
             "score_medio": avals[1] or 0.0,
             "sinais_gerados": avals[2] or 0,
             "trades_dia": trades_dia,
+            "ganhos_dia": ganhos_dia,
             "win_rate": win_rate,
             "pnl_usdt": trades[2] or 0.0,
             "pnl_pct": trades[3] or 0.0,
