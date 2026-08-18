@@ -60,6 +60,14 @@ _TMP_ESTADO = tempfile.mkdtemp(prefix="bxbot_teste_")
 os.environ["DB_PATH"] = os.path.join(_TMP_ESTADO, "test_btc_data.db")
 os.environ.setdefault("DATABASE_BACKEND", "sqlite")
 os.environ.pop("DATABASE_URL", None)  # teste nunca aponta para Postgres real
+# A suíte assume /api/* SEM auth. Com DASHBOARD_TOKEN no .env do operador
+# (produção o tem desde 2026-08-17), o middleware do dashboard ligaria e todo
+# teste de API levaria 401 — medido em 2026-08-18: 46 falhas. String vazia
+# EXISTE no ambiente, então o load_dotenv(override=False) do runtime_settings
+# não a substitui pelo valor do .env; dashboard lê "" e o middleware fica
+# desligado. Quem testa o próprio middleware (TestApiMesa) seta
+# dashboard._DASHBOARD_TOKEN por monkeypatch, sem depender do ambiente.
+os.environ["DASHBOARD_TOKEN"] = ""
 os.makedirs(os.path.join(_TMP_ESTADO, "data"), exist_ok=True)
 
 
