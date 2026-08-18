@@ -45,7 +45,10 @@ function ativarAba(aba) {
   if (!ABAS.includes(aba)) aba = 'cockpit';
   _abaAtiva = aba;
   document.querySelectorAll('.aba-secao').forEach(s => {
-    s.style.display = s.id === 'aba-' + aba ? '' : 'none';
+    // 'block' explícito: '' devolveria a vez à regra CSS .aba-secao{display:none}
+    // e escondia a aba ATIVA (bug pego por screenshot em 18/08 — as checagens
+    // por textContent/style inline eram cegas ao display COMPUTADO).
+    s.style.display = s.id === 'aba-' + aba ? 'block' : 'none';
   });
   document.querySelectorAll('.aba-btn').forEach(b =>
     b.classList.toggle('ativa', b.dataset.aba === aba));
