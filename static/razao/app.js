@@ -15,13 +15,63 @@ const cssVar = name => getComputedStyle(document.documentElement).getPropertyVal
 
 // Com DASHBOARD_TOKEN setado no servidor, TODO /api/* exige Bearer — o token
 // colado na mesa (sessionStorage, morre com a aba) autentica a página inteira.
+// Sentinela: sem isto, cada renderizador cairia no próprio fallback sobre o
+// corpo {"erro"} e o conjunto viraria mentira ("timeout", "não configurada",
+// "OPERANDO", PnL $0,00...). O wrapper REJEITA a promise em 401 (e em
+// qualquer não-2xx de GET — o 429 do rate limiter também não é dado), então
+// nenhum consumidor de leitura jamais recebe erro como se fosse medição; os
+// try/catch existentes viram silêncio (placeholders ficam) e UM chip no topo
+// explica a trava. POST passa o não-2xx adiante (a mesa lê d.erro do corpo).
 const _fetchNativo = window.fetch.bind(window);
+let _apiTravada = null, _apiTravaComToken = null;
+function _avisoTravaAPI(travada, comToken) {
+  if (travada === _apiTravada && comToken === _apiTravaComToken) return;
+  _apiTravada = travada; _apiTravaComToken = comToken;
+  if (travada && typeof _conexaoCache !== 'undefined') _conexaoCache = null;
+  let chip = document.getElementById('aviso-trava-api');
+  if (!chip) {
+    chip = document.createElement('a');
+    chip.id = 'aviso-trava-api';
+    chip.href = '#/mesa';
+    chip.style.cssText = 'display:none;text-align:center;padding:5px 10px;' +
+      'border-bottom:1px solid var(--warn);color:var(--warn);' +
+      'letter-spacing:.08em;font-size:11px;text-transform:uppercase;text-decoration:none;';
+    const nav = document.querySelector('.abas');
+    if (nav && nav.parentNode) nav.parentNode.insertBefore(chip, nav.nextSibling);
+    else document.body.insertBefore(chip, document.body.firstChild);
+  }
+  chip.textContent = comToken
+    ? '⚠ token RECUSADO pelo servidor — confira o valor colado na aba 7 (Mesa)'
+    : '⚠ leituras de API travadas — exigem DASHBOARD_TOKEN · arme na aba 7 (Mesa) · o pregão ao vivo (socket) segue';
+  chip.style.display = travada ? 'block' : 'none';
+}
+function _erroApi(status, comToken) {
+  const e = new Error('api-' + status);
+  e.apiStatus = status;
+  e.comToken = comToken;
+  return e;
+}
 window.fetch = (url, opts = {}) => {
   const t = sessionStorage.getItem('bxbot-mesa-token');
-  if (t && typeof url === 'string' && url.startsWith('/api/')) {
+  const ehApi = typeof url === 'string' && url.startsWith('/api/');
+  if (t && ehApi) {
     opts = { ...opts, headers: { ...(opts.headers || {}), 'Authorization': 'Bearer ' + t } };
   }
-  return _fetchNativo(url, opts);
+  const p = _fetchNativo(url, opts);
+  if (!ehApi) return p;
+  const metodo = String((opts && opts.method) || 'GET').toUpperCase();
+  return p.then(r => {
+    if (r.status === 401) {
+      // Request pré-arme (sem token) respondendo tarde depois de armado:
+      // não re-acende o chip (evita pisca), mas segue rejeitando o dado.
+      const tAgora = sessionStorage.getItem('bxbot-mesa-token');
+      if (!(t == null && tAgora)) _avisoTravaAPI(true, !!t);
+      throw _erroApi(401, !!t);
+    }
+    if (r.ok) { _avisoTravaAPI(false, null); return r; }
+    if (metodo === 'GET') throw _erroApi(r.status, !!t);
+    return r;
+  });
 };
 
 let parAtivo = localStorage.getItem('bxbot-par') || 'BTCUSDT';
@@ -399,7 +449,7 @@ function trocarPar(symbol) {
     d.classList.toggle('ativo', d.dataset.symbol === symbol));
   const d = dadosPares[symbol];
   if (d) aplicarDados(d);
-  else fetch('/api/estado/' + symbol).then(r => r.json()).then(x => { dadosPares[x.symbol] = x; aplicarDados(x); });
+  else fetch('/api/estado/' + symbol).then(r => r.json()).then(x => { dadosPares[x.symbol] = x; aplicarDados(x); }).catch(() => {});
 }
 
 const PESOS = { regime:25, mtf:20, ml:15, ema:10, fear_greed:10, rsi:8, vwap:5, volume:4, atr:3 };
@@ -823,7 +873,8 @@ async function _mesaEnviar(comando) {
     setTimeout(carregarMesa, 1500);
     setTimeout(carregarMesa, 11000);
   } catch (e) {
-    _mesaAviso('Falha de rede ao enviar o comando.', true);
+    if (e && e.apiStatus === 401) _mesaAviso('Recusado (401): token inválido — confira o valor colado acima.', true);
+    else _mesaAviso('Falha de rede ao enviar o comando.', true);
   }
 }
 
@@ -851,18 +902,22 @@ document.querySelectorAll('.mesa-btn').forEach(b => {
   });
 });
 
+const _MESA_VAZIA = '<tr><td colspan="5" style="font-style:italic;color:var(--ink-3)">' +
+  'Nenhum comando emitido.</td></tr>';
+function _mesaHistoricoAviso(msg) {
+  el('mesa-historico').innerHTML =
+    '<tr><td colspan="5" style="font-style:italic;color:var(--ink-3)">' + esc(msg) + '</td></tr>';
+}
 async function carregarMesa() {
   try {
     const r = await fetch('/api/mesa/comandos');
-    if (r.status === 401 || r.status === 403) {
-      // Estado honesto: sem token o histórico é ILEGÍVEL, não "vazio".
-      el('mesa-historico').innerHTML =
-        '<tr><td colspan="5" style="font-style:italic;color:var(--ink-3)">' +
-        'Mesa desarmada — cole o token acima para ler o histórico.</td></tr>';
+    const rows = await r.json();
+    if (!Array.isArray(rows) || !rows.length) {
+      // 200 vazio é um livro vazio DE VERDADE — e também LIMPA um aviso de
+      // trava anterior (senão a mesa ficava presa em "desarmada" após armar).
+      el('mesa-historico').innerHTML = _MESA_VAZIA;
       return;
     }
-    const rows = await r.json();
-    if (!Array.isArray(rows) || !rows.length) return;
     el('mesa-historico').innerHTML = rows.map(c => {
       const st = esc(c.status || '?');
       return `<tr><td>#${esc(c.id)}</td>` +
@@ -871,7 +926,17 @@ async function carregarMesa() {
         `<td class="st-${st}">${st}</td>` +
         `<td style="color:var(--ink-3)">${esc(c.resultado || '—')}</td></tr>`;
     }).join('');
-  } catch (e) {}
+  } catch (e) {
+    // 401 não é livro vazio: sem token o histórico é ILEGÍVEL. 403 = mesa
+    // desabilitada no servidor. Demais erros: mantém o que estava impresso.
+    if (e && e.apiStatus === 401) {
+      _mesaHistoricoAviso(e.comToken
+        ? 'Token recusado pelo servidor — confira o valor colado acima.'
+        : 'Mesa desarmada — cole o token acima para ler o histórico.');
+    } else if (e && e.apiStatus === 403) {
+      _mesaHistoricoAviso('Mesa desabilitada no servidor — defina DASHBOARD_TOKEN no .env e reinicie o dashboard.');
+    }
+  }
 }
 setInterval(() => { if (_abaAtiva === 'mesa') carregarMesa(); }, 10000);
 
@@ -965,11 +1030,51 @@ async function testarConexao() {
     _conexaoCache = d;
     _renderConexao(d);
   } catch(e) {
-    btn.innerHTML = '✕ FALHA — sem resposta do servidor';
+    _conexaoCache = null;
+    if (e && (e.apiStatus === 401 || e.apiStatus === 403)) _renderConexaoTravada(e.comToken);
+    else if (e && e.apiStatus) _renderConexaoErro('HTTP ' + e.apiStatus);
+    else btn.innerHTML = '✕ FALHA — sem resposta do servidor';
   } finally {
     btn.disabled = false;
     if (btn.innerHTML.includes('TESTANDO')) btn.innerHTML = '▶ TESTAR CONEXÃO';
   }
+}
+
+// 401 não é medição: sem token NADA aqui foi testado — dizer "timeout" ou
+// "não configurada" seria inventar diagnóstico. Estado honesto: travado.
+function _renderConexaoTravada(comToken) {
+  const motivo = comToken
+    ? 'Token RECUSADO pelo servidor — confira o valor colado na aba 7 (Mesa).'
+    : 'Leitura travada — o servidor exige DASHBOARD_TOKEN. Arme na aba 7 (Mesa) e teste de novo.';
+  ['mc-rest-spot', 'mc-rest-fut', 'mc-chave', 'mc-auth', 'mc-modo-badge', 'mc-dry-run', 'mc-allow-real']
+    .forEach(id => { el(id).textContent = '— sem leitura'; el(id).className = 'mc-val muted'; });
+  el('mc-pares-list').innerHTML = '<div class="mc-row"><span class="mc-lbl" style="font-style:italic">' +
+    esc(motivo) + '</span></div>';
+  el('mc-saldo-row').style.display = 'none';
+  el('mc-auth-err-row').style.display = 'none';
+  el('mc-ts').textContent = 'Sem leitura — token exigido.';
+  el('hdr-latencia').textContent = '—';
+  el('hdr-latencia').style.color = '';
+  el('conn-dot-binance').className = 'conn-dot warn';
+  el('btn-testar').innerHTML = comToken ? '⚠ TOKEN RECUSADO — CONFIRA NA MESA' : '⚠ EXIGE TOKEN — ARME NA ABA MESA';
+  el('exp-conexoes').innerHTML =
+    '<div class="micro-linha"><span class="k">leitura</span><span class="v">' +
+    (comToken ? 'token recusado' : 'travada — exige token') + '</span></div>';
+}
+
+// Não-2xx que não é auth (429 do rate limiter, 500): também NÃO é medição.
+function _renderConexaoErro(rotulo) {
+  ['mc-rest-spot', 'mc-rest-fut', 'mc-chave', 'mc-auth', 'mc-modo-badge', 'mc-dry-run', 'mc-allow-real']
+    .forEach(id => { el(id).textContent = '— sem leitura (' + rotulo + ')'; el(id).className = 'mc-val muted'; });
+  el('mc-pares-list').innerHTML = '<div class="mc-row"><span class="mc-lbl" style="font-style:italic">' +
+    'O servidor respondeu ' + esc(rotulo) + ' — nada foi medido. Tente de novo em instantes.</span></div>';
+  el('mc-saldo-row').style.display = 'none';
+  el('mc-auth-err-row').style.display = 'none';
+  el('mc-ts').textContent = 'Sem leitura — ' + esc(rotulo) + '.';
+  el('hdr-latencia').textContent = '—';
+  el('hdr-latencia').style.color = '';
+  el('conn-dot-binance').className = 'conn-dot warn';
+  el('btn-testar').innerHTML = '↺ TENTAR DE NOVO (' + esc(rotulo) + ')';
 }
 
 function _renderConexao(d) {
@@ -1005,8 +1110,10 @@ function _renderConexao(d) {
 
   el('mc-modo-badge').textContent = modo.label || '—';
   el('mc-modo-badge').className = 'mc-val ' + (modo.label === 'REAL' ? 'err' : 'warn');
+  // DRY RUN ligado é o estado SEGURO (papel) — verde. Desligado é uma das
+  // chaves de ignição do modo real aberta — vermelho, nunca 'ok'.
   el('mc-dry-run').textContent = modo.dry_run ? '✓ Ativo' : '✕ Desativado';
-  el('mc-dry-run').className = 'mc-val ' + (modo.dry_run ? 'warn' : 'ok');
+  el('mc-dry-run').className = 'mc-val ' + (modo.dry_run ? 'ok' : 'err');
   el('mc-allow-real').textContent = modo.allow_real ? '✓ Permitido' : '✕ Bloqueado';
   el('mc-allow-real').className = 'mc-val ' + (modo.allow_real ? 'err' : 'muted');
   if (d.timestamp) el('mc-ts').textContent = 'Atualizado: ' + new Date(d.timestamp).toLocaleTimeString('pt-BR');
@@ -1030,8 +1137,8 @@ function _renderConexao(d) {
   el('btn-testar').innerHTML = '↺ ATUALIZAR';
 
   el('exp-conexoes').innerHTML =
-    `<div class="micro-linha"><span class="k">REST spot</span><span class="v" style="color:${rs.ok ? 'var(--gain)' : 'var(--loss)'}">${rs.ok ? rs.latencia_ms + ' ms' : 'falha'}</span></div>` +
-    `<div class="micro-linha"><span class="k">REST futures</span><span class="v" style="color:${rf.ok ? 'var(--gain)' : 'var(--loss)'}">${rf.ok ? rf.latencia_ms + ' ms' : 'falha'}</span></div>` +
+    `<div class="micro-linha"><span class="k">REST spot</span><span class="v" style="color:${rs.ok ? 'var(--gain)' : 'var(--loss)'}">${rs.ok ? esc(rs.latencia_ms) + ' ms' : 'falha'}</span></div>` +
+    `<div class="micro-linha"><span class="k">REST futures</span><span class="v" style="color:${rf.ok ? 'var(--gain)' : 'var(--loss)'}">${rf.ok ? esc(rf.latencia_ms) + ' ms' : 'falha'}</span></div>` +
     `<div class="micro-linha"><span class="k">Autenticação</span><span class="v" style="color:${auth.autenticado ? 'var(--gain)' : 'var(--warn)'}">${auth.autenticado ? 'ok' : 'pendente'}</span></div>`;
 }
 
@@ -1040,7 +1147,11 @@ async function _conexaoSilenciosa() {
     const d = await fetch('/api/conexao').then(r => r.json());
     _conexaoCache = d;
     _renderConexao(d);
-  } catch(e) {}
+  } catch(e) {
+    if (e && (e.apiStatus === 401 || e.apiStatus === 403)) { _conexaoCache = null; _renderConexaoTravada(e.comToken); }
+    // 429/500/rede no polling silencioso: mantém o último estado impresso
+    // (o mc-ts carimba a hora da última leitura boa).
+  }
 }
 
 // ── relógio + socket ────────────────────────────────────────────
@@ -1054,7 +1165,7 @@ socket.on('connect', () => {
   fetch('/api/estado/' + parAtivo).then(r => r.json()).then(d => {
     dadosPares[d.symbol] = d;
     if (d.symbol === parAtivo) aplicarDados(d);
-  });
+  }).catch(() => {});
   fetch('/api/trades').then(r => r.json()).then(ts => ts.slice(0, 30).reverse().forEach(t => { addTrade(t); _fitaChip(t); })).catch(() => {});
   carregarEventos();
   carregarRisco();
