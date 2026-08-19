@@ -247,8 +247,70 @@ class TestFalhaDeEntregaNaoESilenciosa:
             lambda *a, **k: _RespostaFake(200, "", {"result": {"message_id": 1}}),
         )
         assert telegram_bot.alerta_stop(50000.0, -12.5) is True
-        assert telegram_bot.alerta_circuit_breaker("teste") is True
+        assert telegram_bot.alerta_circuit_breaker("teste", acao="teste de acao") is True
         assert telegram_bot.alerta_trailing_stop(49000.0, 51000.0) is True
+
+
+class TestHonestidadeDosAlertas:
+    """19/08 04:43: o operador acordou com 'O bot foi pausado. Revise
+    manualmente antes de reativar' por causa de um WS caido — que nao pausou
+    nada e se auto-curou 14 min depois, sem aviso de recuperacao. O alerta
+    agora diz o que REALMENTE acontece, por chamador."""
+
+    def _capturar(self, monkeypatch):
+        capturadas = []
+        monkeypatch.setattr(telegram_bot, "_enviar", lambda msg: capturadas.append(msg) or True)
+        return capturadas
+
+    def test_ws_indisponivel_diz_que_NAO_pausou(self, monkeypatch):
+        caixa = self._capturar(monkeypatch)
+        telegram_bot.alerta_ws_indisponivel("@depth", 5, "timed out")
+        msg = caixa[0]
+        assert "NÃO pausou" in msg
+        assert "Reconexão automática" in msg
+        assert "foi pausado" not in msg
+        assert "Revise manualmente" not in msg
+        assert "CIRCUIT BREAKER" not in msg  # WS caido nao e circuit breaker
+
+    def test_ws_recuperado_manda_o_tudo_limpo(self, monkeypatch):
+        caixa = self._capturar(monkeypatch)
+        telegram_bot.alerta_ws_recuperado("@aggTrade", 9)
+        assert "RECUPERADO" in caixa[0]
+        assert "9 falhas" in caixa[0]
+
+    def test_circuit_breaker_rodape_e_do_chamador(self, monkeypatch):
+        caixa = self._capturar(monkeypatch)
+        telegram_bot.alerta_circuit_breaker("drawdown 5%", acao="Bloqueado até o reset diário.")
+        assert "Bloqueado até o reset diário." in caixa[0]
+        assert "foi pausado" not in caixa[0]
+
+    def test_rodape_generico_nao_pode_voltar(self):
+        """Prova estática: a mentira antiga não existe mais no módulo."""
+        import inspect
+
+        fonte = inspect.getsource(telegram_bot)
+        assert 'f"<i>O bot foi pausado' not in fonte
+
+    def test_main_escala_ws_com_o_alerta_certo(self, monkeypatch):
+        import main
+
+        chamadas = []
+        monkeypatch.setattr(
+            main.telegram_bot,
+            "alerta_ws_indisponivel",
+            lambda *a: chamadas.append(("indisponivel", a)) or True,
+        )
+        monkeypatch.setattr(
+            main.telegram_bot,
+            "alerta_ws_recuperado",
+            lambda *a: chamadas.append(("recuperado", a)) or True,
+        )
+        monkeypatch.setattr(main.database, "salvar_bot_event", lambda *a, **k: None)
+        monkeypatch.setitem(main._ws_escalado, "WS-teste", False)
+        main._ws_escalar_se_persistente("WS-teste", main.WS_FALHAS_PARA_ESCALAR, "erro x")
+        main._ws_marcar_recuperado("WS-teste", 7)
+        assert chamadas[0][0] == "indisponivel"
+        assert chamadas[1] == ("recuperado", ("WS-teste", 7))
 
 
 # ══════════════════════════════════════════════════════════════════

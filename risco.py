@@ -203,7 +203,12 @@ def travar(motivo: str, *, alertar: bool = True) -> None:
     except Exception:
         pass
     try:
-        telegram_bot.alerta_circuit_breaker(f"BOT TRAVADO — {motivo}")
+        telegram_bot.alerta_circuit_breaker(
+            f"BOT TRAVADO — {motivo}",
+            acao="Novas entradas bloqueadas em DEFINITIVO — reativar exige "
+            "destravar manual com frase de confirmação (risco.destravar). "
+            "Posições abertas e proteções seguem monitoradas.",
+        )
     except Exception:
         pass
 
@@ -843,7 +848,11 @@ def validar_trade(
             except Exception:
                 pass
             try:
-                telegram_bot.alerta_circuit_breaker(_estado_risco["motivo_bloqueio"])
+                telegram_bot.alerta_circuit_breaker(
+                    _estado_risco["motivo_bloqueio"],
+                    acao="Novas entradas bloqueadas até o reset diário; posições "
+                    "abertas e proteções seguem monitoradas. Sem ação manual.",
+                )
             except Exception:
                 pass
             return {"pode": False, "motivo": _estado_risco["motivo_bloqueio"], "tamanho_btc": 0}
@@ -864,7 +873,12 @@ def validar_trade(
             except Exception:
                 pass
             try:
-                telegram_bot.alerta_circuit_breaker(motivo)
+                telegram_bot.alerta_circuit_breaker(
+                    motivo,
+                    acao="Novas entradas suspensas enquanto a volatilidade exceder "
+                    "o limite — reavaliado automaticamente a cada ciclo. Sem ação "
+                    "manual.",
+                )
             except Exception:
                 pass
         return {"pode": False, "motivo": motivo, "tamanho_btc": 0}

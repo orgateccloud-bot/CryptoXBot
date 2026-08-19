@@ -267,9 +267,10 @@ def _ws_escalar_se_persistente(rotulo: str, falhas_seguidas: int, erro: str) -> 
     except Exception:
         pass
     try:
-        telegram_bot.alerta_circuit_breaker(
-            f"{rotulo} caiu: {falhas_seguidas} tentativas seguidas falharam. Dado congelado."
-        )
+        # NÃO é circuit breaker: nada pausa. Até 2026-08-19 este site reusava
+        # alerta_circuit_breaker e o operador acordava com "O bot foi pausado.
+        # Revise manualmente" — falso nas duas metades.
+        telegram_bot.alerta_ws_indisponivel(rotulo, falhas_seguidas, erro)
     except Exception:
         pass
 
@@ -288,6 +289,12 @@ def _ws_marcar_recuperado(rotulo: str, falhas_seguidas: int) -> None:
             service="worker",
             severity="WARNING",
         )
+    except Exception:
+        pass
+    try:
+        # O tudo-limpo no Telegram: o vigia so encaminha CRITICAL, entao sem
+        # este envio o operador recebe o alarme e nunca a recuperacao.
+        telegram_bot.alerta_ws_recuperado(rotulo, falhas_seguidas)
     except Exception:
         pass
 

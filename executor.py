@@ -834,7 +834,13 @@ class Executor:
                     "Entrada desfeita a mercado."
                     if ok
                     else "SELL de desfazimento FALHOU — POSICAO REAL DESCOBERTA."
-                )
+                ),
+                acao=(
+                    "Sem posição em risco — o bot segue operando normalmente."
+                    if ok
+                    else "INTERVENÇÃO MANUAL URGENTE: há posição real sem stop na "
+                    "exchange. Feche ou proteja manualmente AGORA."
+                ),
             )
         except Exception:
             pass

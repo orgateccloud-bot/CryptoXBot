@@ -192,12 +192,48 @@ def alerta_stop(preco, pnl_usdt):
     return _enviar(msg)
 
 
-def alerta_circuit_breaker(motivo):
+def alerta_circuit_breaker(motivo, acao):
+    """`acao` descreve o que REALMENTE aconteceu — cada chamador tem um estado
+    distinto (bloqueio até destravar manual, até reset diário, suspensão
+    automática por volatilidade...). Até 2026-08-19 o rodapé era fixo: "O bot
+    foi pausado. Revise manualmente antes de reativar." — mentiu no episódio
+    de WS das 04:43 (nada pausou; o WS se auto-curou 14 min depois) e pedia
+    ação manual que não existia. Parâmetro OBRIGATÓRIO de propósito: rodapé
+    genérico é como essa classe de mentira nasce."""
     msg = (
         f"⚡ <b>CIRCUIT BREAKER ATIVADO</b>\n"
         f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
         f"🔒 <b>Motivo:</b> {motivo}\n\n"
-        f"<i>O bot foi pausado. Revise manualmente antes de reativar.</i>"
+        f"<i>{acao}</i>"
+    )
+    return _enviar(msg)
+
+
+def alerta_ws_indisponivel(rotulo, falhas_seguidas, erro):
+    """WS caído NÃO é circuit breaker: nada pausa, nada exige ação manual.
+    O bot segue avaliando; CVD/OBI degradam para neutro enquanto o dado
+    estiver velho, e a reconexão é automática (aviso ao recuperar)."""
+    msg = (
+        f"🔌 <b>DADO AO VIVO INDISPONÍVEL</b>\n"
+        f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"🔒 <b>Motivo:</b> WebSocket {rotulo}: {falhas_seguidas} falhas "
+        f"seguidas de conexão. Último erro: {erro}\n\n"
+        f"<i>O bot NÃO pausou: segue avaliando, com os componentes CVD/OBI "
+        f"degradados para neutro enquanto o dado estiver velho. Reconexão "
+        f"automática em curso — aviso quando recuperar. Nenhuma ação manual "
+        f"necessária.</i>"
+    )
+    return _enviar(msg)
+
+
+def alerta_ws_recuperado(rotulo, falhas_seguidas):
+    """O tudo-limpo que faltou em 19/08 04:57: o operador recebeu o alarme e
+    nunca a recuperação (o vigia só encaminha CRITICAL)."""
+    msg = (
+        f"🔌 <b>DADO AO VIVO RECUPERADO</b>\n"
+        f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+        f"WebSocket {rotulo} reconectado após {falhas_seguidas} falhas "
+        f"seguidas. CVD/OBI voltam a acumular do stream."
     )
     return _enviar(msg)
 
