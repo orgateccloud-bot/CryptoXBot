@@ -28,14 +28,19 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ml_filtro import extrair_features, verificar_drift_e_registrar
+from ml_filtro import (
+    CONTEXTO_MINIMO,
+    extrair_features,
+    rotular_barreira_tripla,
+    verificar_drift_e_registrar,
+)
 
 MODEL_PATH = "data/modelo_lstm.pkl"
 DB_PATH = "data/btc_data.db"
 SYMBOL = "BTCUSDT"
 BASE_URL = "https://api.binance.com"
-ALVO_PCT = 0.015  # 1.5% de alta
-JANELA_FUTURA = 8  # velas a frente
+ALVO_PCT = 0.015  # 1.5% de alta = barreira superior
+JANELA_FUTURA = 8  # velas a frente = barreira vertical
 SEQ_LEN = 24  # velas no passado
 N_FEATURES = 11
 
@@ -63,6 +68,13 @@ def preparar_sequencias(intervalo="1h"):
     minimas = [r[2] for r in rows]
     volumes = [r[3] for r in rows]
 
+    # E-10 aplicado ao MLP (scorecard 2026-08-19, achado #2): a barreira
+    # inferior e o stop REAL do par (config/params_pares.py), como em
+    # ml_filtro.preparar_dataset — nao um numero inventado aqui.
+    from config.params_pares import get_params
+
+    stop_pct = get_params(SYMBOL)["stop_pct"]
+
     # Extrair features para cada vela
     all_features = []
     all_indices = []
@@ -74,6 +86,7 @@ def preparar_sequencias(intervalo="1h"):
 
     # Criar sequencias achatadas
     X, y = [], []
+    barreiras = {"ALVO": 0, "STOP": 0, "TEMPO": 0}
     for j in range(SEQ_LEN, len(all_features)):
         idx = all_indices[j]
         if idx + JANELA_FUTURA >= len(fechamentos):
@@ -92,10 +105,26 @@ def preparar_sequencias(intervalo="1h"):
 
         X.append(seq_flat)
 
-        preco_entrada = fechamentos[idx]
-        preco_futuro = max(fechamentos[idx + 1 : idx + JANELA_FUTURA + 1])
-        label = 1 if (preco_futuro - preco_entrada) / preco_entrada >= ALVO_PCT else 0
+        # Rotulo de barreira tripla — a MESMA funcao importada de ml_filtro
+        # (E-10), nao uma copia. O rotulo antigo (max de fechamentos futuros)
+        # nao tinha barreira de stop nem via o caminho intrabar: um trade que
+        # estourava o stop e so depois subia 1,5% era rotulado POSITIVO, e o
+        # MLP (ate 45% do peso do ensemble) era otimizado para uma pergunta
+        # que a mesa nao faz.
+        label, barreira, _velas = rotular_barreira_tripla(
+            maximas, minimas, idx, fechamentos[idx], ALVO_PCT, stop_pct, JANELA_FUTURA
+        )
+        barreiras[barreira] += 1
         y.append(label)
+
+    total = max(len(y), 1)
+    print(
+        f"[SEQ] Rotulos (barreira tripla, alvo {ALVO_PCT:.1%} / stop {stop_pct:.1%} / "
+        f"{JANELA_FUTURA} velas): "
+        f"ALVO {barreiras['ALVO']} ({barreiras['ALVO']/total:.1%})  "
+        f"STOP {barreiras['STOP']} ({barreiras['STOP']/total:.1%})  "
+        f"TEMPO {barreiras['TEMPO']} ({barreiras['TEMPO']/total:.1%})"
+    )
 
     return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
 
@@ -325,7 +354,15 @@ def prever(symbol=SYMBOL):
 
     r = requests.get(
         f"{BASE_URL}/api/v3/klines",
-        params={"symbol": symbol, "interval": intervalo, "limit": 100},
+        # E-10 (paridade treino/serve): era 100 — com 100 velas o ATR de Wilder
+        # nao converge para o valor que o treino (serie inteira) ve na MESMA
+        # barra. + SEQ_LEN porque o MLP consome as ultimas SEQ_LEN features,
+        # nao so a ultima: cada uma precisa de CONTEXTO_MINIMO velas ANTES de si.
+        params={
+            "symbol": symbol,
+            "interval": intervalo,
+            "limit": CONTEXTO_MINIMO + SEQ_LEN,
+        },
         timeout=8,
     )
     rows = r.json()
