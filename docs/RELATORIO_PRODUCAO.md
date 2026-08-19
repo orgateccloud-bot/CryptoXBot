@@ -606,3 +606,91 @@ o motivo. O funil segue sendo o único caminho ao real.
 
 *Gerado sobre: commit `9e22994`, suíte 1.819/14, serviços worker (PID
 30348) / dashboard (PID 27120) RUNNING, mesa com 11 comandos auditados.*
+
+## Diário — 2026-08-19 (v2.6): o alarme na medida certa e a régua virada para dentro
+
+O dia começou com a madrugada prestando contas e terminou com o sistema
+auditando a si mesmo — 3 commits, todos com CI verde, e dois consertos
+grandes nascendo como sessões paralelas.
+
+### A madrugada que se curou sozinha — e o alarme que mentiu sobre ela
+
+Rede instável entre 23:47 e 07:44: os dois WebSockets caíram às 04:43
+(CRITICAL após 5 falhas) e **reconectaram sozinhos às 04:57** (9
+tentativas); 9 avisos de saldo ilegível (timeouts + drift `-1021`
+re-sincronizado). Zero ação manual — o retry/backoff e o watchdog pagaram
+o que prometiam. Mas o print do operador pegou a mentira: o Telegram das
+04:43 dizia *"O bot foi pausado. Revise manualmente antes de reativar"* —
+falso nas duas metades (nada pausou; nada havia a reativar) — enquanto o
+bot_event do mesmo minuto dizia a verdade ("segue avaliando"). E o
+tudo-limpo das 04:57 nunca chegou: o vigia só encaminha CRITICAL.
+
+### O conserto (`dd96e3a`): rodapé por chamador, jamais genérico
+
+`alerta_circuit_breaker` tinha o rodapé CRAVADO no template, reusado por 5
+chamadores com 5 estados diferentes. Agora o rodapé é **parâmetro
+obrigatório** — rodapé genérico é como essa classe de mentira nasce — e
+cada situação diz a sua verdade: trava permanente exige destravar manual
+(o único caso em que "manual" é verdade), bloqueio diário reseta sozinho,
+volatilidade reavalia a cada ciclo, proteção-não-entrou distingue "sem
+risco, bot segue" de "POSIÇÃO DESCOBERTA — intervenção URGENTE". WS caído
+deixou de fingir ser circuit breaker: mensagem própria ("O bot NÃO
+pausou... reconexão automática") e **aviso de recuperação** no Telegram.
+Prova estática de que o rodapé genérico não pode voltar.
+
+### Rotação de token — a lição das 3 ocorrências, enfim medida
+
+"Gere o token": rotação completa com cada elo provado — token novo no
+`.env` e, ANTES do restart, **HTTP 401 para o token novo** (o velho vivia
+na memória do processo — a lição virou número, não anedota); restart PID
+27120→24400; prova tripla (novo 200 · inválido 401 · ausente 401). O
+percalço do meio também virou dado: a colagem sem Tab não gravou, e foi o
+**log do servidor** que diagnosticou (rajada 401 às 18:15) e confirmou a
+vitória (poll da mesa em 200 na cadência de 10s às 18:40:56).
+
+### 18h: o primeiro relatório honesto ENTREGUE
+
+Chegou no formato novo — CryptoXbot, 3 pares agregados, win rate "—"
+quando não há trades, saldo rotulado. O ciclo completo print-do-operador →
+conserto → entrega automática fechou em 24h.
+
+### P2-4 fechado com número (`44b7a40`)
+
+A "verificação pendente" pedia query no Supabase — obsoleta desde o
+local-only. Medido na produção real: schema pós-P1-3 ok, 5.355 sinais,
+**1 rotulado** vs piso de 200-500. Deferido sem atalho: no ritmo do paper,
+o piso está a anos; só re-medir quando o funil mudar de estado. **Com isso
+o backlog de engenharia do plano de modernização zerou.**
+
+### A régua virada para dentro (`61220ba`)
+
+Scorecard de todos os módulos: 10 auditores paralelos, 234 leituras de
+código real, 4 lentes. **Engenharia em paper: ≈7.7/10** (resolução ±1) —
+régua explicitamente distinta da de capital real, onde o Portão 1 (edge)
+segue FAIL e nada mudou. Os quatro vermelhos: freio de drawdown "total"
+que **não acumula entre dias** (o cenário motivador do I-8 não trava),
+lstm_modelo com rótulo pré-E-10 e zero testes, CVD provadamente inerte
+(honesto: pré-registrado), fear_greed fail-open fabricando 50. O
+instrumento ainda pegou um **teste vermelho mascarado por ordem de
+execução** (mock da função aposentada + debounce global de outro arquivo)
+— consertado no mesmo commit. Os dois piores achados viraram **sessões de
+trabalho paralelas**, iniciadas pelo operador no mesmo dia.
+
+### Estado
+
+| Indicador | Valor |
+|---|---|
+| Commits do dia | 3 (`dd96e3a` alertas · `44b7a40` P2-4 · `61220ba` scorecard) — CI verde em todos |
+| Suíte | completa verde (exit 0) pós-conserto do teste mascarado |
+| Scorecard engenharia | ≈7.7/10 · capital real: inalterado (gate FAIL) |
+| Coleta E-11 | **147/300 barras** — medição ~25-26/08 |
+| Telegram | honesto e entregue (18h de hoje foi a prova viva) |
+| Em obra paralela | freio de drawdown acumulado · lstm rótulo E-10 |
+| Capital real | **PROIBIDO pelo gate** — inalterado |
+
+A doutrina completou o circuito: banco → API → transporte → tela → alerta
+→ e agora a régua apontada para o próprio código, com os achados virando
+obra no mesmo dia. O funil segue sendo o único caminho ao real.
+
+*Gerado sobre: commit `61220ba`, CI 3/3 verde, serviços RUNNING (worker
+24656 · dashboard 24400 · book 4524), duas sessões paralelas em curso.*
