@@ -78,7 +78,14 @@ class TestEscalada:
         monkeypatch.setattr(
             main.database, "salvar_bot_event", lambda t, m, **k: ev.append((t, k.get("severity")))
         )
-        monkeypatch.setattr(main.telegram_bot, "alerta_circuit_breaker", lambda *a, **k: None)
+        # Mockar as funcoes ATUAIS do caminho de WS (2026-08-19). O mock antigo
+        # silenciava a aposentada alerta_circuit_breaker e a nova rodava de
+        # verdade: _enviar falhava (token placeholder) e _registrar_falha_de_
+        # entrega gravava um SEGUNDO bot_event — que o debounce global escondia
+        # quando a suite inteira rodava (ordem-dependencia real, pega em
+        # execucao isolada do arquivo).
+        monkeypatch.setattr(main.telegram_bot, "alerta_ws_indisponivel", lambda *a, **k: True)
+        monkeypatch.setattr(main.telegram_bot, "alerta_ws_recuperado", lambda *a, **k: True)
         monkeypatch.setattr(main.logger, "critical", lambda *a, **k: None)
         return ev
 
@@ -115,7 +122,7 @@ class TestEscalada:
             raise RuntimeError("telegram fora")
 
         monkeypatch.setattr(main.database, "salvar_bot_event", explode)
-        monkeypatch.setattr(main.telegram_bot, "alerta_circuit_breaker", explode)
+        monkeypatch.setattr(main.telegram_bot, "alerta_ws_indisponivel", explode)
         monkeypatch.setattr(main.logger, "critical", lambda *a, **k: None)
         main._ws_escalar_se_persistente("WS", main.WS_FALHAS_PARA_ESCALAR, "e")  # não levanta
 
