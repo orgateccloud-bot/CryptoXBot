@@ -103,25 +103,24 @@ piloto. Não havia nenhum número documentado no projeto antes desta rodada
 (só um `if len(sinais_rows) < 10` em `risco.kelly_do_banco()`, que é outro
 propósito — fallback de sizing, não meta-labeling).
 
-**Achado da auditoria 2026-07-22**: o SQLite local (`data/btc_data.db`)
-está órfão — schema anterior ao P1-3 (nem tem as colunas `preco_saida`/
-`pnl_usdt`/`pnl_pct`/`barreira_tocada`), 262 sinais todos com
-`executado=0`. A base real de produção é **Supabase** (Postgres), não
-verificável a partir deste ambiente (sem credenciais). Antes de decidir
-implementar ou não o P2-4:
+**Achado da auditoria 2026-07-22** *(superado — mantido por histórico)*: o
+SQLite local parecia órfão (schema pré-P1-3, 262 sinais `executado=0`) e a
+"base real" seria o Supabase, não verificável daqui. **A decisão local-only
+de 2026-08-13 inverteu isso**: o SQLite (WAL) local É a produção; Supabase
+virou opção dormente. A verificação deixou de exigir ação externa.
 
-1. Confirmar que a migration `supabase/migrations/002_meta_labeling_columns.sql`
-   já foi aplicada no Supabase de produção (só é automática se o schema foi
-   criado depois de 2026-07-13).
-2. Rodar diretamente no Supabase de produção:
-   ```sql
-   SELECT barreira_tocada, COUNT(*), SUM((pnl_usdt>0)::int) AS ganhos
-   FROM sinais WHERE executado=true AND pnl_usdt IS NOT NULL
-   GROUP BY barreira_tocada;
-   ```
-3. Comparar o total contra o piso de ~200–500. Se abaixo, deferir de novo
-   (acumular mais histórico); se acima, P2-4 vira candidato real para a
-   próxima rodada.
+**Verificação FEITA (2026-08-19, leitura read-only da produção local)**:
+
+- Schema pós-P1-3 confirmado (`preco_saida`/`pnl_usdt`/`pnl_pct`/
+  `barreira_tocada` presentes) — a instrumentação está pronta e correta.
+- `sinais`: 5.355 gerados, **1 rotulado** (`executado=1` com `pnl_usdt`):
+  STOP, PnL positivo (o trade de $0.17 de 2026-08).
+- Veredito contra o piso de ~200–500: **1/200 — deferido de novo**, e sem
+  atalho honesto: no ritmo do paper atual (~1 trade/mês), o piso está a
+  anos. O P2-4 só vira candidato real se a cadência de trades subir por
+  outra razão legítima (ex.: uma família do funil sobreviver e operar
+  micro-capital). Re-medir com a mesma query desta seção quando o funil
+  mudar de estado — nunca implementar antes por especulação.
 
 **Nota lateral**, fora do escopo de P2-4 mas relevante para interpretar
 qualquer `pnl_usdt` real encontrado: o serviço ao vivo (NSSM/systemd) inicia
