@@ -110,6 +110,17 @@ _estado_risco = {
     "travado": False,
     "motivo_travamento": "",
     "travado_em": None,
+    # ── Scorecard 2026-08-19, achado #1: marca d'água de equity ──
+    # A 1ª versão do freio "total" (I-8) comparava pnl_dia — que
+    # _resetar_se_novo_dia zera à meia-noite — contra capital_inicio_dia, nunca
+    # rebaseado: na prática era um SEGUNDO gate intradiário, e o cenário
+    # motivador do próprio I-8 (5 dias de −4,9% = −22% de equity) continuava
+    # sem travar nada. Estas duas chaves acumulam ENTRE dias: a virada de dia
+    # não as toca, e ambas viajam em risk_state (sobrevivem a restart). O
+    # drawdown total passa a ser medido do PICO (marca d'água), não do capital
+    # de um dia arbitrário.
+    "equity_atual": None,
+    "equity_pico": None,
 }
 
 # Frase exata exigida por destravar(): impede que um `destravar()` acidental
@@ -165,6 +176,9 @@ def _resetar_se_novo_dia():
         # E NAO reseta `travado`: a trava permanente sobrevive a virada de dia
         # por desenho. Era exatamente esse reset que permitia perder 5% por dia
         # indefinidamente com o bot religando sozinho toda meia-noite.
+        # E NAO reseta equity_atual/equity_pico: e essa imunidade a virada que
+        # faz o freio de MAX_DRAWDOWN_TOTAL ser de fato acumulado (scorecard
+        # 2026-08-19, achado #1) em vez de um segundo gate intradiario.
         persistir_estado()
 
 
@@ -251,37 +265,82 @@ def esta_travado() -> tuple[bool, str]:
     return bool(_estado_risco.get("travado")), _estado_risco.get("motivo_travamento", "")
 
 
-def _verificar_drawdown_acumulado() -> None:
-    """Compara a perda ACUMULADA contra MAX_DRAWDOWN_TOTAL e trava.
+def _atualizar_equity(pnl_usdt: float) -> None:
+    """Aplica o delta de um trade fechado a equity acumulada e eleva a marca
+    d'agua (scorecard 2026-08-19, achado #1).
 
-    MAX_DRAWDOWN_TOTAL existia desde sempre com o comentario "desliga o bot ate
-    revisao manual" e era lido em exatamente UM lugar: o payload de display de
-    status(). Nunca foi comparado com nada. Este e o freio que o comentario
-    prometia.
-
-    Base de comparacao: capital_inicio_dia como proxy de equity inicial. E
-    imperfeito (ver I-5/E-8: hoje ele pode carregar o fallback fabricado), mas
-    travar sobre proxy imperfeito e melhor que nao travar -- e a direcao do erro
-    e conservadora, porque um capital subestimado trava MAIS cedo.
+    Primeira chamada (boot inicial, ou risk_state persistido pela versao
+    intradiaria, que nao tem as chaves): ancora em capital_inicio_dia +
+    pnl_dia. O pnl_dia de HOJE ja inclui o delta recem-somado por
+    registrar_resultado, entao o seed NAO soma o delta de novo. O pico semeia
+    em max(capital, equity) para uma perda de hoje ja contar como drawdown.
+    Sem capital conhecido nao ha ancora possivel: retorna sem efeito (mesma
+    guarda da versao intradiaria — ver I-5/E-8 sobre o proxy imperfeito;
+    travar sobre proxy imperfeito segue melhor que nao travar).
     """
-    cap = _estado_risco.get("capital_inicio_dia")
-    if not cap or cap <= 0:
+    if _estado_risco.get("equity_atual") is None:
+        cap = _estado_risco.get("capital_inicio_dia")
+        if not cap or cap <= 0:
+            return
+        atual = float(cap) + float(_estado_risco.get("pnl_dia") or 0.0)
+        _estado_risco["equity_atual"] = atual
+        _estado_risco["equity_pico"] = max(float(cap), atual)
         return
-    pnl = _estado_risco.get("pnl_dia") or 0.0
-    if pnl >= 0:
-        return
-    dd = abs(pnl) / cap
+    _estado_risco["equity_atual"] += pnl_usdt
+    pico = _estado_risco.get("equity_pico")
+    if pico is None or _estado_risco["equity_atual"] > pico:
+        _estado_risco["equity_pico"] = _estado_risco["equity_atual"]
+
+
+def _drawdown_total_atual() -> float:
+    """Fracao (0.0–1.0) da equity abaixo da marca d'agua. 0.0 sem base
+    conhecida (equity ainda nao semeada) — nunca divide por zero."""
+    pico = _estado_risco.get("equity_pico")
+    atual = _estado_risco.get("equity_atual")
+    if not pico or pico <= 0 or atual is None:
+        return 0.0
+    return max(0.0, (float(pico) - float(atual)) / float(pico))
+
+
+def _verificar_drawdown_acumulado() -> None:
+    """Compara a perda ACUMULADA (da marca d'agua de equity) contra
+    MAX_DRAWDOWN_TOTAL e trava.
+
+    Historico em duas camadas:
+    - I-8 criou este freio: MAX_DRAWDOWN_TOTAL existia desde sempre com o
+      comentario "desliga o bot ate revisao manual" e era lido em exatamente
+      UM lugar, o payload de display de status(). Nunca fora comparado com
+      nada.
+    - Scorecard 2026-08-19 (achado #1) mediu que a 1ª versao comparava
+      pnl_dia (zerado a meia-noite) contra capital_inicio_dia (nunca
+      rebaseado): o freio "total" era na pratica intradiario, e 5 dias de
+      −4,9% (−22% de equity) — o cenario motivador do I-8 — passavam.
+
+    Agora: dd = (equity_pico − equity_atual) / equity_pico, com as duas chaves
+    persistidas em risk_state e imunes a virada de dia. Estado legado (sem as
+    chaves) e semeado aqui de capital_inicio_dia + pnl_dia — no primeiro dia
+    isso reproduz exatamente a conta antiga; dai em diante, acumula.
+    """
+    if _estado_risco.get("equity_atual") is None:
+        _atualizar_equity(0.0)  # seed de estado legado; sem capital, fica None
+    dd = _drawdown_total_atual()
     if dd >= MAX_DRAWDOWN_TOTAL:
+        atual = _estado_risco["equity_atual"]
+        pico = _estado_risco["equity_pico"]
         travar(
             f"drawdown acumulado de {dd*100:.1f}% atingiu o limite de "
-            f"{MAX_DRAWDOWN_TOTAL*100:.0f}% (perda {pnl:.2f} USDT sobre capital {cap:.2f})"
+            f"{MAX_DRAWDOWN_TOTAL*100:.0f}% (equity {atual:.2f} USDT vs pico "
+            f"{pico:.2f})"
         )
 
 
-def registrar_resultado(pnl_usdt):
+def registrar_resultado(pnl_usdt: float) -> None:
     """Registra resultado de um trade fechado."""
     _resetar_se_novo_dia()
     _estado_risco["pnl_dia"] += pnl_usdt
+    # Scorecard 2026-08-19 #1: a equity acumulada anda junto com o pnl do dia,
+    # mas NUNCA e zerada pela virada — e ela que o freio total compara.
+    _atualizar_equity(pnl_usdt)
     persistir_estado()
     # I-8: o freio de perda ACUMULADA e avaliado aqui, no unico ponto por onde
     # toda perda passa. Antes MAX_DRAWDOWN_TOTAL nunca era comparado com nada.
@@ -984,6 +1043,9 @@ def status_leve() -> dict:
     return {
         "pnl_dia": round(_estado_risco["pnl_dia"], 2),
         "drawdown_dia_%": round(dd_dia, 2),
+        # Scorecard 2026-08-19 #1: o acumulado (da marca d'agua) exposto ao
+        # lado do diario — 0.0 enquanto a equity nao foi semeada.
+        "drawdown_total_%": round(_drawdown_total_atual() * 100, 2),
         "bloqueado": _estado_risco["bloqueado"],
     }
 
@@ -1000,6 +1062,7 @@ def status():
         "saldo_btc": round(saldo_btc, 8),
         "pnl_dia": leve["pnl_dia"],
         "drawdown_dia_%": leve["drawdown_dia_%"],
+        "drawdown_total_%": leve["drawdown_total_%"],
         "volatilidade_%": round(vol * 100, 2),
         "bloqueado": leve["bloqueado"],
         "motivo_bloqueio": _estado_risco["motivo_bloqueio"],

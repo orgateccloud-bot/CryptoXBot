@@ -28,6 +28,7 @@ corresponde a um defeito que a auditoria de 2026-08-06 mediu no código:
    precedência sobre o default SPOT, mascarado por duas linhas do `.env`.
 """
 
+import json
 import os
 import sys
 from datetime import date, timedelta
@@ -61,6 +62,10 @@ def _estado_limpo(monkeypatch):
             "data_dia": str(date.today()),
             "posicoes_abertas": 0,
             "circuit_breaker_ativo": False,
+            # Marca d'agua de equity (scorecard 2026-08-19 #1): None = estado
+            # nao semeado, como num boot limpo — cada teste parte do zero.
+            "equity_atual": None,
+            "equity_pico": None,
         }
     )
     yield
@@ -191,6 +196,119 @@ class TestDrawdownAcumulado:
         risco._estado_risco["data_dia"] = str(date.today() - timedelta(days=1))
         risco._resetar_se_novo_dia()
         assert risco.esta_travado()[0] is True
+
+
+# ── (c2) drawdown acumulado ENTRE dias (scorecard 2026-08-19, achado #1) ──
+# A 1ª versão do freio comparava pnl_dia (zerado à meia-noite) contra
+# capital_inicio_dia: o gate "total" era intradiário, e nenhum teste da classe
+# acima cruzava uma virada de dia. Estes cruzam — várias.
+
+
+class TestDrawdownAcumuladoEntreDias:
+    def _virar_dia(self) -> None:
+        """Simula a meia-noite: backdata data_dia e roda o reset diário REAL
+        (o mesmo que zerava o freio antigo)."""
+        risco._estado_risco["data_dia"] = str(date.today() - timedelta(days=1))
+        risco._resetar_se_novo_dia()
+
+    def test_cenario_motivador_do_i8_trava_no_acumulado(self):
+        """O cenário que batizou o I-8: −4,9% ao dia, cada dia passando folgado
+        no gate diário de 5%. Composto, rompe 15% do pico no 4º dia
+        (0,951⁴ = −18,2%) — e a trava permanente TEM de armar aí, não nunca."""
+        equity = 1000.0
+        travou_no_dia = None
+        for dia in range(1, 6):
+            risco.registrar_resultado(-0.049 * equity)
+            equity *= 1 - 0.049
+            assert risco._estado_risco["equity_atual"] == pytest.approx(equity)
+            if risco.esta_travado()[0]:
+                travou_no_dia = dia
+                break
+            self._virar_dia()
+            assert risco._estado_risco["pnl_dia"] == 0.0, "reset diario sumiu"
+        assert travou_no_dia == 4, (
+            f"acumulado de 5 dias de -4,9% tinha de travar no dia 4 "
+            f"(18,2% do pico); travou em: {travou_no_dia}"
+        )
+        assert "drawdown acumulado" in risco.esta_travado()[1]
+        # Fim a fim: o gate 0 de validar_trade responde à trava acumulada.
+        r = risco.validar_trade("COMPRA", 64000.0, 1000.0)
+        assert r["pode"] is False
+        assert "TRAVADO" in r["motivo"]
+
+    def test_perdas_parciais_consecutivas_abaixo_do_limiar_nao_travam(self):
+        """Contrapeso: 3 dias de −4% (−12% acumulado) NÃO podem travar — e a
+        virada de dia segue zerando pnl_dia sem tocar na equity acumulada."""
+        for _ in range(3):
+            risco.registrar_resultado(-40.0)
+            assert risco.esta_travado()[0] is False
+            self._virar_dia()
+            assert risco._estado_risco["pnl_dia"] == 0.0
+        assert risco._estado_risco["equity_atual"] == pytest.approx(880.0)
+        assert risco._estado_risco["equity_pico"] == pytest.approx(1000.0)
+        assert risco.esta_travado()[0] is False
+
+    def test_limiar_exato_atingido_entre_dias_trava(self):
+        """3 × −50 sobre pico de 1000 = exatamente 15%: o limiar é inclusivo
+        (>=), mesma semântica da versão intradiária original."""
+        risco.registrar_resultado(-50.0)
+        self._virar_dia()
+        risco.registrar_resultado(-50.0)
+        self._virar_dia()
+        assert risco.esta_travado()[0] is False, "14 pontos nao podiam travar"
+        risco.registrar_resultado(-50.0)
+        assert risco.esta_travado()[0] is True
+
+    def test_lucro_rebaseia_a_marca_dagua_para_cima(self):
+        """O drawdown mede do PICO, não do capital inicial: depois de a equity
+        fazer topo em 1100, perder 14,5% do pico não trava; 15,9% trava —
+        ainda que ambos estejam 'só' 6–16% abaixo dos 1000 iniciais."""
+        risco.registrar_resultado(-100.0)  # equity 900, pico 1000
+        self._virar_dia()
+        risco.registrar_resultado(+200.0)  # equity 1100 -> pico rebaseia
+        assert risco._estado_risco["equity_pico"] == pytest.approx(1100.0)
+        self._virar_dia()
+        risco.registrar_resultado(-160.0)  # 940; dd = 160/1100 = 14,55%
+        assert risco.esta_travado()[0] is False
+        self._virar_dia()
+        risco.registrar_resultado(-15.0)  # 925; dd = 175/1100 = 15,91%
+        assert risco.esta_travado()[0] is True
+
+    def test_marca_dagua_sobrevive_a_restart(self):
+        """Reproduz o round-trip exato da persistência (json.dumps → loads →
+        dict.update, como salvar_risk_state/_carregar_estado_persistido): a
+        perda acumulada ANTES do restart conta para a trava DEPOIS dele."""
+        risco.registrar_resultado(-70.0)
+        self._virar_dia()
+        risco.registrar_resultado(-50.0)  # acumulado: 880 / pico 1000 = -12%
+        assert risco.esta_travado()[0] is False
+        salvo = json.loads(json.dumps(risco._estado_risco, default=str))
+
+        # "Morte" do processo: memória volta aos defaults de boot.
+        risco._estado_risco.update(
+            {
+                "equity_atual": None,
+                "equity_pico": None,
+                "pnl_dia": 0.0,
+                "capital_inicio_dia": None,
+                "data_dia": None,
+            }
+        )
+        # Boot: _carregar_estado_persistido faz exatamente update(salvo).
+        risco._estado_risco.update(salvo)
+
+        risco.registrar_resultado(-40.0)  # 840 -> dd 16% do pico persistido
+        assert risco.esta_travado()[0] is True
+        assert "drawdown acumulado" in risco.esta_travado()[1]
+
+    def test_estado_legado_sem_marca_dagua_e_semeado_no_primeiro_registro(self):
+        """risk_state persistido pela versão intradiária não tem as chaves de
+        equity: o primeiro registrar_resultado ancora a marca d'água em
+        capital_inicio_dia e o pnl de hoje já conta (sem dupla contagem)."""
+        assert risco._estado_risco["equity_atual"] is None
+        risco.registrar_resultado(-30.0)
+        assert risco._estado_risco["equity_atual"] == pytest.approx(970.0)
+        assert risco._estado_risco["equity_pico"] == pytest.approx(1000.0)
 
 
 # ── (d) postura da chave no boot ──────────────────────────────

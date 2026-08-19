@@ -1303,6 +1303,7 @@ def loop_par(par, intervalo_min, simulacao):
                 leve = gestao_risco.status_leve()
                 health.set_gauge("pnl_dia", leve["pnl_dia"])
                 health.set_gauge("drawdown_dia_pct", leve["drawdown_dia_%"])
+                health.set_gauge("drawdown_total_pct", leve["drawdown_total_%"])
                 health.set_gauge("latencia_decisao_ms", (time.time() - t_inicio_ciclo) * 1000)
             except Exception:
                 pass
