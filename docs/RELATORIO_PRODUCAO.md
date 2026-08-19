@@ -519,3 +519,90 @@ SOBREVIVE do funil.
 
 *Gerado sobre: commit `225e756`, suíte 1.817/14, serviços worker/dashboard/
 book RUNNING, mesa armada com 7 comandos auditados.*
+
+## Diário — 2026-08-18 (v2.5): o dia em que a tela parou de mentir
+
+Seis commits, um tema só: a diferença entre o que o sistema SABE e o que a
+tela AFIRMA. Três mentiras de superfície morreram hoje — uma delas no ar
+desde o deploy do terminal.
+
+### O screenshot que valia mil textContent (`4319065`)
+
+"Mostra a mesa completa" expôs o constrangedor: o corpo do terminal estava
+**invisível em produção desde b9bcb93**. `ativarAba` setava `display=''`
+na seção ativa, devolvendo a decisão à regra CSS `.aba-secao{display:none}`.
+Toda verificação anterior lia `textContent` e APIs — cegas ao display
+COMPUTADO. O primeiro screenshot real da UI pegou a página em branco em
+10 segundos. Conserto de uma linha; a lição vale mais: **prova de UI é
+`getComputedStyle` + pixel, não texto no DOM.**
+
+### 401 nunca mais vira dado (`65eb901` + `87ded7a`)
+
+O operador abriu o modal "Conexão — Binance" numa aba sem token e leu:
+timeout nos dois REST, chave "Não configurada", DRY RUN "Desativado" EM
+VERDE. Tudo falso — era o corpo `{"erro"}` do 401 pintado como diagnóstico.
+A varredura ultracode (22 call sites) achou **mais 8 renderizadores
+mentindo**: `/api/risco` imprimia "OPERANDO/OK" sem leitura, `/api/lucro`
+"+$0,00", o Quant Lab atestava "nenhum alerta de drift", e dois caches
+envenenados adiavam a mentira. Conserto arquitetural, não pontual: o
+wrapper de fetch **rejeita a promise** em 401 (e não-2xx de GET — o 429 do
+próprio rate limiter também não é dado). Nenhum renderizador, atual ou
+futuro, volta a receber erro como medição; um chip único explica a trava e
+distingue **sem token** de **token recusado**. A revisão adversarial ainda
+pegou: a mesa ficava presa em "desarmada" após armar com histórico vazio
+(200-vazio agora limpa), e placeholders do template afirmando "+$0.00"/"0"
+antes de qualquer leitura (agora "—").
+
+### O relatório que voltou dos mortos — e mentiu com boas maneiras (`770566a`)
+
+18h em ponto: o primeiro relatório automático pós-ressurreição chegou ao
+celular. Vitória — com três vícios: "Win Rate: 0.0%" com 0 trades (0/0
+impresso como derrota total), "Saldo Atual: $0.00" (fonte que devolve 0.0
+tanto para conta zerada quanto para leitura falha), e a marca fantasma
+"BotBinance". E um furo de escopo: o relatório era só de `pares[0]` — um
+trade de ETH/SOL não contaria no "Trades: 0" rotulado como global. Agora:
+win rate `None` → "—", saldo via `binance_conta.saldo()` com "sem leitura"
+em erro, CryptoXbot com "Paper trading" declarado, e agregação dos 3 pares.
+
+### Hermeticidade: as 46 falhas que o CI nunca veria (`08b78e2`)
+
+Rodar a suíte com `DASHBOARD_TOKEN` no `.env` derrubava TODOS os testes de
+API por 401 — e o CI, sem `.env`, nunca saberia. O conftest da raiz agora
+fixa `DASHBOARD_TOKEN=""` antes de qualquer import. Suíte: **1.819 passed,
+14 skipped**.
+
+### Identidade (`9e22994`)
+
+Logo oficial do operador (robô cobre sobre o X, ₿ azul) no masthead e como
+favicon — que o terminal nunca teve. Os bytes vieram de onde ninguém
+procura: extraídos em base64 do transcript da própria sessão; fundo removido
+por flood-fill a partir das bordas. Exceção deliberada e comentada à
+doutrina "marca é tinta pura" — a cor de DADO segue exclusiva do verde/
+vermelho.
+
+### A mesa nas mãos de quem manda
+
+O operador armou a mesa no próprio navegador e operou sem intermediário:
+#8/#9 `retomar_bot`, #10 `testar_telegram` → **"entregue"**, #11
+`retreinar_ml` → ciclo completo medido em `model_metricas` (XGB BTC 0.624 ·
+ETH 0.609 · SOL 0.602 · MLP 0.577, 19:33–20:57). AUCs idênticos aos da
+manhã — treino determinístico sobre a mesma janela diária — e nenhum
+alerta de drift. 11 comandos na vida da mesa, todos com resposta auditada.
+
+### Estado
+
+| Indicador | Valor |
+|---|---|
+| Suíte | **1.819 passed, 14 skipped** |
+| Deploys de hoje | 6 commits, CI verde em todos |
+| Telegram | restaurado E honesto (próximo teste real: 19/08 18h) |
+| Mesa | 11 comandos auditados; operador autônomo |
+| Coleta E-11 | em curso — medição ~24-25/08 |
+| Capital real | **PROIBIDO pelo gate** — inalterado |
+
+A régua RAZÃO agora vale para o canal inteiro: banco, API, transporte e
+tela. Se um número aparece, foi medido; se não foi medido, aparece "—" com
+o motivo. O funil segue sendo o único caminho ao real.
+
+*Gerado sobre: commit `9e22994`, suíte 1.819/14, serviços worker (PID
+30348) / dashboard (PID 27120) RUNNING, mesa com 11 comandos auditados.*
