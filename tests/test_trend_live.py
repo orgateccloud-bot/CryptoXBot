@@ -251,6 +251,7 @@ class TestExecutorModoTrend:
         monkeypatch.setattr(ex.database, "marcar_sinal_executado", lambda *a, **k: None)
         monkeypatch.setattr(ex.gestao_risco, "get_saldo_usdt", lambda: 1000.0)
         monkeypatch.setattr(ex.gestao_risco, "incrementar_posicoes_abertas", lambda: None)
+        monkeypatch.setattr(ex.gestao_risco, "confirmar_slot_posicao", lambda symbol: None)
         monkeypatch.setattr(ex.gestao_risco, "persistir_estado", lambda: None)
 
         assert e.abrir_long(100.0, 0.01, 90.0, float("inf")) is True
@@ -270,6 +271,7 @@ class TestExecutorModoTrend:
         monkeypatch.setattr(ex.database, "marcar_sinal_executado", lambda *a, **k: None)
         monkeypatch.setattr(ex.gestao_risco, "get_saldo_usdt", lambda: 1000.0)
         monkeypatch.setattr(ex.gestao_risco, "incrementar_posicoes_abertas", lambda: None)
+        monkeypatch.setattr(ex.gestao_risco, "confirmar_slot_posicao", lambda symbol: None)
         monkeypatch.setattr(ex.gestao_risco, "persistir_estado", lambda: None)
 
         e.abrir_long(100.0, 0.01, 90.0, 103.0)

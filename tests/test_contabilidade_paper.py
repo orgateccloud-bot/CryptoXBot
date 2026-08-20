@@ -644,7 +644,11 @@ class TestPrecoFrescoNaOrdem:
             for linha in inspect.getsource(main.loop_par).splitlines()
             if not linha.strip().startswith("#")
         )
-        assert "exec_par.abrir_long(\n                        preco_mercado," in codigo
+        import re
+
+        # Robusto a indentação (o call ganhou try/finally do slot atômico em
+        # 2026-08-20): o que importa é a ordem sair com preco_mercado como 1º arg.
+        assert re.search(r"exec_par\.abrir_long\(\s*preco_mercado,", codigo)
 
     def test_sinal_velho_e_descartado_nao_escalado(self):
         """Se o mercado andou mais que stop_pct durante o TTL de 30s, o trio fica

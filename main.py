@@ -1147,7 +1147,17 @@ def _trend_abrir(par, exec_par, r, t0=None):
     except Exception as exc:
         print(f"\033[93m[{par}][TREND] Falha ao registrar sinal: {exc}\033[0m")
 
-    if exec_par.abrir_long(preco, tamanho, stop, float("inf"), sinal_id=sinal_id):
+    # Slot atômico (2026-08-20) — mesmo contrato do caminho otimizada.
+    if not gestao_risco.adquirir_slot_posicao(par):
+        print(f"\033[93m[{par}][TREND][RISCO] Slot de posição tomado por outro par.\033[0m")
+        return
+    aberto = False
+    try:
+        aberto = exec_par.abrir_long(preco, tamanho, stop, float("inf"), sinal_id=sinal_id)
+    finally:
+        if not aberto:
+            gestao_risco.liberar_slot_posicao(par)
+    if aberto:
         # preco (fresco, lido acima) e o preco de mercado; r["preco_ref"] e o
         # close do candle fechado em que a estrategia decidiu.
         _registrar_execucao(par, "trend", r["preco_ref"], preco, exec_par, t0, tamanho)
@@ -1453,14 +1463,30 @@ def loop_par(par, intervalo_min, simulacao):
                         )
                         continue
 
-                    if exec_par.abrir_long(
-                        preco_mercado,
-                        parcela,
-                        stop,
-                        target,
-                        atr_relativo=atr_relativo,
-                        sinal_id=resultado.get("sinal_id"),
-                    ):
+                    # Slot atômico (2026-08-20): sem isto, 3 sinais simultâneos
+                    # abriram 3 posições com MAX=1 no 1º ciclo destravado — o
+                    # gate 5 lia o contador sem lock e o incremento só vinha no
+                    # fim do abrir_long.
+                    if not gestao_risco.adquirir_slot_posicao(par):
+                        print(
+                            f"\033[93m[{par}][RISCO] Slot de posição tomado por "
+                            f"outro par neste instante — entrada descartada.\033[0m"
+                        )
+                        continue
+                    aberto = False
+                    try:
+                        aberto = exec_par.abrir_long(
+                            preco_mercado,
+                            parcela,
+                            stop,
+                            target,
+                            atr_relativo=atr_relativo,
+                            sinal_id=resultado.get("sinal_id"),
+                        )
+                    finally:
+                        if not aberto:
+                            gestao_risco.liberar_slot_posicao(par)
+                    if aberto:
                         _registrar_execucao(
                             par,
                             "otimizada",

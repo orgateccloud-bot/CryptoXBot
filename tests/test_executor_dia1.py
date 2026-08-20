@@ -55,6 +55,9 @@ class _RiscoFake:
     def incrementar_posicoes_abertas(self):
         self.posicoes_abertas += 1
 
+    def confirmar_slot_posicao(self, symbol):
+        self.posicoes_abertas += 1
+
     def decrementar_posicoes_abertas(self):
         self.posicoes_abertas = max(0, self.posicoes_abertas - 1)
 

@@ -143,6 +143,49 @@ def decrementar_posicoes_abertas():
         _estado_risco["posicoes_abertas"] = max(0, _estado_risco["posicoes_abertas"] - 1)
 
 
+# ── Slot atômico de posição (2026-08-20) ──────────────────────
+# No PRIMEIRO ciclo com saldo destravado e 3 sinais simultâneos, as 3 threads
+# de par leram `posicoes_abertas == 0` no mesmo milissegundo no gate 5, todas
+# passaram e abriram 3 posições com MAX_POSICOES_ABERTAS=1 (medido em
+# produção: as 3 chaves posicao:* gravadas em risk_state às 10:01:23, 13ms de
+# janela). O gate checava SEM lock e o incremento só acontecia no fim do
+# abrir_long — check-then-act clássico. O conserto: o chamador RESERVA a vaga
+# atomicamente entre a validação e a abertura (adquirir), o executor converte
+# a reserva em posição contada no sucesso (confirmar), e quem falhar em abrir
+# devolve a vaga (liberar). O gate 5 passa a enxergar reservas alheias.
+
+_slots_reservados: set[str] = set()
+
+
+def adquirir_slot_posicao(symbol: str) -> bool:
+    """Reserva atômica da vaga de posição. True = pode abrir; False = outra
+    thread/par já ocupou (posição contada OU reserva pendente). Idempotente
+    para o mesmo symbol."""
+    with _lock_posicoes:
+        if symbol in _slots_reservados:
+            return True
+        ocupados = _estado_risco["posicoes_abertas"] + len(_slots_reservados)
+        if ocupados >= MAX_POSICOES_ABERTAS:
+            return False
+        _slots_reservados.add(symbol)
+        return True
+
+
+def liberar_slot_posicao(symbol: str) -> None:
+    """Devolve uma reserva não concretizada (abertura falhou/descartada)."""
+    with _lock_posicoes:
+        _slots_reservados.discard(symbol)
+
+
+def confirmar_slot_posicao(symbol: str) -> None:
+    """Abertura concluída: a reserva vira posição contada, atomicamente.
+    Sem reserva prévia é um incremento puro (compatível com quem chama
+    abrir_long direto, como os testes do executor)."""
+    with _lock_posicoes:
+        _slots_reservados.discard(symbol)
+        _estado_risco["posicoes_abertas"] += 1
+
+
 def _carregar_estado_persistido():
     global _estado_carregado
     if _estado_carregado:
@@ -943,8 +986,15 @@ def validar_trade(
         return {"pode": False, "motivo": motivo, "tamanho_btc": 0}
     _estado_risco["circuit_breaker_ativo"] = False
 
-    # 5. Posições abertas?
-    if _estado_risco["posicoes_abertas"] >= MAX_POSICOES_ABERTAS:
+    # 5. Posições abertas? Conta também as RESERVAS pendentes de outros pares
+    # (a própria, se houver, não bloqueia — é a re-validação do executor em
+    # modo real). Fast-fail informativo: a atomicidade de verdade vive em
+    # adquirir_slot_posicao(), que o chamador usa entre validar e abrir.
+    with _lock_posicoes:
+        ocupados = _estado_risco["posicoes_abertas"] + len(
+            [s for s in _slots_reservados if s != symbol]
+        )
+    if ocupados >= MAX_POSICOES_ABERTAS:
         return {
             "pode": False,
             "motivo": "Posicao ja aberta — aguardar fechamento",

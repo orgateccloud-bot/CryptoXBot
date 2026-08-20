@@ -78,6 +78,9 @@ class _RiscoInerte:
     def incrementar_posicoes_abertas(self):
         pass
 
+    def confirmar_slot_posicao(self, symbol):
+        pass
+
     def decrementar_posicoes_abertas(self):
         pass
 

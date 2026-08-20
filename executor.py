@@ -1237,7 +1237,9 @@ class Executor:
         except Exception as e:
             print(f"[EXEC] AVISO: falha ao registrar entrada em log_trades: {e}")
 
-        gestao_risco.incrementar_posicoes_abertas()
+        # Converte a reserva do slot (adquirida pelo main entre validar e
+        # abrir) em posição contada — atômico; sem reserva é incremento puro.
+        gestao_risco.confirmar_slot_posicao(self.symbol)
         gestao_risco.persistir_estado()
         print(
             f"[EXEC] LONG aberto @ ${preco_exec:,.2f} | "

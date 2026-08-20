@@ -112,6 +112,9 @@ def gestao_risco_mock(monkeypatch):
         def incrementar_posicoes_abertas(self):
             self._estado_risco["posicoes_abertas"] += 1
 
+        def confirmar_slot_posicao(self, symbol):
+            self._estado_risco["posicoes_abertas"] += 1
+
         def decrementar_posicoes_abertas(self):
             self._estado_risco["posicoes_abertas"] = max(
                 0, self._estado_risco["posicoes_abertas"] - 1
