@@ -53,13 +53,13 @@ Bloqueantes para ignição (independentes do gate científico):
 
 | # | Pendência | Estado |
 |---|---|---|
-| 1 | Freio de drawdown "total" não acumula entre dias | **EM OBRA** (sessão paralela iniciada 19/08) |
+| 1 | Freio de drawdown "total" não acumula entre dias | ✅ **RESOLVIDO** (`007b86c`, 20/08 — marca d'água de equity em risk_state, sobrevive a restart) |
 | 2 | Cancel ignorado no laço maker-first (re-quote pode deixar 2 LIMIT_MAKER vivas; fill entre poll e cancel some) | aberto, sem teste |
 | 3 | `RECONCILIAR_BOOT_EXCHANGE` dormente (22 testes, 0 execuções) | ligar após drill (§4) |
 | 4 | Caminho real do OCO/maker nunca executado fora de mock | drill testnet (§4) |
 | 5 | Kill-switch: `persistir_estado()` engole erro — trava pode ficar só em memória | aberto |
 | 6 | `fear_greed` fail-open (falha vira 50 e desliga vetos de sentimento) | aberto |
-| 7 | lstm_modelo rótulo pré-E-10 | **EM OBRA** (sessão paralela) |
+| 7 | lstm_modelo rótulo pré-E-10 | ✅ **RESOLVIDO** (`a6d33f1`, 20/08 — barreira tripla + contexto 300 + primeira suíte; quebra de série em model_metricas no próximo retreino, documentada) |
 
 Recomendação: nenhuma ignição com a coluna "aberto" não-vazia.
 
